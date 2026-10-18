@@ -125,6 +125,8 @@ int ui_list_visible_rows(int top, int bottom, int row_height);
 int ui_text_effective_px(int px);
 /// 灰阶值映射到16级，不改变原始明暗关系。/ Quantize to 16 gray levels without altering contrast.
 uint8_t ui_gray_level(uint8_t gray);
+/// 将刚绘制的底图临时淡化，保留白底；支持所有屏幕方向。/ Fade freshly drawn backdrop ink toward white in every display rotation.
+void ui_fade_region(uint8_t *framebuffer,EpdRect region,uint8_t darkest_gray);
 void ui_text(
     uint8_t* framebuffer, int x, int y_top, int px, const char* text,
     enum EpdFontFlags align, bool inverted

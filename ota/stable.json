@@ -4,5 +4,10 @@
   "project": "Read_Pico_IF",
   "layout": "if-16m-ota-v1",
   "channel": "stable",
-  "available": false
+  "available": true,
+  "version": "0.1.1",
+  "size": 3558144,
+  "sha256": "32ac79f7500fe478d506775c47f5db06819bdcb3c3993fca9e72a95a2802152d",
+  "asset_id": "646896730",
+  "blob_sha": "110a068fe7656a25296b3195795491c8c83a93e1"
 }

@@ -11,8 +11,11 @@
 #include "settings.h"
 #include "ttf_font.h"
 #include "ui_kit.h"
+#include "book/content_library.h"
 
 static bool s_reading;
+static bool s_document;
+void app_font_set_document_mode(bool document){s_document=document;}
 
 static const char* bundled_path(char path[TTF_FONT_PATH_MAX]) {
     struct stat st;
@@ -54,7 +57,8 @@ bool app_font_activate_system(void) {
 
 bool app_font_activate_reading(void) {
     s_reading = true;
-    const char* saved = app_settings_font_path();
+    const char* saved = s_document?content_markdown_font():app_settings_font_path();
+    if(!saved[0])saved=app_settings_font_path();
     char fallback[TTF_FONT_PATH_MAX];const char *path=saved;
     if(ttf_font_path_is_builtin(saved)){const char *bundled=bundled_path(fallback);path=bundled?bundled:TTF_FONT_BUILTIN;}
     bool changed = activate(path,false);

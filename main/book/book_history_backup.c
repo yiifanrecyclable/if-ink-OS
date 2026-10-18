@@ -56,6 +56,8 @@ static bool valid_record(unsigned ns, uint8_t type, const char *key, const uint8
     if (ns == 3) return book_key(key, 'f') && type == NVS_TYPE_U8 && len == 1 && data[0] <= 1;
     if (ns == 4) return book_key(key, 't') && type == NVS_TYPE_BLOB && len >= 4;
     if(ns==6){
+        if(!strcmp(key,"md_font"))return type==NVS_TYPE_STR&&len<=CONTENT_MARKDOWN_FONT_BYTES&&
+            data[len-1]==0&&strnlen((const char *)data,len)==len-1&&content_markdown_font_valid((const char *)data);
         if(!strcmp(key,"md_sizes"))return type==NVS_TYPE_BLOB&&len==4&&content_markdown_sizes_valid(data);
         if(!strcmp(key,"quote_align"))return type==NVS_TYPE_U8&&len==1&&content_home_quote_alignment_valid(data[0]);
         if(!strcmp(key,"quote_px"))return type==NVS_TYPE_U8&&len==1&&content_home_quote_size_valid(data[0]);

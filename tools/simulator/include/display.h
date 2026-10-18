@@ -8,6 +8,7 @@ static inline int update_display_with(void *a,const void *b,int c){(void)a;(void
 static inline int update_display_full(void *a){(void)a;return 0;}
 static inline int update_display_fast_page(void *a){(void)a;return 0;}
 static inline int update_display_image_gray(void *a){(void)a;return 0;}
+static inline int update_display_home_clean(void *a){(void)a;return 0;}
 static inline int update_display_water_turn(void *a,EpdRect r,int dir){(void)a;(void)r;(void)dir;return 0;}
 static inline int update_display_area_diff_with(void *a,const void *b,int c,EpdRect d){(void)a;(void)b;(void)c;(void)d;return 0;}
 static inline int update_display_area_full_with(void *a,const void *b,int c,EpdRect d){(void)a;(void)b;(void)c;(void)d;return 0;}

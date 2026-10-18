@@ -69,3 +69,14 @@ python3 tools/test_if_simulator.py
 当前默认固件编译和宿主测试通过。首次真机验收发现Banner物理旋转缓存、输入基线和云端连接/版本复核失败；前两项有明确代码修复，云端与插件的新诊断仍需真实账户复测，不能以离线测试代替链路验收。Pico无线/TLS内存、SD断电恢复和灰阶显示仍需验收；程序分区余量较小，新增功能必须继续检查体积。本开发版尚未发布。
 
 English: Configure a dedicated Nutstore application password and an editable folder (default PicoBox). The desktop preview uses real read-only HTTPS and macOS Keychain; firmware uses its own WiFi/NVS configuration. Plugin 0.1.4 writes text-only original MD names directly with last-writer replacement and exact readback. Production C lists direct MD/EPUB/TXT, ignores legacy manifests without deleting them, and validates images/recoverable TF commits. Missing/weak validators require two matching body hashes. Host regressions and an ESP-IDF v6.1 defaults build are available; account and physical-device acceptance remain pending. Preserve matching dependency notices when distributing binaries.
+
+
+## 共用WiFi启动策略 / Shared WiFi startup
+
+WiFi传输、坚果云同步、在线升级和显式临时校时共用网络层。需要新建连接时先扫描附近网络，只从已保存的网络中选择认证方式兼容的候选，按信号由强到弱连接；同信号优先最近使用的网络。扫描匹配读取完整结果，不受设置页最多显示16个SSID限制。同名多AP合并为一个候选，使用最强信号。连接失败或断开后轮换候选，仍遵守一轮最多五次、连接阶段总计30秒的上限；扫描失败或没有可用候选时结束，不盲连历史第一项。
+
+在设置里点选某个网络（包括新输入密码）时，本次连接严格采用该网络；成功获得IP后，将该网络更新为最近使用。唤醒恢复联网会话时重新匹配环境。已在线的STA供其他功能复用，不因打开另一页面而扫描切网，热点模式不参与自动选择。连接错误后的下一次功能启动可以清理失败会话再重新扫描；上传尚未结束时拒绝清理。没有配置网络和附近没有已保存网络分别提示。
+
+网页模拟器不扫描或控制电脑的真实WiFi；自动选网、射频和跨环境效果以真机验收为准。可用 `python3 tools/test_wifi_autoconnect.py` 在无网络、无设备条件下复跑生产连接代码的边界故障测试。
+
+English: Network features share one startup path. Scan before connecting, match compatible saved profiles, rank by RSSI and recency, deduplicate APs, and rotate failed candidates within the existing five-attempt/30-second connection budget. Explicit choices apply to the requested startup; successful connections update history and sleep recovery scans again. Reuse online STA sessions, preserve AP mode and active uploads, and allow a failed idle session to restart. The browser never controls real WiFi; hardware acceptance is still required.

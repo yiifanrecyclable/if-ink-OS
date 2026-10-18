@@ -62,7 +62,9 @@ add("settings-25","状态栏日期格式","设置子页","settings-25")
 add("settings-26","自动休眠","设置子页","settings-26")
 
 add("reader-shortcuts","阅读快捷操作","阅读","book-1",mask=12)
+add("reader-binding","选择快捷操作","阅读","book-1",mask=13)
 add("reader-guide","阅读操作示例","阅读","book-1",mask=14)
+add("reader-basic","基础操作","阅读","book-1",mask=15)
 
 add("settings-27","固件信息","设置子页","settings-27")
 

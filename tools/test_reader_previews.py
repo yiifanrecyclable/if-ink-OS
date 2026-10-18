@@ -36,7 +36,8 @@ with tempfile.TemporaryDirectory(prefix='reader-previews-',dir=ROOT/'build') as 
     rh=state['reader_controls_geometry'][1]
     # 未松手时必须复用正文及两套字体；声明的区域覆盖所有像素改动。
     # Before release, reuse prose and both faces; the dirty hint must contain every pixel change.
-    for panel,y in ((1,py),(2,220+rh-40),(3,220+rh-40),(11,220+rh-40)):
+    md_y=state['markdown_slider_y']
+    for panel,y in ((1,py),(2,md_y[0]),(3,220+rh-40),(11,md_y[1]),(2,md_y[2]),(2,md_y[3])):
         events=';'.join(raw(kind,x,y) for kind,x in (('b',240),('v',300),('v',420),('v',500)))
         preview=frame(events,panel=panel)
         assert preview['reader_event_draws']==0,preview

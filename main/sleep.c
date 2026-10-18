@@ -9,6 +9,7 @@
  */
 
 #include "sleep.h"
+#include "time_service.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -293,6 +294,7 @@ app_wake_source_t app_light_sleep_wait(sc7a20h_handle_t acc) {
 }
 
 void app_enter_host_sleep(app_sleep_mode_t mode) {
+    app_time_service_stop();
     (void)app_sync_time_to_pmu();
     pmu_selftest_prepare_powerdown();
     if (mode == APP_SLEEP_OFF) {
@@ -332,6 +334,7 @@ esp_err_t app_sync_time_to_pmu(void) {
 }
 
 void app_restart_host(void) {
+    app_time_service_stop();
     (void)app_sync_time_to_pmu();
     pmu_selftest_prepare_powerdown();
     esp_err_t err = read_pico_pmu_action(PMU_ACTION_HOST_NORMAL_RESTART, 250, 0x5052);
@@ -346,6 +349,7 @@ void enter_lock_and_sleep(
 ) {
     // Refuse to interrupt an active upload. The caller repaints its page when
     // this function returns, and the user can lock again after the transfer.
+    app_time_service_stop();
     bool radio_paused = read_pico_transfer_pause_for_sleep();
     if (!radio_paused) {
         ESP_LOGW(TAG, "lock postponed while transfer is busy");

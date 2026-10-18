@@ -48,7 +48,7 @@ typedef int wifi_ps_type_t;
 #define WIFI_PS_NONE 0
 esp_err_t esp_wifi_get_ps(wifi_ps_type_t*);
 esp_err_t esp_wifi_set_ps(wifi_ps_type_t);
-typedef struct {int mode,state;bool network_ready;} read_pico_transfer_status_t;
+typedef struct {int mode,state;bool network_ready,wifi_configured;} read_pico_transfer_status_t;
 typedef struct {int mode;bool network_only;} read_pico_transfer_cfg_t;
 typedef struct {size_t bytes;} psa_hash_operation_t;
 void *heap_caps_malloc(size_t,int);
@@ -74,6 +74,7 @@ esp_err_t esp_ota_set_boot_partition(const esp_partition_t*);
 void read_pico_transfer_get_status(read_pico_transfer_status_t*);
 esp_err_t read_pico_transfer_get_saved_wifi(char*,bool*);
 void read_pico_transfer_stop(void);
+bool read_pico_transfer_try_stop_if_idle(void);
 esp_err_t read_pico_transfer_start(const read_pico_transfer_cfg_t*);
 void read_pico_transfer_service_poll(void);
 esp_err_t read_pico_transfer_sync_time_online(uint32_t*);

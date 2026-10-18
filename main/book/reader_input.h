@@ -18,12 +18,18 @@ typedef enum {
     READER_ACTION_REFRESH, READER_ACTION_COUNT
 } reader_action_t;
 enum { READER_STORED_SHORTCUT_COUNT = 12 };
+typedef enum { READER_TAP_COLUMNS, READER_TAP_ROWS } reader_tap_layout_t;
+typedef struct { int x,y,width,height; } reader_tap_region_t;
 typedef struct {
     uint8_t version, actions[READER_STORED_SHORTCUT_COUNT], hide_help;
 } reader_input_preferences_t;
 const char *reader_shortcut_name(unsigned slot);
 const char *reader_action_name(unsigned action);
 reader_action_t reader_input_action(unsigned slot);
+/// 旧预留槽保存基础区域，维持备份结构长度；v1默认三列。/ Version 2 uses a retired slot without changing backup length; v1 defaults to columns.
+reader_tap_layout_t reader_input_tap_layout(void);
+esp_err_t reader_input_set_tap_layout(reader_tap_layout_t layout);
+reader_tap_region_t reader_input_tap_region(reader_tap_layout_t layout,unsigned zone,int width,int height);
 esp_err_t reader_input_assign(unsigned slot, unsigned action);
 bool reader_input_preferences_valid(const reader_input_preferences_t *prefs);
 void reader_input_export(reader_input_preferences_t *prefs);

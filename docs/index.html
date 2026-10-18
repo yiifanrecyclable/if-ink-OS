@@ -8,36 +8,36 @@ body{max-width:760px;margin:40px auto;padding:0 20px;font:17px/1.7 system-ui,san
 </style>
 </head>
 <body>
-<h1>if-ink OS <small>v0.1.1</small></h1>
+<h1>if-ink OS <small>v0.1.2</small></h1>
 <p>支持 Markdown 文档的 Pico 固件。仅适用 <strong>Pico RDP-G01-W</strong>。</p>
 <p>EPUB / TXT / Markdown 阅读、坚果云同步、表格显示、日期格言首页与阅读控制面板。基于 Pico Reader rc83，选择性采用后续 rc88 / rc95 的阅读、刷新与存储改进。</p>
-<p><a href="https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.1.1">版本页面</a> · <a href="https://github.com/yiifanrecyclable/if-ink-OS/tree/v0.1.1">对应源码与构建说明</a> · <a href="if-ink-OS-v0.1.1-source.zip" download>源码 ZIP</a></p>
-<figure class="hero"><img src="./images/if-edition-home.png" width="1300" height="1800" alt="Pico 阅读器真机首页：日期格言、阅读记录与最近阅读（早期 IF 版本示意）" fetchpriority="high" decoding="async"><figcaption><small>真机首页示意，早期 IF 版本；当前界面以 v0.1.1 为准。</small></figcaption></figure>
+<p><a href="https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.1.2">版本页面</a> · <a href="https://github.com/yiifanrecyclable/if-ink-OS/tree/v0.1.2">对应源码与构建说明</a> · <a href="if-ink-OS-v0.1.2-source.zip" download>源码 ZIP</a></p>
+<figure class="hero"><img src="./images/if-edition-home.png" width="1300" height="1800" alt="Pico 阅读器真机首页：日期格言、阅读记录与最近阅读（早期 IF 版本示意）" fetchpriority="high" decoding="async"><figcaption><small>真机首页示意，早期 IF 版本；当前界面以 v0.1.2 为准。</small></figcaption></figure>
 <h2>首次安装：在线刷机</h2>
 <p>无需安装 Python 或刷机工具。首次从原系统迁移会重写分区表，请先备份重要数据。</p>
 <ol>
 <li>使用电脑 Chrome 或 Edge 打开本页。</li>
 <li>唤醒 Pico，通过 USB 数据线连接电脑，退出 USB 读卡模式并关闭其他占用串口的程序。</li>
 <li>点击连接按钮，选择 Pico 对应的串口，按提示确认安装。</li>
-<li>保持连接，等待写入、校验和重启，在“设置 → 固件信息”核对版本 <strong>0.1.1</strong>。</li>
+<li>保持连接，等待写入、校验和重启，在“设置 → 固件信息”核对版本 <strong>0.1.2</strong>。</li>
 </ol>
 <p id="flash-status" role="status" aria-live="polite">正在加载在线安装按钮…</p>
-<esp-web-install-button id="flash-installer" hidden manifest="./webflash/0.1.1/manifest.json"><button slot="activate" type="button">连接 Pico，安装固件</button></esp-web-install-button>
+<esp-web-install-button id="flash-installer" hidden manifest="./webflash/0.1.2/manifest.json"><button slot="activate" type="button">连接 Pico，安装固件</button></esp-web-install-button>
 <p><small>使用 <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>。安装器不执行整片擦除；不要额外添加擦除命令。</small></p>
 <h2>已有 IF / if-ink OS：TF 卡升级</h2>
 <ol>
 <li>下载下方 TF 升级包，完整关机后取卡。</li>
 <li>解压，将 <code>Pico-IF-update.bin</code> 复制到 TF 卡根目录，替换旧同名更新文件，安全弹出并插回设备。</li>
-<li>开机，进入“设置 → 固件信息 → 本地升级”，核对 <strong>0.1.1</strong> 后确认；旧 IF 系统中入口为“系统升级”。</li>
+<li>开机，进入“设置 → 固件信息 → 本地升级”，核对 <strong>0.1.2</strong> 后确认；旧 IF 系统中入口为“系统升级”。</li>
 </ol>
 <p>保持充足电量或 USB 供电。升级只写应用槽，不改分区。原系统的本地升级不接受 IF 镜像，首次请在线安装。</p>
 <h2>下载</h2>
 <ul>
-<li><a href="if-ink-OS-v0.1.1-tf.zip" download>TF 卡升级包</a> — 已有 IF / if-ink OS 使用。</li>
-<li><a href="if-ink-OS-v0.1.1-usb.zip" download>离线 USB 刷机包</a> — 本地四段固件及参数；手动写入需提前准备 Python / esptool。</li>
-<li><a href="if-ink-OS-v0.1.1-resources.zip" download>TF 字体与拼音词库</a> — 首次安装准备，已有资源无需重装。</li>
+<li><a href="if-ink-OS-v0.1.2-tf.zip" download>TF 卡升级包</a> — 已有 IF / if-ink OS 使用。</li>
+<li><a href="if-ink-OS-v0.1.2-usb.zip" download>离线 USB 刷机包</a> — 本地四段固件及参数；手动写入需提前准备 Python / esptool。</li>
+<li><a href="if-ink-OS-v0.1.2-resources.zip" download>TF 字体与拼音词库</a> — 首次安装准备，已有资源无需重装。</li>
 <li><a href="表格阅读示例.md" download>Markdown 表格示例</a> · <a href="安装说明.md">详细安装说明</a> · <a href="SHA256SUMS">SHA256 校验值</a></li>
-<li><a href="if-ink-OS-v0.1.1-source.zip" download>对应源码与构建材料</a> · <a href="许可证.zip" download>完整许可包</a></li>
+<li><a href="if-ink-OS-v0.1.2-source.zip" download>对应源码与构建材料</a> · <a href="许可证.zip" download>完整许可包</a></li>
 </ul>
 <p>资源包内 <code>TF卡资源</code> 的 <code>fonts</code> 和 <code>system</code> 合并到卡根目录；图书放 <code>books</code>，文档放 <code>markdown</code>。旧自定义目录需自行整理到标准目录。</p>
 <p>坚果云账号、应用密码与同步文件夹在设备设置中填写；文件页选择内容下载。Obsidian 推送插件为独立项目，可联系作者获取。</p>
@@ -48,10 +48,10 @@ body{max-width:760px;margin:40px auto;padding:0 20px;font:17px/1.7 system-ui,san
 python3 -m esptool --chip esp32s3 --port PORT --baud 460800 --before default-reset --after hard-reset write-flash @flash_args</code></pre>
 <p>Windows 将 <code>python3</code> 换成 <code>py</code>。连接不稳定改为 <code>--baud 115200</code>。保留目录结构，不要格式化 TF 卡或擦除整片 Flash。本机型没有 BOOT/RESET 物理按键。</p>
 </details>
-<p><small>应用镜像 SHA256：<code>32ac79f7500fe478d506775c47f5db06819bdcb3c3993fca9e72a95a2802152d</code></small></p>
+<p><small>应用镜像 SHA256：<code>861a597b21797bdb5f52f722d45dd0f0be565bb0b31ee03a07c4dcd115a966dd</code></small></p>
 <footer>
 <p>感谢原作者：<a href="https://wegooo-cell.github.io/read-pico-reader/">Pico Reader 原作者主页</a> · <a href="https://github.com/wegooo-cell/read-pico-reader">原作者源码仓库</a>。</p>
 <p><small>if-ink OS 是独立衍生版本，不是原作者或 MindReset 官方发布。保留上游版权及各组件许可；主体 <a href="LICENSE">Apache-2.0</a>，epdiy 为 LGPL-3.0-or-later。<a href="NOTICE.txt">来源说明</a> · <a href="许可证.zip">完整许可包</a>。</small></p>
 </footer>
-<script type="module" src="./webflash/installer.js?v=0.1.1"></script>
+<script type="module" src="./webflash/installer.js?v=0.1.2"></script>
 </body></html>

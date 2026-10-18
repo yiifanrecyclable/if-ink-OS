@@ -72,6 +72,16 @@ static uint8_t ui_read_pixel(const uint8_t *fb, int x, int y) {
     return epd_get_pixel(px, py, epd_width(), epd_height(), fb) >> 4;
 }
 
+void ui_fade_region(uint8_t *fb,EpdRect region,uint8_t darkest_gray){
+    if(!fb)return;
+    EpdRect r=ui_rotate_rect_to_fb(region);int floor=darkest_gray>>4,w=epd_width(),h=epd_height();
+    int x0=r.x<0?0:r.x,y0=r.y<0?0:r.y,x1=r.x+r.width,y1=r.y+r.height;
+    if(x1>w)x1=w;
+    if(y1>h)y1=h;
+    for(int y=y0;y<y1;++y)for(int x=x0;x<x1;++x){uint8_t *p=fb+(size_t)y*w/2+x/2;int shift=(x&1)?4:0,g=(*p>>shift)&15;
+        int mapped=floor+((15-floor)*g+7)/15;*p=(uint8_t)((*p&~(15<<shift))|(mapped<<shift));}
+}
+
 /* ---- 图标 / Icons ---- */
 
 // 越界钳到边缘，让双线性在掩模边界上也能取样。

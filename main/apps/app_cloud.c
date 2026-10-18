@@ -225,6 +225,12 @@ static app_redraw_t gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     return APP_REDRAW_NONE;
 }
 static app_redraw_t key(app_ctx_t *ctx, int key) {
+    cloud_status_t status;cloud_get_status(&status);
+    if(key!=UI_KEY_2&&!status.busy&&status.count>cloud_rows()){
+        int next=(int)s_cloud_page+(key==UI_KEY_1?-1:1);
+        if(next<0||(unsigned)next*cloud_rows()>=status.count)return APP_REDRAW_NONE;
+        s_cloud_page=(unsigned)next;return APP_REDRAW_PAGE;
+    }
     cloud_cancel();
     ui_nav_request(ctx, key == UI_KEY_2 ? 0 : 2);
     return APP_REDRAW_NONE;

@@ -539,7 +539,7 @@ static bool present(app_ctx_t *ctx, app_redraw_t redraw) {
     if (redraw == APP_REDRAW_AREA) guard_draw_result(ctx->hl, update_display_area_with(ctx->hl, &E0470_WAVEFORM, MODE_GL16, s_area));
     else if (redraw == APP_REDRAW_FULL || s_home_force_full_once) {
         s_home_force_full_once = false;
-        guard_draw_result(ctx->hl, update_display_image_gray(ctx->hl));
+        guard_draw_result(ctx->hl, update_display_home_clean(ctx->hl));
     }
     else guard_draw_result(ctx->hl, update_display_fast_page(ctx->hl));
     return true;

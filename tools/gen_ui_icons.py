@@ -85,6 +85,7 @@ ICONS = (
     "usb",               # USB连接·插头轮廓 / USB connection, plug silhouette
     "chevron-right",     # 书架下一页 / next shelf page
     "settings",          # 阅读工具栏·更多 / reader toolbar, more
+    "router",            # 热点创建 / create hotspot
 )
 
 _NUMBER = re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")

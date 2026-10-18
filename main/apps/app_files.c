@@ -37,6 +37,7 @@
 #include "ui_kit.h"
 #include "ui_text_input.h"
 #include "ui_nav.h"
+#include "ui_menu.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
 #include "esp_attr.h"
@@ -903,6 +904,11 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
 }
 
 static app_redraw_t on_key(app_ctx_t *ctx, int key) {
+    // 列表左右键共用屏幕分页，确认/编辑页保留原操作。/ List side keys share pagination; dialogs and editors retain their actions.
+    if(s_view==FILE_VIEW_LIST && key!=UI_KEY_2){
+        int rows=s_folder>=0?visible_rows():root_rows();
+        if(s_count>rows){int next=s_page+(key==UI_KEY_1?-1:1);if(next>=0&&next*rows<s_count){s_page=next;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;}
+    }
     if (s_view == FILE_VIEW_MOVE) { leave_move(false); return APP_REDRAW_PAGE; }
     if (key == 1) { ui_nav_request(ctx, 0); return APP_REDRAW_NONE; }
     if (s_view == FILE_VIEW_RENAME) { s_view = FILE_VIEW_ACTIONS; return APP_REDRAW_PAGE; }

@@ -35,6 +35,7 @@ typedef enum {
 typedef struct {
     read_pico_transfer_mode_t mode; ///< 网络模式，默认热点 / Network mode, default AP
     bool network_only; ///< 仅连接已有 WiFi，不启动上传服务或访问存储 / Connect saved WiFi without upload server or storage
+    bool use_selected_wifi; ///< 本次手动选网只连接当前选项；默认扫描附近已保存网络 / Honor an explicit choice for this startup; otherwise scan nearby saved networks
     const char *root_dir; ///< 已挂载根目录，start 内复制 / Mounted root, copied by start
     bool is_flash; ///< 内置存储标志 / Internal storage flag
     size_t file_limit; ///< 单文件上限，零表示不限 / Per-file limit, zero means unlimited
@@ -79,7 +80,7 @@ bool read_pico_transfer_pause_for_sleep(void);
 void read_pico_transfer_resume_after_sleep(void);
 /// 跨任务复制一致状态快照。/ Copy a consistent snapshot across tasks.
 void read_pico_transfer_get_status(read_pico_transfer_status_t *out);
-/// 控制任务每500ms驱动有界连接重试。/ Owner task polls every 500 ms for bounded connection retries.
+/// 控制任务每500ms驱动有界连接重试；可见候选按信号轮换，总计不超过五次/30秒。/ Owner task polls every 500 ms; rotate visible candidates within five attempts and 30 seconds total.
 void read_pico_transfer_service_poll(void);
 /// 只读已保存SSID；未配置仍返回ESP_OK。/ Read only the saved SSID; unconfigured still returns ESP_OK.
 esp_err_t read_pico_transfer_get_saved_wifi(char ssid[33], bool *configured);
@@ -93,8 +94,8 @@ typedef struct {
 esp_err_t read_pico_transfer_export_wifi_backup(read_pico_transfer_wifi_backup_t *out);
 /// 恢复前校验凭据格式；不读写设备。/ Validate a backup record without accessing the device.
 bool read_pico_transfer_wifi_backup_valid(const read_pico_transfer_wifi_backup_t *backup);
-/// 恢复当前网络并保留其他已记住的网络；空记录清空历史，活动会话下次重连采用新配置。
-/// Restore the selected network while retaining peers; an empty record clears history. Active sessions adopt it on reconnection.
+/// 恢复当前网络并保留其他已记住的网络；空记录清空历史，活动会话下次启动采用新配置。
+/// Restore the selected network while retaining peers; an empty record clears history. Active sessions adopt it on their next startup.
 esp_err_t read_pico_transfer_import_wifi_backup(const read_pico_transfer_wifi_backup_t *backup);
 /// 仅热点或停止状态可遗忘；上传中拒绝。/ Forget only while AP or stopped; rejected during upload.
 esp_err_t read_pico_transfer_forget_wifi(void);

@@ -400,12 +400,15 @@ int main(void) {
            !strcmp(saved_wifi.ssid,"BackupWifi")&&!strcmp(saved_cloud.folder,"BackupCloud"));
     assert(access(RESTORE_BEFORE,F_OK)!=0);
     assert(reader_input_assign(READER_SWIPE_RIGHT,READER_ACTION_TOC)==ESP_OK);
+    assert(reader_input_set_tap_layout(READER_TAP_ROWS)==ESP_OK);
     app_settings_set_book_margin(8);
     assert(app_settings_backup_save()==ESP_OK);
     assert(reader_input_assign(READER_SWIPE_RIGHT,READER_ACTION_BOOKMARKS)==ESP_OK);
+    assert(reader_input_set_tap_layout(READER_TAP_COLUMNS)==ESP_OK);
     app_settings_set_book_margin(60);
     assert(app_settings_backup_restore()==ESP_OK);
     assert(reader_input_action(READER_SWIPE_RIGHT)==READER_ACTION_TOC&&app_settings_book_margin()==8);
+    assert(reader_input_tap_layout()==READER_TAP_ROWS);
     puts("settings backup host test passed (including numeric status dates, display preferences, four size presets and legacy restore)");
     return 0;
 }

@@ -18,6 +18,7 @@
 #include "nvs.h"
 #include "read_pico_sd.h"
 #include "read_pico_transfer.h"
+#include "time_service.h"
 #include "settings.h"
 #include <errno.h>
 #include <stdatomic.h>
@@ -712,6 +713,7 @@ static void worker(void *argument) {
     vTaskDelete(NULL);
 }
 static esp_err_t begin(bool download) {
+    app_time_service_stop();
     if (!init())
         return ESP_ERR_NO_MEM;
     if (s_task) {
@@ -776,12 +778,15 @@ static esp_err_t begin(bool download) {
     }
     read_pico_transfer_status_t network;
     read_pico_transfer_get_status(&network);
-    if (network.state == READ_PICO_TRANSFER_STOPPED) {
+    if (network.state == READ_PICO_TRANSFER_STOPPED || (network.state==READ_PICO_TRANSFER_ERROR&&!network.network_ready)) {
+        if(network.state==READ_PICO_TRANSFER_ERROR&&!read_pico_transfer_try_stop_if_idle()){fail_notice("请先结束传输后重试","网络忙");clear_secret(&s_config,sizeof(s_config));return ESP_ERR_INVALID_STATE;}
         read_pico_transfer_cfg_t cfg = {.mode = READ_PICO_TRANSFER_MODE_STA, .network_only = true};
         esp_err_t e = read_pico_transfer_start(&cfg);
         if (e != ESP_OK) {
-            fail_notice(e == ESP_ERR_NOT_FOUND ? "请先在设置中配置WiFi网络" : "无法启动WiFi，请稍后重试",
-                        e == ESP_ERR_NOT_FOUND ? "请先配置WiFi" : "WiFi启动失败");
+            read_pico_transfer_get_status(&network);
+            bool nearby=e==ESP_ERR_NOT_FOUND&&network.wifi_configured;
+            fail_notice(nearby?"附近未找到已保存的WiFi，请前往设置":e==ESP_ERR_NOT_FOUND?"请先在设置中配置WiFi网络":"无法启动WiFi，请稍后重试",
+                        nearby?"未找到已保存的WiFi":e==ESP_ERR_NOT_FOUND?"请先配置WiFi":"WiFi启动失败");
             clear_secret(&s_config, sizeof(s_config));
             return e;
         }

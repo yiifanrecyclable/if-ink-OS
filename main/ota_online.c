@@ -3,6 +3,7 @@
  * English: Independent HTTPS updater; never switch boot slots before full validation, use TF storage or write the running slot.
  */
 #include "ota_online.h"
+#include "time_service.h"
 #include "ota_online_policy.h"
 #include "cloud_sync.h"
 #include "usb_storage.h"
@@ -227,6 +228,7 @@ void if_update_poll(void){
     if(s_task)read_pico_transfer_service_poll();
 }
 static esp_err_t start(bool install){
+    app_time_service_stop();
     if(!init())return ESP_ERR_NO_MEM;
     if_update_poll();if(s_task)return ESP_ERR_INVALID_STATE;
     cloud_status_t cloud;cloud_get_status(&cloud);
@@ -234,10 +236,11 @@ static esp_err_t start(bool install){
     if(strcmp(esp_app_get_description()->project_name,IF_OTA_PROJECT)){phase(IF_UPDATE_FAILED,"当前系统不支持此更新源");return ESP_ERR_INVALID_STATE;}
     if(install&&(s_status.state!=IF_UPDATE_AVAILABLE||!s_candidate.available||!if_update_newer(s_candidate.version,esp_app_get_description()->version)))return ESP_ERR_INVALID_STATE;
     read_pico_transfer_status_t network;read_pico_transfer_get_status(&network);
-    if(network.state==READ_PICO_TRANSFER_STOPPED){
+    if(network.state==READ_PICO_TRANSFER_STOPPED||(network.state==READ_PICO_TRANSFER_ERROR&&!network.network_ready)){
+        if(network.state==READ_PICO_TRANSFER_ERROR&&!read_pico_transfer_try_stop_if_idle()){phase(IF_UPDATE_FAILED,"请先结束传输后重试");return ESP_ERR_INVALID_STATE;}
         read_pico_transfer_cfg_t config={.mode=READ_PICO_TRANSFER_MODE_STA,.network_only=true};
         esp_err_t err=read_pico_transfer_start(&config);
-        if(err!=ESP_OK){phase(IF_UPDATE_FAILED,err==ESP_ERR_NOT_FOUND?"请先在设置中配置WiFi":"无法连接WiFi，请重试");return err;}
+        if(err!=ESP_OK){read_pico_transfer_get_status(&network);phase(IF_UPDATE_FAILED,err==ESP_ERR_NOT_FOUND?(network.wifi_configured?"附近未找到已保存的WiFi":"请先在设置中配置WiFi"):"无法连接WiFi，请重试");return err;}
         s_owned_wifi=true;
     }else if(network.mode!=READ_PICO_TRANSFER_MODE_STA||!network.network_ready||network.state!=READ_PICO_TRANSFER_READY){
         phase(IF_UPDATE_FAILED,"请先结束传输并连接WiFi");return ESP_ERR_INVALID_STATE;

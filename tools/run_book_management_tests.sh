@@ -33,6 +33,7 @@ gcc "${flags[@]}" -Imanaged_components/espressif__cjson/cJSON tools/transfer_wif
 cc "${flags[@]}" -Itools/settings_backup_stubs -Imain/book tools/reader_input_host_test.c -o build/book-tests/reader-input
 build/book-tests/reader-input
 build/book-tests/transfer-wifi
+python3 tools/test_wifi_autoconnect.py
 python3 tools/test_network_ui.py
 gcc "${flags[@]}" -Itools/transfer_ui_stubs -Icomponents/read_pico_transfer/include tools/transfer_ui_host_test.c -o build/book-tests/transfer-ui
 build/book-tests/transfer-ui

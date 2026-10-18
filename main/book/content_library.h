@@ -8,6 +8,7 @@
 #include <stdint.h>
 #define CONTENT_HOME_QUOTE_BYTES 192
 #define CONTENT_HOME_QUOTE_FONT_BYTES 160
+#define CONTENT_MARKDOWN_FONT_BYTES 192
 typedef enum { CONTENT_QUOTE_LEFT, CONTENT_QUOTE_RIGHT, CONTENT_QUOTE_CENTER, CONTENT_QUOTE_JUSTIFY } content_quote_align_t;
 /// 格言水平排版，默认居中；与文字和字号一起备份。/ Quote alignment defaults to center and is backed up with text and size.
 content_quote_align_t content_home_quote_alignment(void);
@@ -51,3 +52,7 @@ bool content_book_pin_valid(const char *key, const char *path);
 void content_markdown_sizes(uint8_t sizes[4]);
 bool content_markdown_sizes_valid(const uint8_t sizes[4]);
 esp_err_t content_markdown_sizes_set(const uint8_t sizes[4]);
+/// 空值表示继承旧阅读字体；选择后独立持久化。/ Empty inherits the legacy reader face until a document face is saved.
+const char *content_markdown_font(void);
+bool content_markdown_font_valid(const char *path);
+esp_err_t content_markdown_font_set(const char *path);

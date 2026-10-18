@@ -67,7 +67,7 @@ static void qr_regression(app_ctx_t* ctx) {
     on_tick(ctx);
     assert(!s_qr_ready);
     test_qr_failure=false;
-    queue_network_start(READ_PICO_TRANSFER_MODE_STA);
+    queue_network_start(READ_PICO_TRANSFER_MODE_STA,false);
     assert(!s_qr_ready && !test_qr_payload[0]);
     test_status.mode=READ_PICO_TRANSFER_MODE_STA;
     strcpy(test_status.url,"http://10.20.30.40");

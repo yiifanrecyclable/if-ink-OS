@@ -11,7 +11,7 @@ static app_redraw_t reader_show_tab(app_ctx_t *ctx,int tab){
     s_control_page=0;s_reader_slider=-1;s_progress_drag=false;
     if(tab==0){save_progress();s_reader_panel=READER_PANEL_NONE;set_reader_view(TOC);s_message[0]=0;s_toc_jump_open=s_toc_jump_drag=false;size_t at=current_toc_position();ctx->leaf=at==SIZE_MAX?0:(int)(at/BOOK_TOC_ROWS);return APP_REDRAW_PAGE;}
     if(s_view==TOC)set_reader_view(READING);
-    if(tab==1){(void)bookmark_toggle();return reader_show_panel(READER_PANEL_TOOLS);}
+    if(tab==1){s_bookmark_edit=s_bookmark_delete_confirm=s_bookmark_delete_error=false;s_bookmark_selected=0;return reader_show_panel(READER_PANEL_BOOKMARKS);}
     return reader_show_panel(tab==2?READER_PANEL_FONT_SETTINGS:tab==3?READER_PANEL_LAYOUT_SETTINGS:READER_PANEL_REFRESH_SETTINGS);
 }
 static app_redraw_t reader_change_size(app_ctx_t *ctx,int direction){
@@ -62,7 +62,7 @@ static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
         if(y>=ay&&y<ay+height){int button=x*4/684;
             if(button==0)return reader_return(ctx,false);
             if(button==1)return toggle_reader_fullscreen(ctx);
-            if(button==2){s_bookmark_edit=s_bookmark_delete_confirm=s_bookmark_delete_error=false;s_bookmark_selected=0;return reader_show_panel(READER_PANEL_BOOKMARKS);}
+            if(button==2){(void)bookmark_toggle();return APP_REDRAW_PAGE;}
             return reader_manual_refresh(ctx);
         }
         if(s_jump_back_valid&&ui_rect_hit(reader_jump_back_rect(),x,y)){size_t chapter=s_jump_back_chapter,offset=s_jump_back_offset;if(load_chapter(ctx,chapter,offset,false)){s_jump_back_valid=false;s_reader_panel=READER_PANEL_NONE;save_progress();}return APP_REDRAW_PAGE;}
@@ -74,8 +74,19 @@ static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
             if(s_reader_panel==READER_PANEL_BINDING)return reader_show_panel(READER_PANEL_SHORTCUTS);
             if(s_reader_panel==READER_PANEL_FONT_PICKER||s_reader_panel==READER_PANEL_MARKDOWN_SIZES)return reader_show_panel(READER_PANEL_FONT_SETTINGS);
             if(s_reader_panel==READER_PANEL_RULE_SETTINGS)return reader_show_panel(READER_PANEL_LAYOUT_SETTINGS);
+            if(s_reader_panel==READER_PANEL_BASIC)return reader_show_panel(READER_PANEL_REFRESH_SETTINGS);
             return reader_show_panel(READER_PANEL_TOOLS);
         }
+        return APP_REDRAW_NONE;
+    }
+    if(s_reader_panel==READER_PANEL_BASIC){
+        for(int mode=0;mode<2;++mode)if(ui_rect_hit(reader_basic_option(mode),x,y)){
+            if(reader_input_set_tap_layout((reader_tap_layout_t)mode)!=ESP_OK){copy_text(s_reader_notice,sizeof(s_reader_notice),"操作区域保存失败，请重试");s_reader_notice_until=esp_timer_get_time()/1000+2500;}
+            return APP_REDRAW_PAGE;}
+        return APP_REDRAW_NONE;
+    }
+    if(reader_markdown_font_panel()){
+        if(ui_rect_hit((EpdRect){36,210,612,80},x,y)){ttf_font_scan();return reader_show_panel(READER_PANEL_FONT_PICKER);}
         return APP_REDRAW_NONE;
     }
     int count=reader_control_count(),rows=reader_control_rows();
@@ -117,11 +128,11 @@ static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
         reader_bookmark_entry_t mark=marks.entries[at];reader_remember_jump();
         if(load_chapter(ctx,mark.chapter,mark.byte_off,false)){s_reader_panel=READER_PANEL_NONE;save_progress();}return APP_REDRAW_PAGE;
     }else if(s_reader_panel==READER_PANEL_REFRESH_SETTINGS||s_reader_panel==READER_PANEL_TURN_SETTINGS||s_reader_panel==READER_PANEL_STATS||s_reader_panel==READER_PANEL_STATS_RECENT){
-        if(i==0)return reader_show_panel(READER_PANEL_SHORTCUTS);
-        if(i==1){reader_input_preferences_t prefs;reader_input_export(&prefs);s_help_hide=prefs.hide_help!=0;return reader_show_panel(READER_PANEL_HELP);}
-        if(i==2){static const uint8_t opts[]={0,5,10,15,30};int at=0;while(at<5&&opts[at]!=app_settings_reader_full_pages())++at;app_settings_set_reader_full_pages(opts[(at+1)%5]);s_turns=0;return APP_REDRAW_PAGE;}
-        if(i==3){app_settings_set_reader_turn_effect(!app_settings_reader_turn_effect());return APP_REDRAW_PAGE;}
-        if(i==4)return apply_reader_option(ctx,1);
+        if(i==0)return reader_show_panel(READER_PANEL_BASIC);
+        if(i==1)return reader_show_panel(READER_PANEL_SHORTCUTS);
+        if(i==2){reader_input_preferences_t prefs;reader_input_export(&prefs);s_help_hide=prefs.hide_help!=0;return reader_show_panel(READER_PANEL_HELP);}
+        if(i==3){static const uint8_t opts[]={0,5,10,15,30};int at=0;while(at<5&&opts[at]!=app_settings_reader_full_pages())++at;app_settings_set_reader_full_pages(opts[(at+1)%5]);s_turns=0;return APP_REDRAW_PAGE;}
+        if(i==4){app_settings_set_reader_turn_effect(!app_settings_reader_turn_effect());return APP_REDRAW_PAGE;}
         if(i==5)return apply_reader_option(ctx,2);
     }
     return APP_REDRAW_NONE;
@@ -201,9 +212,9 @@ static app_redraw_t reader_controls_gesture(app_ctx_t *ctx,const ui_gesture_even
         if(!s_reader_fullscreen&&ui_rect_hit((EpdRect){32,75,64,64},ev->x0,ev->y0))return reader_return(ctx,false);
         if(book_kind()==BOOK_KIND_MARKDOWN&&s_inline_gray&&book_layout_page_image(s_page)==s_inline_index){EpdRect body=body_rect(),image={body.x+(body.width-(int)s_inline_w)/2,body.y+(body.height-(int)s_inline_h)/2,(int)s_inline_w,(int)s_inline_h};if(ui_rect_hit(image,ev->x0,ev->y0)&&prepare_document_zoom(0)){s_document_zoom=true;s_zoom_moved=false;invalidate_prep();return APP_REDRAW_PAGE;}}
         if(!ui_rect_hit(reader_area(),ev->x0,ev->y0))return APP_REDRAW_NONE;
-        if(ev->x0<UI_LOCK_WIDTH/3)return turn_page(ctx,-1);
-        if(ev->x0>=UI_LOCK_WIDTH*2/3)return turn_page(ctx,1);
-        return reader_show_panel(READER_PANEL_TOOLS);
+        for(unsigned zone=0;zone<3;++zone)if(ui_rect_hit(reader_tap_rect(reader_area(),reader_input_tap_layout(),zone),ev->x0,ev->y0))
+            return zone==1?reader_show_panel(READER_PANEL_TOOLS):turn_page(ctx,zone==0?-1:1);
+        return APP_REDRAW_NONE;
     }
     int slot=ev->type==UI_GESTURE_LONG_PRESS?READER_HOLD:ev->type==UI_GESTURE_SWIPE_L?READER_SWIPE_LEFT:ev->type==UI_GESTURE_SWIPE_R?READER_SWIPE_RIGHT:ev->type==UI_GESTURE_SWIPE_U?READER_SWIPE_UP:ev->type==UI_GESTURE_SWIPE_D?READER_SWIPE_DOWN:-1;
     if(slot>=0&&ui_rect_hit(reader_area(),ev->x0,ev->y0))return reader_execute_shortcut(ctx,slot);

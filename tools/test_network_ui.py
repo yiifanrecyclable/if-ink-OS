@@ -47,7 +47,7 @@ static int read_pico_transfer_forget_wifi(void){return ESP_OK;}
 static int read_pico_transfer_get_saved_wifi(char *ssid, bool *configured){ssid[0]=0;*configured=false;return ESP_OK;}
 static int read_pico_transfer_select_saved_wifi(const char *ssid){assert(!s_session_started);assert(*ssid);++selected_calls;return select_result;}
 static int read_pico_transfer_save_wifi(const char *ssid,const char *password){assert(*ssid&&!password[0]);++saves;return ESP_OK;}
-static void queue_network_start(int mode){(void)mode;++queued;s_view=TRANSFER_HOME;}
+static void queue_network_start(int mode,bool use_selected_wifi){assert(use_selected_wifi);(void)mode;++queued;s_view=TRANSFER_HOME;}
 static void clear_password(void){memset(s_password,0,sizeof(s_password));}
 static void ui_text_input_open(int *input,char *text,size_t cap,bool cn,bool secret,int mode){(void)input;assert(!*text&&cap==65&&!cn&&secret&&mode==UI_INPUT_ENGLISH);++prompts;}
 '''

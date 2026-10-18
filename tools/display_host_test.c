@@ -125,6 +125,14 @@ int main(void) {
     assert(last_mode == MODE_GC16 && waveform_at_draw == &E0470_FULL_WAVEFORM &&
            hl.waveform == &E0470_WAVEFORM);
 
+    // 首页只推一次完整目标，不擦白、不跳过未变化灰底。/ Home sends one complete target without a white preclear or skipping unchanged gray pixels.
+    memcpy(front,target,FB_BYTES);memset(back,0x55,FB_BYTES);
+    clears=draws=full_draws=0;
+    assert(update_display_home_clean(&hl)==EPD_DRAW_SUCCESS);
+    assert(!clears&&draws==1&&full_draws==1&&!white_baseline&&correct_target_at_draw);
+    assert(last_scan==READ_PICO_EPD_SCAN_FULL&&last_mode==MODE_GC16&&waveform_at_draw==&E0470_FULL_WAVEFORM);
+    assert(hl.waveform==&E0470_WAVEFORM&&!memcmp(front,target,FB_BYTES)&&!memcmp(back,target,FB_BYTES));
+
     clocks = powerons = clears = draws = full_draws = last_mode = 0;
     guard_draw_result(&hl, EPD_DRAW_SUCCESS);
     guard_draw_result(&hl, EPD_DRAW_OTHER_ERROR);

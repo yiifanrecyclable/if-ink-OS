@@ -153,6 +153,10 @@ int main(void) {
     assert(!valid_record(6,NVS_TYPE_BLOB,"md_sizes",invalid_sizes,4));
     uint8_t quote_px=84;assert(put(6,"quote_px",NVS_TYPE_U8,&quote_px,1)==ESP_OK);
     const char *quote_font="/sdcard/fonts/Test.ttf";
+    assert(content_markdown_font_valid("builtin")&&!content_markdown_font_valid("")&&!content_markdown_font_valid("/sdcard/../secret.ttf"));
+    assert(content_markdown_font_set(quote_font)==ESP_OK);
+    assert(!valid_record(6,NVS_TYPE_STR,"md_font",(const uint8_t *)quote_font,strlen(quote_font)));
+    assert(!valid_record(6,NVS_TYPE_STR,"md_font",(const uint8_t *)"",1));
     assert(put(6,"quote_font",NVS_TYPE_STR,quote_font,strlen(quote_font)+1)==ESP_OK);
     const char *quote="固定格言";
     assert(put(6,"home_quote",NVS_TYPE_STR,quote,strlen(quote)+1)==ESP_OK);
@@ -195,6 +199,7 @@ int main(void) {
     rewind(f); assert(book_history_backup_validate(f));
     active=1; rewind(f);
     assert(book_history_backup_restore(f)==ESP_OK && counts[1]==counts[0]);
+    assert(!strcmp(content_markdown_font(),quote_font));
     for (int i=0;i<counts[0];++i) {
         record_t *a=&records[0][i], *b=find_record(a->ns,a->key);
         assert(b && b->type==a->type && b->len==a->len && !memcmp(a->data,b->data,a->len));

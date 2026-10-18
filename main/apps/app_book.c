@@ -157,7 +157,7 @@ typedef enum {
     READER_PANEL_REFRESH_SETTINGS,
     READER_PANEL_TURN_SETTINGS,
     READER_PANEL_MARKDOWN_SIZES,
-    READER_PANEL_SHORTCUTS, READER_PANEL_BINDING, READER_PANEL_HELP,
+    READER_PANEL_SHORTCUTS, READER_PANEL_BINDING, READER_PANEL_HELP, READER_PANEL_BASIC,
 } reader_panel_t;
 typedef struct {
     char name[256];
@@ -402,6 +402,7 @@ static bool s_shelf_cache_valid, s_cache_sd_present, s_cache_sd_mounted;
 static bool s_scan_pending, s_clear_confirm;
 static reader_panel_t s_reader_panel;
 static bool s_reader_fullscreen;
+static bool s_reader_immersive;
 static char s_message[128], s_storage[128], s_path[BOOK_STORE_PATH_MAX], s_title[128];
 static char s_book_title[128];
 static char s_chapter_heading_title[128], s_chapter_heading_label[32];
@@ -481,6 +482,8 @@ static atomic_bool s_prep_stop;
 static void render(app_ctx_t* ctx, uint8_t* fb);
 static void draw_reader_panel(uint8_t* fb);
 static EpdRect reader_slider_rect(int slider);
+static bool reader_markdown_font_panel(void);
+static EpdRect reader_markdown_row(int index);
 static void scan_shelf(app_ctx_t* ctx);
 static void copy_text(char* dst, size_t cap, const char* src);
 static void fit_text(char* text, int px, int width);
@@ -521,7 +524,7 @@ static size_t fb_bytes(void) { return (size_t)epd_width() * epd_height() / 2; }
 // 正文上方留出一致的呼吸空间，下沿靠近进度区；两种模式共用排版与刷新边界。
 // Give the body a consistent top inset and extend it toward the progress strip in both modes.
 static EpdRect reader_area(void) {
-    const int top = s_reader_fullscreen ? (app_settings_reader_immersive() ? 0 : 80) : 160;
+    const int top = s_reader_fullscreen ? (s_reader_immersive ? 0 : 80) : 160;
     // 全屏进度线单独差分，翻页时不让正文刷新反复驱动整条横线。
     // Keep the full-screen progress strip out of body updates so turns do not drive the whole bar.
     const int bottom = s_reader_fullscreen ? READER_FULLSCREEN_PROGRESS_TOP : UI_BAR_TOP + 8;
@@ -532,7 +535,7 @@ static EpdRect reader_fullscreen_progress_area(void) {
                      UI_LOCK_WIDTH, UI_LOCK_HEIGHT - READER_FULLSCREEN_PROGRESS_TOP};
 }
 static EpdRect body_rect_for_tracking(int tracking_index) {
-    int top = s_reader_fullscreen ? (app_settings_reader_immersive() ? 24 : 96) : 188;
+    int top = s_reader_fullscreen ? (s_reader_immersive ? 24 : 96) : 188;
     int margin = s_margin ? s_margin : 36;
     // Leave only a narrow strip for the full-book progress line in full screen.
     int bottom = s_reader_fullscreen ? READER_FULLSCREEN_PROGRESS_TOP - 2 : UI_BAR_TOP + 8;
@@ -1415,7 +1418,7 @@ static void draw_reader_images(uint8_t *fb, size_t page, EpdRect body) {
 static unsigned s_sim_reader_draws;
 #endif
 static void draw_reader_outer(uint8_t *fb,size_t page) {
-    if (!(s_reader_fullscreen && app_settings_reader_immersive())) ui_nav_status(fb);
+    if (!(s_reader_fullscreen && s_reader_immersive)) ui_nav_status(fb);
     if (!s_reader_fullscreen) draw_reader_header(fb);
     EpdRect body = body_rect();
     if (page == 0 && s_chapter_lead_height && s_chapter_heading_title[0]) {
@@ -1472,6 +1475,7 @@ static void draw_reader_outer(uint8_t *fb,size_t page) {
         ui_fill_round_rect(fb, notice, 24, 0xd0);
         ui_text_vc(fb, 342, 184, 19, s_reader_notice, EPD_DRAW_ALIGN_CENTER, false);
     }
+    if(s_reader_panel==READER_PANEL_TOOLS)ui_fade_region(fb,(EpdRect){0,0,684,reader_control_top()},0x99);
     draw_reader_panel(fb);
 }
 static void draw_reader(uint8_t *fb,size_t page) {
@@ -1675,7 +1679,7 @@ static app_redraw_t paint_reading(app_ctx_t* ctx, enum EpdDrawMode mode) {
         ((s_next_page==(int)s_page&&s_next_generation==book_layout_generation())||reader_prefetch_resume(s_page));
     if (cached) {
         memcpy(ctx->fb,s_next_fb,fb_bytes());
-        if(!(s_reader_fullscreen&&app_settings_reader_immersive()))ui_nav_status(ctx->fb);
+        if(!(s_reader_fullscreen&&s_reader_immersive))ui_nav_status(ctx->fb);
     }
     else draw_reader(ctx->fb, s_page);
     unlock_draw();
@@ -2040,6 +2044,9 @@ static bool open_book(app_ctx_t* ctx, const char* path) {
     save_progress();
     free_book();
     s_reader_fullscreen = app_settings_reader_fullscreen();
+    s_reader_immersive = app_settings_reader_immersive();
+    app_font_set_document_mode(is_document);
+    if(is_document&&!content_markdown_font()[0]){const char *initial=app_settings_font_path();(void)content_markdown_font_set(initial[0]?initial:TTF_FONT_BUILTIN);}
     app_font_activate_reading();
     if (!pending_reserve(path)) {
         copy_text(s_message, sizeof(s_message), "内存不足，无法打开图书");
@@ -2637,11 +2644,11 @@ static app_redraw_t apply_reader_option(app_ctx_t* ctx, int kind) {
         return APP_REDRAW_PAGE;
     }
     if (!s_text || (kind != 1 && kind != 2)) return APP_REDRAW_NONE;
-    bool previous = kind == 1 ? app_settings_reader_immersive() : app_settings_reader_hide_images();
+    bool previous = kind == 1 ? s_reader_immersive : app_settings_reader_hide_images();
     lock_draw();
     size_t off = book_layout_page_start_offset(s_page);
     invalidate_prep();
-    if (kind == 1) app_settings_set_reader_immersive(!previous);
+    if (kind == 1) {s_reader_immersive=!previous;app_settings_set_reader_immersive(!previous);}
     else {
         app_settings_set_reader_hide_images(!previous);
         book_layout_set_images_visible(previous);
@@ -2649,7 +2656,7 @@ static app_redraw_t apply_reader_option(app_ctx_t* ctx, int kind) {
     bool ok = book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count, body_rect(), s_px);
     if (ok) s_page = book_layout_page_for_offset(off);
     else {
-        if (kind == 1) app_settings_set_reader_immersive(previous);
+        if (kind == 1) {s_reader_immersive=previous;app_settings_set_reader_immersive(previous);}
         else {
             app_settings_set_reader_hide_images(previous);
             book_layout_set_images_visible(!previous);
@@ -2684,31 +2691,26 @@ static app_redraw_t reader_return(app_ctx_t *ctx, bool home) {
     return APP_REDRAW_PAGE;
 }
 
+// 三态布局共用正文锚点，控制面板保持当前状态。/ Three layout states preserve the text anchor and the open panel.
 static app_redraw_t toggle_reader_fullscreen(app_ctx_t* ctx) {
     if (!s_text) return APP_REDRAW_NONE;
-    size_t off = book_layout_page_start_offset(s_page);
-    lock_draw();
-    invalidate_prep();
-    s_reader_fullscreen = !s_reader_fullscreen;
-    bool ok = book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count, body_rect(), s_px);
-    if (ok) s_page = book_layout_page_for_offset(off);
-    else {
-        s_reader_fullscreen = !s_reader_fullscreen;
-        (void)book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count, body_rect(), s_px);
-    }
+    size_t off=book_layout_page_start_offset(s_page);
+    bool old_full=s_reader_fullscreen,old_immersive=s_reader_immersive;
+    int mode=old_full?(old_immersive?2:1):0,next=(mode+1)%3;
+    lock_draw();invalidate_prep();s_reader_fullscreen=next!=0;s_reader_immersive=next==2;
+    bool ok=book_layout_build_blocks(s_text,s_text_len,s_blocks,s_block_count,body_rect(),s_px);
+    if(ok)s_page=book_layout_page_for_offset(off);
+    else{s_reader_fullscreen=old_full;s_reader_immersive=old_immersive;(void)book_layout_build_blocks(s_text,s_text_len,s_blocks,s_block_count,body_rect(),s_px);}
     unlock_draw();
-    if (!ok) return APP_REDRAW_NONE;
-    free(s_inline_gray); s_inline_gray = NULL; s_inline_index = -1;
-    prepare_inline_image();
-    s_jump_offset = SIZE_MAX;
-    s_reader_panel = READER_PANEL_NONE;
-    app_settings_set_reader_fullscreen(s_reader_fullscreen);
-    save_progress();
-    return APP_REDRAW_PAGE;
+    if(!ok)return APP_REDRAW_NONE;
+    free(s_inline_gray);s_inline_gray=NULL;s_inline_index=-1;prepare_inline_image();s_jump_offset=SIZE_MAX;
+    app_settings_set_reader_fullscreen(s_reader_fullscreen);app_settings_set_reader_immersive(s_reader_immersive);
+    save_progress();return APP_REDRAW_PAGE;
 }
 
 static app_redraw_t select_reading_font_item(app_ctx_t* ctx, const ttf_font_item_t* item) {
-    if (!item || !strcmp(ttf_font_path(), item->path)) return APP_REDRAW_NONE;
+    if (!item) return APP_REDRAW_NONE;
+    if(!strcmp(ttf_font_path(),item->path))return APP_REDRAW_NONE;
     char previous[TTF_FONT_PATH_MAX];
     copy_text(previous, sizeof(previous), ttf_font_path());
     if (ttf_font_open(item->path) != ESP_OK) return APP_REDRAW_NONE;
@@ -2723,7 +2725,12 @@ static app_redraw_t select_reading_font_item(app_ctx_t* ctx, const ttf_font_item
     }
     unlock_draw();
     if (!ok) return APP_REDRAW_NONE;
-    app_settings_set_font_path(item->path);
+    if(book_kind()==BOOK_KIND_MARKDOWN){
+        if(content_markdown_font_set(item->path)!=ESP_OK){
+            lock_draw();(void)ttf_font_open(previous);(void)book_layout_build_blocks(s_text,s_text_len,s_blocks,s_block_count,body_rect(),s_px);s_page=book_layout_page_for_offset(off);unlock_draw();
+            copy_text(s_reader_notice,sizeof(s_reader_notice),"字体保存失败，请重试");s_reader_notice_until=esp_timer_get_time()/1000+2500;return APP_REDRAW_PAGE;
+        }
+    }else app_settings_set_font_path(item->path);
     copy_text(s_font_path, sizeof(s_font_path), item->path);
     prepare_inline_image();
     save_progress();
@@ -2738,7 +2745,11 @@ static int slider_index(EpdRect rect, int x, int count) {
     if (index >= count) index = count - 1;
     return index;
 }
+static bool reader_markdown_font_panel(void){return book_kind()==BOOK_KIND_MARKDOWN&&(s_reader_panel==READER_PANEL_FONT_SETTINGS||s_reader_panel==READER_PANEL_MARKDOWN_SIZES);}
+// 为96px标题预留完整行高；滑块位置不随拖动跳动。/ Reserve a full 96px heading so slider positions stay stable during dragging.
+static EpdRect reader_markdown_row(int index){return index?(EpdRect){36,310+(index-1)*154,612,154}:(EpdRect){36,772,612,112};}
 static EpdRect reader_slider_rect(int slider) {
+    if(slider>=5&&reader_markdown_font_panel()){int i=slider-5;EpdRect r=reader_markdown_row(i);return (EpdRect){36,r.y+(i?98:54),612,52};}
     int row=slider>=5?slider-5:slider==0?0:slider-1;
     if(slider>=1&&slider<5)row-=s_control_page*reader_control_rows();
     if(row<0||row>=reader_control_rows())return (EpdRect){0};
@@ -2746,7 +2757,7 @@ static EpdRect reader_slider_rect(int slider) {
 }
 
 static int reader_slider_at(uint16_t x, uint16_t y) {
-    if (s_reader_panel == READER_PANEL_MARKDOWN_SIZES) {
+    if (reader_markdown_font_panel()) {
         for (int i=5;i<9;++i) if(ui_rect_hit(reader_slider_rect(i),x,y))return i;
         return -1;
     }
@@ -3274,6 +3285,7 @@ static void on_enter(app_ctx_t* ctx) {
     book_layout_set_reading_line(app_settings_book_reading_line());
     book_layout_set_reading_line_offset(app_settings_book_reading_line_offset());
     s_reader_fullscreen = app_settings_reader_fullscreen();
+    s_reader_immersive = app_settings_reader_immersive();
     s_bookmark_edit = s_bookmark_delete_confirm = s_bookmark_delete_error = false;
     s_bookmark_selected = 0;
     clear_selection();
@@ -3579,6 +3591,7 @@ static app_redraw_t on_key(app_ctx_t* ctx, int key) {
     if(s_sort_open){s_sort_open=false;return APP_REDRAW_PAGE;}
     if(s_view==DOCUMENT_BULK){
         if(s_document_batch_confirm){s_document_batch_confirm=false;return APP_REDRAW_PAGE;}
+        if(key!=UI_KEY_2&&leaves()>1){int next=ctx->leaf+(key==UI_KEY_1?-1:1);if(next<0||next>=leaves())return APP_REDRAW_NONE;ctx->leaf=next;return APP_REDRAW_PAGE;}
         clear_document_selection();
         if(key==UI_KEY_2){ui_nav_request(ctx,0);return APP_REDRAW_NONE;}
         s_view=DOCUMENTS;ctx->leaf=0;return APP_REDRAW_PAGE;
@@ -3608,11 +3621,12 @@ static app_redraw_t on_key(app_ctx_t* ctx, int key) {
         if (s_view == EDIT) { free(s_editor_cover); s_editor_cover = NULL; s_view = MANAGE; return APP_REDRAW_PAGE; }
         if (s_view == SEARCH) { search_finish(ctx, false); return APP_REDRAW_PAGE; }
         if (s_batch_confirm) { s_batch_confirm = false; return APP_REDRAW_PAGE; }
+        if(s_view==BULK&&leaves()>1){int next=ctx->leaf+(key==UI_KEY_1?-1:1);if(next<0||next>=leaves())return APP_REDRAW_NONE;ctx->leaf=next;return APP_REDRAW_PAGE;}
         if (s_view == MANAGE || s_view == BULK || s_view == IMPORT) {
             if (s_view == BULK) { clear_selection(); s_batch_message[0] = 0; }
             s_view = SHELF; return APP_REDRAW_PAGE;
         }
-        if (s_view == SHELF) { ui_nav_request(ctx, 0); return APP_REDRAW_NONE; }
+        if (s_view == SHELF) return shelf_turn_page(ctx,key==UI_KEY_1?-1:1);
     }
     if (s_scan_pending || s_clear_confirm) return APP_REDRAW_NONE;
     if (key == UI_KEY_2) {
@@ -3658,7 +3672,7 @@ static app_redraw_t shelf_turn_page(app_ctx_t *ctx, int direction) {
     s_pressed_control = -1;
     prepare_covers(ctx);
     render(ctx, ctx->fb);
-    s_area = (EpdRect){0, 196, UI_LOCK_WIDTH, 892};
+    s_area = (EpdRect){0,196,UI_LOCK_WIDTH,UI_NAV_TOP-196};
     s_mode = MODE_GL16;
     return APP_REDRAW_AREA;
 }

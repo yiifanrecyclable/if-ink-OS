@@ -35,3 +35,12 @@ Settings uses a compact 64px single-line identity/version/slogan header. Contras
 
 页面信息分区使用白底、深色分区线(UI_GRAY_SECTION_LINE)及浅色条目线(UI_GRAY_ITEM_LINE)，不再用圆角矩形包裹。选择行可用平直浅灰背景与标记反馈；按钮、输入框、切换胶囊、详情/确认浮层及进度控件保留各自轮廓。
 Use white information sections with dark section rules and pale item rules, without rounded enclosing boxes. Selection rows may use flat gray feedback. Functional controls and detail/confirmation overlays retain their outlines.
+
+
+## 校时与首页刷新 / Time and Home refresh
+
+S3睡眠时钟采用内部振荡器分频源（INT_8MD256）、8190周期校准；板级120MHz Flash/PSRAM配置不变。后台校时仅复用已连接且可用的WiFi STA，空闲十秒后启动，成功后写入PMU，约一小时后再尝试。每次最多等待十五秒，使用零等待轮询，失败至少间隔五分钟；操作、上传、云同步、在线升级和休眠优先。离线不自动启用WiFi。PMU独立走时以及不同温度下的长期漂移需实机记录验证。
+
+首页强刷一次性对整个目标画面执行完整灰阶GC16，包括未选中导航的灰色底，不再先擦白后重画。保留必要的GC16波形相位，不能保证完全无闪烁；光学残影与纵向条纹应在设备上验证，模拟器仅核对绘图和刷新调用。
+
+English: Use the divided internal RTC source with 8190-cycle calibration, retaining board memory timing. Idle background time sync reuses an existing STA, polls without waiting, writes successful time to the PMU and retries hourly after success or at least five minutes after failure. Foreground work and sleep take priority; offline never starts WiFi. Home refresh drives every pixel in one full-grayscale target pass without an extra white preclear. Hardware clock drift and optical artifacts require physical testing.

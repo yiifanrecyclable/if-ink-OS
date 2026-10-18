@@ -14,17 +14,19 @@ const char *reader_shortcut_name(unsigned slot) {
     return slot<READER_SHORTCUT_COUNT?names[slot]:"";
 }
 const char *reader_action_name(unsigned action) {
-    static const char *const names[]={"不启用","上一页","下一页","打开目录","书签列表","阅读面板","切换全屏","缩小字号","放大字号","添加或移除书签","立刻刷新"};
+    static const char *const names[]={"不启用","上一页","下一页","打开目录","书签列表","阅读面板","切换阅读布局","缩小字号","放大字号","添加或移除书签","立刻刷新"};
     return action<READER_ACTION_COUNT?names[action]:"";
 }
 bool reader_input_preferences_valid(const reader_input_preferences_t *p) {
-    if(!p||p->version!=1||p->hide_help>1)return false;
-    for(unsigned i=0;i<READER_STORED_SHORTCUT_COUNT;++i)if(p->actions[i]>=READER_ACTION_COUNT)return false;
+    if(!p||(p->version!=1&&p->version!=2)||p->hide_help>1)return false;
+    unsigned count=p->version==1?READER_STORED_SHORTCUT_COUNT:READER_SHORTCUT_COUNT;
+    for(unsigned i=0;i<count;++i)if(p->actions[i]>=READER_ACTION_COUNT)return false;
+    if(p->version==2){if(p->actions[8]>READER_TAP_ROWS)return false;for(int i=9;i<12;++i)if(p->actions[i])return false;}
     return true;
 }
 // 兼容旧配置：同一功能只保留最先设置的手势。/ Normalize legacy duplicate actions to their first slot.
 static void unique_actions(reader_input_preferences_t *p){
-    for(unsigned i=READER_SHORTCUT_COUNT;i<READER_STORED_SHORTCUT_COUNT;++i)p->actions[i]=0;
+    for(unsigned i=p->version==2?9:READER_SHORTCUT_COUNT;i<READER_STORED_SHORTCUT_COUNT;++i)p->actions[i]=0;
     unsigned seen=0;
     for(unsigned i=0;i<READER_SHORTCUT_COUNT;++i){unsigned a=p->actions[i];if(!a)continue;if(seen&(1u<<a))p->actions[i]=0;else seen|=1u<<a;}
 }
@@ -47,6 +49,17 @@ esp_err_t reader_input_import(const reader_input_preferences_t *p){
     if(err==ESP_OK){s_prefs=*p;s_loaded=true;}return err;
 }
 reader_action_t reader_input_action(unsigned slot){load();return slot<READER_SHORTCUT_COUNT?(reader_action_t)s_prefs.actions[slot]:READER_ACTION_NONE;}
+reader_tap_layout_t reader_input_tap_layout(void){load();return s_prefs.version==2?(reader_tap_layout_t)s_prefs.actions[8]:READER_TAP_COLUMNS;}
+esp_err_t reader_input_set_tap_layout(reader_tap_layout_t layout){
+    if(layout!=READER_TAP_COLUMNS&&layout!=READER_TAP_ROWS)return ESP_ERR_INVALID_ARG;
+    reader_input_preferences_t p;reader_input_export(&p);p.version=2;p.actions[8]=(uint8_t)layout;
+    return reader_input_import(&p);
+}
+reader_tap_region_t reader_input_tap_region(reader_tap_layout_t layout,unsigned zone,int width,int height){
+    if(zone>=3||width<=0||height<=0)return (reader_tap_region_t){0};
+    if(layout==READER_TAP_ROWS){const int ends[]={0,30,50,100};int y=height*ends[zone]/100;return (reader_tap_region_t){0,y,width,height*ends[zone+1]/100-y};}
+    int x=width*(int)zone/3;return (reader_tap_region_t){x,0,width*(int)(zone+1)/3-x,height};
+}
 esp_err_t reader_input_assign(unsigned slot,unsigned action){
     if(slot>=READER_SHORTCUT_COUNT||action>=READER_ACTION_COUNT)return ESP_ERR_INVALID_ARG;
     reader_input_preferences_t p;reader_input_export(&p);

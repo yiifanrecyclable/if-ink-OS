@@ -114,6 +114,22 @@ static inline void profiles_remove(transfer_wifi_profiles_t *p,const char *ssid)
     clear_secret(p,sizeof(*p));*p=result;clear_secret(&result,sizeof(result));
 }
 
+// 候选只保存记录索引和信号强度；同名多AP去重，信号相同按历史顺序。/ Candidates contain only profile indices and RSSI; deduplicate APs and break ties by history order.
+typedef struct {uint8_t count,order[TRANSFER_WIFI_PROFILE_MAX];int8_t rssi[TRANSFER_WIFI_PROFILE_MAX];} transfer_wifi_candidates_t;
+static inline void profiles_offer_candidate(const transfer_wifi_profiles_t *profiles,transfer_wifi_candidates_t *out,const read_pico_transfer_network_t *ap){
+    int index=profiles_find(profiles,ap->ssid);
+    if(index<0||!ap->supported||ap->requires_password!=(profiles->entries[index].password[0]!=0))return;
+    unsigned at=0;while(at<out->count&&out->order[at]!=index)++at;
+    if(at<out->count){if(ap->rssi<=out->rssi[at])return;}
+    else{if(out->count>=TRANSFER_WIFI_PROFILE_MAX)return;++out->count;}
+    out->order[at]=(uint8_t)index;out->rssi[at]=ap->rssi;
+    while(at&&(out->rssi[at]>out->rssi[at-1]||(out->rssi[at]==out->rssi[at-1]&&out->order[at]<out->order[at-1]))){
+        uint8_t order=out->order[at-1];int8_t rssi=out->rssi[at-1];
+        out->order[at-1]=out->order[at];out->rssi[at-1]=out->rssi[at];out->order[at]=order;out->rssi[at]=rssi;--at;
+    }
+}
+static inline int profiles_candidate_for_attempt(const transfer_wifi_candidates_t *c,unsigned attempt){return c->count&&attempt?c->order[(attempt-1)%c->count]:-1;}
+
 static void scan_offer(read_pico_transfer_network_t out[READ_PICO_TRANSFER_SCAN_MAX], size_t *count,
                        const read_pico_transfer_network_t *candidate) {
     if (!candidate->ssid[0]) return;

@@ -27,6 +27,7 @@
 #include "app_registry.h"
 #include "app_transfer_mode.h"
 #include "settings.h"
+#include "time_service.h"
 #include "read_pico_pmu.h"
 #include "read_pico_pmu_protocol.h"
 #include "read_pico_transfer.h"
@@ -906,9 +907,9 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         int title_px=ui_text_fit_px(UI_TEXT_TITLE,"if-ink OS",196,48);
         ui_text_fixed_vc(fb,36,center,title_px,"if-ink OS",EPD_DRAW_ALIGN_LEFT,false);
         int version_x=36+ui_text_fixed_width_px(title_px,"if-ink OS")+12;
-        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.1.1",92,48);
-        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.1.1",EPD_DRAW_ALIGN_LEFT,false);
-        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.1.1")-24;
+        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.1.2",92,48);
+        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.1.2",EPD_DRAW_ALIGN_LEFT,false);
+        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.1.2")-24;
         const char *slogan="支持md文档的Pico固件";
         int slogan_px=ui_text_fit_px(UI_TEXT_CAPTION,slogan,width,48);
         ui_text_fixed_vc_gray(fb,648,center,slogan_px,slogan,EPD_DRAW_ALIGN_RIGHT,8,15);
@@ -943,7 +944,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
                   reading_icons, reading_labels, reading_values, SETTINGS_DISPLAY_ROWS);
     const char *device_labels[] = {"日期与时间", "关机与休眠", "电池管理", "保存与恢复", "固件信息", "BOOT 刷机"};
     const char *device_values[] = {"设置  ›", app_settings_staged_shutdown() ? "先浅后深  ›" : "彻底断电  ›",
-                                   "查看  ›", "配置  ›", "v0.1.1  ›", "电脑刷机  ›"};
+                                   "查看  ›", "配置  ›", "v0.1.2  ›", "电脑刷机  ›"};
     static const int device_icons[] = {6, 9, 13, 8, 14, 11};
     setting_group(fb, SETTINGS_DEVICE_Y - 34, "系统与设备", SETTINGS_DEVICE_Y,
                   device_icons, device_labels, device_values, SETTINGS_DEVICE_ROWS);
@@ -1020,6 +1021,7 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
     uint32_t utc = 0;
     read_pico_transfer_status_t network = {0};
     read_pico_transfer_get_status(&network);
+    app_time_service_stop();
     esp_err_t err = read_pico_transfer_sync_time(&utc);
     bool network_time_received = err == ESP_OK;
     if (network_time_received) {
@@ -1426,6 +1428,12 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     return APP_REDRAW_NONE;
 }
 static app_redraw_t on_key(app_ctx_t *ctx, int key) {
+    if(key!=1&&(s_page==SETTINGS_SYSTEM_FONT||s_page==SETTINGS_QUOTE_FONT||s_page==SETTINGS_WALLPAPER)){
+        int *page=s_page==SETTINGS_WALLPAPER?&s_wallpaper_page:&s_font_page;
+        int rows=s_page==SETTINGS_WALLPAPER?wallpaper_rows():font_list_rows();
+        int count=s_page==SETTINGS_WALLPAPER?s_wallpaper_count:ttf_font_count()+1;
+        if(count>rows){int next=*page+(key==0?-1:1);if(next<0||next*rows>=count)return APP_REDRAW_NONE;*page=next;return APP_REDRAW_PAGE;}
+    }
     if(s_page==SETTINGS_ONLINE_UPDATE){
         online_close();s_online_pending=s_online_confirm=false;
         if(key==1)ui_nav_request(ctx,0);else s_page=SETTINGS_FIRMWARE_INFO;

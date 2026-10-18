@@ -30,6 +30,7 @@
 #include <string.h>
 #include <time.h>
 #include "battery_history.h"
+#include "time_service.h"
 
 #include "app_registry.h"
 #include "app_content_open.h"
@@ -708,6 +709,8 @@ void app_loop_run(const app_loop_config_t* config) {
                 else app_present(&ctx,current,APP_REDRAW_PAGE);
             }
         }
+        app_time_service_poll(ctx.now_ms,err==ESP_OK&&!touch.touched&&!ctx.released&&!ctx.consumed&&
+            !power_dialog_open&&!usb_storage_active()&&!current->holds_pmu);
         vTaskDelay(pdMS_TO_TICKS(LOOP_TICK_MS));
     }
 }

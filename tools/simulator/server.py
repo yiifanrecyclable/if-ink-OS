@@ -261,7 +261,8 @@ class Preview:
         if info.get('book_view', -1) >= 0:
             n = info['book_view']
             panel = info['reader_panel'] if n == 1 else 0
-            mask = 100 if info['reader_fullscreen'] else panel
+            # 全屏偏好不应盖过正在编辑的面板。/ A fullscreen preference must not hide the active settings panel.
+            mask = panel if panel else 100 if info['reader_fullscreen'] else 0
             if n == 0:
                 self.state['screen']='book-0'
             elif n == 1:

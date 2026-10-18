@@ -67,6 +67,9 @@ int simulator_reader_margin(void){return body_rect().x;}
 size_t simulator_reader_offset(void){return reader_page_offset(s_page);}
 int simulator_reader_progress_geometry(unsigned index){return index==0?reader_progress_y():index==1?reader_actions_y():reader_actions_height();}
 int simulator_reader_control_geometry(unsigned index){return index==0?reader_control_top():index==1?reader_row_height():reader_control_rows();}
+int simulator_reader_layout(void){return s_reader_fullscreen?(s_reader_immersive?2:1):0;}
+int simulator_reader_tap_layout(void){return reader_input_tap_layout();}
+int simulator_markdown_slider_y(unsigned index){EpdRect r=reader_markdown_row((int)index);return r.y+(index?98:54)+26;}
 unsigned simulator_reader_perf(unsigned i){return i==0?s_sim_event_draws:i==1?s_sim_event_loads:i==2?s_sim_area_updates:s_sim_area_violations;}
 int simulator_toc_percent(void){return s_toc_jump_percent;}
 bool simulator_toc_drag(void){return s_toc_jump_drag;}
@@ -80,7 +83,7 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
    // -1是跨页面打开的续读请求；按原文字节位置重排，不用界面的默认第0页覆盖它。
    // -1 requests resume across app routes; reflow the saved text offset instead of overriding it with UI page zero.
    size_t resume_offset=reader_page_offset(s_page);
-   s_reader_fullscreen=panel==100||app_settings_reader_fullscreen();if(book_kind()!=BOOK_KIND_MARKDOWN)s_px=px;
+   s_reader_fullscreen=panel==100||app_settings_reader_fullscreen();s_reader_immersive=app_settings_reader_immersive();if(book_kind()!=BOOK_KIND_MARKDOWN)s_px=px;
    if(!load_chapter(&ctx,s_chapter,page<0?resume_offset:0,false))return 0;
    if(page>=0)s_page=(size_t)page;
    if(s_page>=book_layout_page_count())s_page=book_layout_page_count()-1;prepare_inline_image();
@@ -89,7 +92,7 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  if(view==TOC)app_font_activate_system();
  s_view=(book_view_t)view;s_reader_panel=view==READING?(reader_panel_t)panel:READER_PANEL_NONE;
  if(view==DOCUMENTS||view==DOCUMENT_BULK)s_document_mode=true;
- s_reader_fullscreen=panel==100||app_settings_reader_fullscreen();if(panel==100)s_reader_panel=READER_PANEL_NONE;
+ s_reader_fullscreen=panel==100||app_settings_reader_fullscreen();s_reader_immersive=app_settings_reader_immersive();if(panel==100)s_reader_panel=READER_PANEL_NONE;
  if(view==TOC){s_toc_jump_open=panel==1;s_toc_jump_percent=45;}
  if(s_count){s_managed=s_shelf[0];snprintf(s_editor_title,sizeof(s_editor_title),"%s",s_managed.name);}
  if(view==EDIT)editor_start();

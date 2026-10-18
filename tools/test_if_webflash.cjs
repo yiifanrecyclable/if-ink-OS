@@ -9,7 +9,8 @@ const vm = require('node:vm');
 const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 const site = process.argv[2] || path.join(root, 'public/if-edition');
-const folder = path.join(site, 'webflash/0.1.1');
+const version = process.argv[3] || '0.1.2';
+const folder = path.join(site, 'webflash', version);
 const manifest = JSON.parse(fs.readFileSync(path.join(folder, 'manifest.json')));
 const dialog = fs.readFileSync(path.join(site, 'webflash/vendor/esp-web-tools-if-v1/install-dialog-im156JnI.js'), 'utf8');
 const original = fs.readFileSync(path.join(root, 'flash/vendor/web/install-dialog-im156JnI.js'), 'utf8');
@@ -45,7 +46,7 @@ for (const [i, part] of manifest.builds[0].parts.entries()) {
 const source = fs.readFileSync(path.join(site, 'webflash/installer.js'), 'utf8');
 async function entry(change = {}) {
   let imported = 0, serialRequested = 0;
-  const button = { hidden: true, getAttribute: () => './webflash/0.1.1/manifest.json' };
+  const button = { hidden: true, getAttribute: () => `./webflash/${version}/manifest.json` };
   const status = { textContent: '' };
   const config = structuredClone(manifest);
   if (change.mutate) change.mutate(config);

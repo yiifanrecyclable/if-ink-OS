@@ -8,6 +8,7 @@ set(main_requires
     espressif__cjson
     espressif__expat
     esp_http_client
+    esp_netif
     read_pico
     read_pico_transfer
     read_pico_search
@@ -41,6 +42,7 @@ idf_component_register(
         "display.c"
         "sleep.c"
         "settings.c"
+        "time_service.c"
         "power/battery_history.c"
         "app/app_loop.c"
         "app/app_registry.c"

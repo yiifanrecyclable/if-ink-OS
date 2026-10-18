@@ -64,6 +64,8 @@ enum EpdDrawError update_display_white(EpdiyHighlevelState* hl);
 enum EpdDrawError update_display_full(EpdiyHighlevelState* hl);
 /// 图片页清除旧光学状态，再驱动完整灰阶。/ Clear the prior optical state and drive the full gray ladder for images.
 enum EpdDrawError update_display_image_gray(EpdiyHighlevelState* hl);
+/// 首页单轮完整灰阶重建，覆盖导航栏且不独立擦白。/ Rebuild Home and its navigation in one full grayscale target pass without a separate clear.
+enum EpdDrawError update_display_home_clean(EpdiyHighlevelState* hl);
 enum EpdDrawError update_display_with(
     EpdiyHighlevelState* hl, const EpdWaveform* waveform, enum EpdDrawMode mode
 );

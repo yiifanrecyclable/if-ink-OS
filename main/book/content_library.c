@@ -207,3 +207,16 @@ esp_err_t content_markdown_sizes_set(const uint8_t sizes[4]) {
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h); return err;
 }
+
+const char *content_markdown_font(void){
+    static char path[CONTENT_MARKDOWN_FONT_BYTES];size_t n=sizeof(path);nvs_handle_t h;
+    if(nvs_open("if_content",NVS_READONLY,&h)==ESP_OK){esp_err_t e=nvs_get_str(h,"md_font",path,&n);nvs_close(h);
+        if(e==ESP_OK&&content_markdown_font_valid(path))return path;}
+    return "";
+}
+bool content_markdown_font_valid(const char *path){return path&&path[0]&&strlen(path)<CONTENT_MARKDOWN_FONT_BYTES&&(!strcmp(path,"builtin")||content_home_quote_font_valid(path));}
+esp_err_t content_markdown_font_set(const char *path){
+    if(!content_markdown_font_valid(path))return ESP_ERR_INVALID_ARG;
+    nvs_handle_t h;esp_err_t e=nvs_open("if_content",NVS_READWRITE,&h);if(e!=ESP_OK)return e;
+    e=nvs_set_str(h,"md_font",path);if(e==ESP_OK)e=nvs_commit(h);nvs_close(h);return e;
+}

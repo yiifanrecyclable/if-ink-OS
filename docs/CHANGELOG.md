@@ -4,6 +4,18 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 2026-10-18 · Codex · if-ink OS v0.1.2
+
+- 修复独立Markdown字体未纳入配置备份校验而导致备份失败的问题；恢复后保留文档字体和基础操作分区。 / Include the independent Markdown font in validated backups and retain document fonts and tap layouts after restore.
+- 启动联网功能时扫描附近已保存WiFi，优先较强信号，失败时轮换候选，保留手动选网；修复失败后重新进入功能页不能重连的问题。 / Scan for nearby saved WiFi at network startup, prefer stronger signals and rotate failed candidates while honoring explicit choices; recover failed sessions on reentry.
+- 阅读面板第三个快捷按钮切换当前页“添加书签／取消书签”，底部“书签”改为打开书签列表。 / Toggle the current bookmark with the third quick action; open the bookmark list from the footer.
+- 移除阅读面板四个快捷按钮上方的横向分割线。 / Remove the horizontal rule above the reader panel's four quick actions.
+- 基础操作缩略图移除底纹、选择文字及比例说明，以留白间隔的深色外框指示选中布局。 / Simplify tap-layout diagrams with a separated dark selection frame and no texture or selection/ratio captions.
+- 扩大列表翻页触区，修复书架箭头刷新不完整，左右实体键可在多页列表中翻页。 / Enlarge pagination targets, cover complete shelf arrows during refresh, and paginate multi-page lists with side keys.
+- 阅读面板循环切换常规、普通全屏、沉浸全屏且保持展开；新增共享的横向或纵向点击分区和同步操作示例。面板背景淡化并加细渐变阴影。 / Cycle three persistent layouts without dismissing controls; share column/row tap regions with guidance, fade the backdrop and add a narrow shadow.
+- 文档文字设置合为一页，三级标题实时预览、正文示例及独立字体保存。 / Consolidate Markdown typography into one page with live heading labels, a body sample and independent font persistence.
+- 首页强刷改为单轮完整灰阶目标输出；采用较稳定的RTC分频源及仅利用已连接WiFi的空闲后台校时。WiFi/热点选择页精简文案并统一图标。实际残影和走时效果待真机验证。 / Use one full-grayscale target scan for Home; adopt the divided RTC source and idle time calibration over existing WiFi. Simplify transfer choices and align icons. Optical results and clock drift still require hardware validation.
+
 ## 2026-10-16 · Codex · if-ink OS v0.1.1
 
 - 首页最近阅读标题行右侧增加注释字号的“markdown文档”，右对齐。 / Add a right-aligned caption label for recent Markdown documents.

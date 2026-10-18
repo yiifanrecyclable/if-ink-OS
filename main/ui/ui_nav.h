@@ -12,7 +12,8 @@
 #define UI_NAV_HEIGHT 80
 #define UI_NAV_TOP (UI_LOCK_HEIGHT - UI_NAV_HEIGHT)
 // 分页触区与导航栏间留出安全间隔。/ Leave a safe gap between pagination targets and navigation.
-#define UI_NAV_PAGER_TOP (UI_NAV_TOP - 74)
+#define UI_NAV_PAGER_TOP (UI_NAV_TOP - 88)
+#define UI_NAV_SHADOW_DEPTH 7
 #define UI_NAV_ACTIVE_GRAY 0x44
 #define UI_NAV_INACTIVE_GRAY 0x88
 #define UI_NAV_BACK_BORDER_GRAY 0x58

@@ -48,6 +48,22 @@ int main(void){
     reader_input_export(&legacy);legacy.actions[8]=READER_ACTION_NEXT;legacy.actions[11]=READER_ACTION_PANEL;
     assert(reader_input_import(&legacy)==ESP_OK);reader_input_export(&legacy);
     assert(legacy.actions[8]==0&&legacy.actions[11]==0&&sizeof(legacy)==14);
+    // 新布局复用已退役槽，旧备份仍按默认列布局迁移。/ Reuse a retired slot; legacy backups retain the column default.
+    assert(reader_input_tap_layout()==READER_TAP_COLUMNS);
+    assert(reader_input_set_tap_layout(READER_TAP_ROWS)==ESP_OK);
+    s_loaded=false;assert(reader_input_tap_layout()==READER_TAP_ROWS);
+    reader_input_export(&p);assert(p.version==2&&p.actions[8]==1&&reader_input_preferences_valid(&p));
+    p.actions[8]=2;assert(reader_input_import(&p)==ESP_ERR_INVALID_ARG);
+    fail_commit=true;assert(reader_input_set_tap_layout(READER_TAP_COLUMNS)==ESP_FAIL);
+    assert(reader_input_tap_layout()==READER_TAP_ROWS);fail_commit=false;
+    for(int layout=0;layout<2;++layout){
+        int coverage=0;
+        for(int z=0;z<3;++z){reader_tap_region_t r=reader_input_tap_region(layout,z,684,1056);assert(r.width>0&&r.height>0);coverage+=r.width*r.height;}
+        assert(coverage==684*1056);
+    }
+    reader_tap_region_t middle=reader_input_tap_region(READER_TAP_ROWS,1,684,1000);
+    assert(middle.y==300&&middle.height==200);
+    assert(reader_input_import(&legacy)==ESP_OK&&reader_input_tap_layout()==READER_TAP_COLUMNS);
     reader_multi_t m={0};
     assert(reader_multi_feed(&m,true,true,2,100,200,300,200,0)==-1);
     assert(reader_multi_feed(&m,true,true,1,100,200,0,0,100)==-1&&m.active);

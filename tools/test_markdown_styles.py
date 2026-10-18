@@ -17,21 +17,22 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='md-styles-') as temp:
         return json.loads(p.stdout),(out/'frame.bin').read_bytes()
     info,body=render();assert info['markdown_sizes']==[48,72,64,56] and info['reader_px']==48
     assert info['pages']>3 and info['toc_count']==1
-    info,preview=render(2,tap(340,779));assert info['reader_panel']==11
+    info,preview=render(2);assert info['reader_panel']==2
     # 拖动时只改预览；取消不保存；松手才保存一次并更新分页。/ Draft-only drag, cancel and release commit.
     prefs=out/'nvs/if_content/md_sizes'
-    press='p,360,720,360,720';move='m,360,720,584,720';release='r,360,720,584,720'
+    y=info['markdown_slider_y'][0]
+    press=f'p,360,{y},360,{y}';move=f'm,360,{y},584,{y}';release=f'r,360,{y},584,{y}'
     info,draft=render(11,press+';'+move);assert info['markdown_sizes'][0]==72 and info['reader_px']==48 and not prefs.exists()
-    assert draft[230*342:640*342]!=preview[230*342:640*342]
+    assert draft[936*342:1036*342]!=preview[936*342:1036*342]
     info,_=render(11,press+';'+move+';c,360,720,584,720');assert info['reader_px']==48 and info['markdown_sizes'][0]==48 and not prefs.exists()
     info,_=render(11,press+';'+move+';'+release);assert info['reader_px']==72 and info['markdown_committed'] and prefs.read_bytes()==bytes([72,72,64,56])
     info,_=render();assert info['reader_px']==72 and not info['markdown_committed']
     # H1/H2/H3 separately persist without overwriting body or book sizes.
-    for i,y in enumerate((828,936,1044),1):
+    for i,y in enumerate(info['markdown_slider_y'][1:],1):
         info,_=render(11,tap(40,y));assert info['markdown_sizes'][i]==[72,71,63,55][i] and info['markdown_committed']
     assert prefs.read_bytes()==bytes([72,71,63,55])
     info,_=render(path='/sdcard/books/Test.txt');assert info['reader_px']==48
-    assert render(11,tap(340,1163))[0]['reader_panel']==2
+    assert render(11,tap(340,1183))[0]['reader_panel']==2
     # Reading offsets survive size changes, even though the page count changes.
     prefs.write_bytes(bytes([48,72,64,56]));info,_=render(11,press+';'+move+';'+release,page=2)
     assert info['reader_page']>0 and info['reader_progress']>0

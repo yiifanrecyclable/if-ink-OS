@@ -41,7 +41,7 @@ void ui_nav_wifi_icon(uint8_t *fb, int cx, int cy, int size, uint8_t gray) {
 // 用五档原生灰阶从白边渐淡至按钮底色；转角不叠加加深。
 // Fade five native gray levels from the white edge into the button background without double-darkening corners.
 static void nav_recess_shadow(uint8_t *fb, int left, int width, bool white_left, bool white_right) {
-    const int reach = 7;
+    const int reach = UI_NAV_SHADOW_DEPTH;
     for (int d = 0; d < reach; ++d) {
         int shade = 4 - 4 * d / (reach - 1);
         uint8_t gray = UI_NAV_INACTIVE_GRAY - shade * 0x11;
@@ -74,11 +74,11 @@ void ui_nav_draw(uint8_t *fb, int active) {
 }
 
 EpdRect ui_nav_pager_rect(int direction) {
-    return (EpdRect){direction<0?36:604,UI_NAV_PAGER_TOP,44,50};
+    return (EpdRect){direction<0?16:568,UI_NAV_PAGER_TOP,100,64};
 }
 void ui_nav_draw_pager(uint8_t *fb,int count,const char *unit,int page,int pages) {
     char label[80];snprintf(label,sizeof(label),"%d%s · %02d/%02d",count,unit,page+1,pages);
-    int y=UI_NAV_PAGER_TOP+24,px=ui_text_fit_px(UI_TEXT_CAPTION,label,484,44);
+    int y=UI_NAV_PAGER_TOP+38,px=ui_text_fit_px(UI_TEXT_CAPTION,label,444,44);
     ui_text_fixed_vc(fb,342,y,px,label,EPD_DRAW_ALIGN_CENTER,false);
     ui_draw_icon(fb,58,y,28,UI_ICON_CHEVRON_LEFT,page>0?0:0x90);
     ui_draw_icon(fb,626,y,28,UI_ICON_CHEVRON_RIGHT,page+1<pages?0:0x90);

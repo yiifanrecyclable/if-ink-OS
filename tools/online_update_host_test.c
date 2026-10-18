@@ -10,6 +10,7 @@
 #include "../main/ota_online.c"
 #include "cJSON.h"
 static int fault,writes,begins,aborts,ends,boots,stops;
+void app_time_service_stop(void){}
 static bool online=true,boot_switched;
 static uint8_t image[1536];static char manifest[1024];static CC_SHA256_CTX digest;
 static const esp_app_desc_t current={.magic_word=ESP_APP_DESC_MAGIC_WORD,.version="0.1.0-test.2",.project_name=IF_OTA_PROJECT};
@@ -27,6 +28,7 @@ int64_t esp_timer_get_time(void){static int64_t t;t+=1000;return t;}
 void read_pico_transfer_get_status(read_pico_transfer_status_t *s){*s=(read_pico_transfer_status_t){.state=online?READ_PICO_TRANSFER_READY:READ_PICO_TRANSFER_STOPPED,.mode=READ_PICO_TRANSFER_MODE_STA,.network_ready=online};}
 esp_err_t read_pico_transfer_start(const read_pico_transfer_cfg_t *cfg){assert(cfg->network_only);online=true;return ESP_OK;}
 void read_pico_transfer_stop(void){++stops;online=false;}
+bool read_pico_transfer_try_stop_if_idle(void){read_pico_transfer_stop();return true;}
 void read_pico_transfer_service_poll(void){}
 esp_err_t read_pico_transfer_sync_time_online(uint32_t *out){*out=1900000000;return ESP_OK;}
 void cloud_get_status(cloud_status_t *out){memset(out,0,sizeof(*out));}

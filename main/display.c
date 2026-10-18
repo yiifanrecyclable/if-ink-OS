@@ -240,6 +240,15 @@ enum EpdDrawError update_display_image_gray(EpdiyHighlevelState* hl) {
     return result;
 }
 
+enum EpdDrawError update_display_home_clean(EpdiyHighlevelState* hl){
+    DISPLAY_GUARD;
+    use_scan_for(&E0470_FULL_WAVEFORM,MODE_GC16);
+    epd_poweron();epd_hl_waveform(hl,&E0470_FULL_WAVEFORM);
+    // 使用已知前帧，所有灰底像素都走完整波形，取消前置多轮擦白。/ Use the tracked prior frame and drive every gray pixel without a multi-pass white preclear.
+    enum EpdDrawError result=hl_update(hl,&E0470_FULL_WAVEFORM,MODE_GC16,true,NULL,false);
+    epd_hl_waveform(hl,&E0470_WAVEFORM);rails_keepalive();return result;
+}
+
 // 指定波形整屏刷一次，刷完把默认波形装回去。用来 A/B 两条灰阶表。
 // Present the whole screen with a given waveform, then restore the default. Used to A/B two gray tables.
 enum EpdDrawError update_display_with(

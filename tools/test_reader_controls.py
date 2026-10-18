@@ -18,8 +18,8 @@ with tempfile.TemporaryDirectory(prefix='reader-controls-',dir=ROOT/'build') as 
     (base/'build/simulator/vfs/flash/books/controls.txt').write_text('阅读测试。字体变化后继续这一段，避免阅读位置跳动。\n'*1800)
     (base/'titles.txt').write_text('')
     env={**os.environ,'PICO_SIM_CARD_ROOT':str(base/'card')}
-    def frame(events='',panel=0,page=1,path='/flash/books/controls.txt'):
-        args=[str(BINARY),'book-1',path,str(page),'48','build/simulator/frame.bin','titles.txt',str(panel),','.join(['0']*30),'builtin',events,'']
+    def frame(events='',panel=0,page=1,path='/flash/books/controls.txt',view=1):
+        args=[str(BINARY),f'book-{view}',path,str(page),'48','build/simulator/frame.bin','titles.txt',str(panel),','.join(['0']*30),'builtin',events,'']
         result=subprocess.run(args,cwd=base,env=env,capture_output=True,text=True,timeout=30)
         assert result.returncode==0,result.stderr[-1000:]
         return json.loads(result.stdout)
@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(prefix='reader-controls-',dir=ROOT/'build') as 
     shortcuts=frame(panel=12);rh=shortcuts['reader_controls_geometry'][1]
     bindings=frame(panel=13);bh=bindings['reader_controls_geometry'][1]
     assert shortcuts['reader_controls_geometry'][2]==8 and bindings['reader_controls_geometry'][2]==11
-    events=';'.join([tap(342,500),tap(615,1183),tap(200,220+rowh//2),tap(200,220+rh+rh//2),tap(180,220+3*bh+bh//2),'k,1,0,0,0','q,1,0,1,0'])
+    events=';'.join([tap(342,500),tap(615,1183),tap(200,220+rowh+rowh//2),tap(200,220+rh+rh//2),tap(180,220+3*bh+bh//2),'k,1,0,0,0','q,1,0,1,0'])
     state=frame(events)
     assert state['reader_shortcuts'][1]==3 and state['book_view']==2,state
     assert frame()['reader_shortcuts'][1]==3
@@ -71,14 +71,19 @@ with tempfile.TemporaryDirectory(prefix='reader-controls-',dir=ROOT/'build') as 
     assert (base/'build/simulator/nvs/read_pico/bk_para').read_bytes()==bytes([51])
     # 恢复基线边距，后续定位断言使用相同布局。/ Restore baseline layout for later anchor checks.
     frame(tap(100,sy),panel=3)
-    # 快速书签入口切换当前位置；列表入口只展示已有书签。/ Toggle current mark; list action does not mutate it.
-    toggle=tap(205,1180)
+    # 中部第三按钮切换当前页书签；底部入口只展示列表。/ The third quick action toggles the current page; the footer only opens the list.
+    ay,height=baseline['reader_progress_geometry'][1:]
+    toggle=tap(425,ay+height//2)
     state=frame(toggle,panel=1)
     assert state['reader_bookmark_count']==1 and state['reader_panel']==1
     assert frame(toggle,panel=1)['reader_bookmark_count']==0
-    ay,height=baseline['reader_progress_geometry'][1:]
-    state=frame(tap(425,ay+height//2),panel=1)
+    state=frame(tap(205,1180),panel=1)
     assert state['reader_panel']==7 and state['reader_bookmark_count']==0
+    for panel in (2,3,9):
+        state=frame(tap(205,1180),panel=panel)
+        assert state['reader_panel']==7 and state['reader_bookmark_count']==0
+    state=frame(tap(205,1180),view=2)
+    assert state['book_view']==1 and state['reader_panel']==7 and state['reader_bookmark_count']==0
     # 绑定冲突经生产页面拦截，原手势保持有效。/ Reject conflicting action selection in the real UI.
     state=frame(tap(180,220+rh//2)+';'+tap(180,220+3*bh+bh//2),panel=12)
     assert state['reader_panel']==13 and state['reader_shortcuts'][0]==0 and state['reader_shortcuts'][1]==3
@@ -107,20 +112,25 @@ with tempfile.TemporaryDirectory(prefix='reader-controls-',dir=ROOT/'build') as 
     assert frame(held+';'+raw('e',495,py),panel=1)['reader_progress']>=73
     multi=';'.join([raw('b',342,py),raw('v',495,py),raw('n',495,py),raw('e',495,py)])
     assert frame(multi,panel=1)['reader_offset']==offset
-    state=frame(';'.join([raw('b',205,1180),raw('e',205,1180)]),panel=1)
+    state=frame(';'.join([raw('b',425,ay+height//2),raw('e',425,ay+height//2)]),panel=1)
     assert state['reader_bookmark_count']==1 and state['reader_panel']==1
     frame(toggle,panel=1)
     # 主面板四个操作，更多页面的定期全刷无手动强刷入口。/ Exercise fullscreen, refresh and shifted More settings.
-    assert frame(tap(255,ay+height//2),panel=1)['reader_fullscreen']
+    state=frame(tap(255,ay+height//2),panel=1)
+    assert state['reader_layout']==1 and state['reader_panel']==1
     (base/'build/simulator/vfs/flash/books/second.txt').write_text('第二本图书阅读测试。'*100)
     (base/'card/markdown').mkdir(parents=True,exist_ok=True)
     (base/'card/markdown/second.md').write_text('# 文档\n\n全屏跨文档保留。'*80)
     assert frame(path='/flash/books/second.txt')['reader_fullscreen']
     assert frame(path='/sdcard/markdown/second.md')['reader_fullscreen']
-    assert not frame(tap(255,ay+height//2),panel=1)['reader_fullscreen']
+    state=frame(tap(255,ay+height//2),panel=1)
+    assert state['reader_layout']==2 and state['reader_panel']==1
+    assert frame(path='/sdcard/markdown/second.md')['reader_layout']==2
+    state=frame(tap(255,ay+height//2),panel=1)
+    assert state['reader_layout']==0 and state['reader_panel']==1
     assert not frame(path='/flash/books/second.txt')['reader_fullscreen']
     assert frame(tap(595,ay+height//2),panel=1)['reader_panel']==0
-    state=frame(tap(160,220+2*rowh+rowh//2),panel=9)
+    state=frame(tap(160,220+3*rowh+rowh//2),panel=9)
     assert state['reader_panel']==9
     # 阅读线列表直接选择样式，使用真实设置持久化。/ Select preview rows through production persistence.
     rule=base/'build/simulator/nvs/read_pico/bk_rule'
