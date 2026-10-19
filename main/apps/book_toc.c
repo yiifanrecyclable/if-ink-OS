@@ -14,7 +14,7 @@
 #include "ui_kit.h"
 #include "ui_nav.h"
 
-enum { TOC_LEFT = 36, TOC_RIGHT = 648, TOC_ROW_TOP = 252,
+enum { TOC_LEFT = 36, TOC_RIGHT = 648, TOC_ROW_TOP = UI_PAGE_Y(252),
        TOC_ROW_STEP = 108, TOC_ROW_HEIGHT = 94 };
 
 static int toc_step(void){int height=ui_list_row_height(true);return height<108?108:height;}
@@ -126,18 +126,18 @@ void book_toc_render(uint8_t *fb, const char *book_title, size_t chapters,
     ui_clear_page(fb);
     epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_LOCK_HEIGHT}, UI_GRAY_WHITE, fb);
     ui_nav_status(fb);
-    ui_nav_back(fb, TOC_LEFT, 79);
-    ui_text_fixed(fb, 342, 93, ui_text_effective_px(UI_TEXT_TITLE), "目录", EPD_DRAW_ALIGN_CENTER, false);
+    ui_nav_back(fb, TOC_LEFT, UI_PAGE_Y(79));
+    ui_text_fixed(fb, 342, UI_PAGE_Y(93), ui_text_effective_px(UI_TEXT_TITLE), "目录", EPD_DRAW_ALIGN_CENTER, false);
 
     char title[160];
     one_line(title, sizeof(title), book_title ? book_title : "");
     if (!title[0]) strcpy(title, "当前书籍");
     fit_line(title, ui_text_effective_px(UI_TEXT_CAPTION), 445);
-    ui_text_fixed(fb, TOC_LEFT, 169, ui_text_effective_px(UI_TEXT_CAPTION), title, EPD_DRAW_ALIGN_LEFT, false);
+    ui_text_fixed(fb, TOC_LEFT, UI_PAGE_Y(169), ui_text_effective_px(UI_TEXT_CAPTION), title, EPD_DRAW_ALIGN_LEFT, false);
     char total[48];
     snprintf(total, sizeof(total), "%u 节", (unsigned)chapters);
-    ui_text_fixed(fb, TOC_RIGHT, 169, ui_text_effective_px(UI_TEXT_CAPTION), total, EPD_DRAW_ALIGN_RIGHT, false);
-    epd_fill_rect((EpdRect){TOC_LEFT, 213, TOC_RIGHT - TOC_LEFT, 2}, 0x68, fb);
+    ui_text_fixed(fb, TOC_RIGHT, UI_PAGE_Y(169), ui_text_effective_px(UI_TEXT_CAPTION), total, EPD_DRAW_ALIGN_RIGHT, false);
+    epd_fill_rect((EpdRect){TOC_LEFT, UI_PAGE_Y(213), TOC_RIGHT - TOC_LEFT, 2}, 0x68, fb);
 
     if (message && *message) {
         char info[160]; one_line(info, sizeof(info), message); fit_line(info, 23, 540);

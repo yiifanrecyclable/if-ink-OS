@@ -73,6 +73,14 @@ int simulator_markdown_slider_y(unsigned index){EpdRect r=reader_markdown_row((i
 unsigned simulator_reader_perf(unsigned i){return i==0?s_sim_event_draws:i==1?s_sim_event_loads:i==2?s_sim_area_updates:s_sim_area_violations;}
 int simulator_toc_percent(void){return s_toc_jump_percent;}
 bool simulator_toc_drag(void){return s_toc_jump_drag;}
+// 宿主每帧完成有限个空闲封面任务；硬件仍一次只处理一张。
+// Settle a bounded number of idle cover jobs per host frame; hardware keeps one job per idle tick.
+static void simulator_settle_covers(app_ctx_t *ctx){
+ if(s_view!=SHELF&&s_view!=MANAGE)return;
+ book_view_t view=s_view;s_view=SHELF;prepare_covers(ctx);
+ for(int i=0;i<BOOK_ROWS&&s_cover_pending_mask;++i)(void)on_tick(ctx);
+ s_view=view;
+}
 size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char *path,const char *events){
  if(panel==6||panel==8)panel=READER_PANEL_TOOLS;
  if(panel==10)panel=READER_PANEL_SHORTCUTS;
@@ -97,14 +105,14 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  if(s_count){s_managed=s_shelf[0];snprintf(s_editor_title,sizeof(s_editor_title),"%s",s_managed.name);}
  if(view==EDIT)editor_start();
  if(view==SEARCH){s_search_parent=BULK;ui_text_input_open(&s_search_input,s_search_draft,sizeof(s_search_draft),true,false,UI_INPUT_ENGLISH);}
- render(&ctx,fb);s_presented_view=s_view;
+ simulator_settle_covers(&ctx);render(&ctx,fb);s_presented_view=s_view;
  unsigned draws=s_sim_reader_draws,loads=ttf_sim_font_loads;
  simulator_replay(&ctx,simulator_reader_event,on_key,events);
  s_sim_event_draws=s_sim_reader_draws-draws;s_sim_event_loads=ttf_sim_font_loads-loads;
  // 宿主每帧是独立进程；退出前保存内存中的当前位置，模拟真机离页的保存边界。
  // Each host frame is a separate process; persist its current position to model the hardware leave-page save boundary.
  if(s_text&&(s_view==READING||s_view==TOC))save_progress();
- render(&ctx,fb);
+ simulator_settle_covers(&ctx);render(&ctx,fb);
  if(ctx.request_app)simulator_route=app_index_of(ctx.request_app);
  simulator_toc_jump=s_toc_jump_open;simulator_book_view=s_view;simulator_reader_panel=s_reader_panel;simulator_reader_fullscreen=s_reader_fullscreen;simulator_reader_page=s_view==READING?s_page:ctx.leaf;simulator_reader_px=s_px;
  size_t pages=s_view==READING?book_layout_page_count():(size_t)leaves();
@@ -121,3 +129,9 @@ int simulator_document_row_height(void){return document_row_step();}
 int simulator_management_rows(void){return management_rows();}
 
 const char *simulator_document_page_first(void){return simulator_document_item((unsigned)(simulator_reader_page*document_rows()));}
+
+int simulator_shelf_geometry(unsigned row,unsigned part){
+ if(row>=(unsigned)shelf_rows())return 0;EpdRect card=row_rect((int)row),image=shelf_image_rect(card,(int)row),track=shelf_progress_rect(card);
+ int fields[]={card.x,card.y,card.width,card.height,image.x,image.y,image.width,image.height,(int)s_covers[row].width,(int)s_covers[row].height,track.x,track.y,track.width,track.height};
+ return part<14?fields[part]:0;
+}

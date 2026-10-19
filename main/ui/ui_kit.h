@@ -80,6 +80,12 @@ extern "C" {
 
 // 固定页眉带：所有页的标题、副标题、分隔线都在同一组 y 上，翻页时标题不跳。
 // Fixed header band: title, subtitle and rule share the same y so they do not jump on page change.
+// 全页共用56px状态栏；旧绝对定位正文统一上移24px，底部控件保持锚定。
+// Share a 56px status band; raise legacy body anchors by 24px while keeping bottom controls anchored.
+#define UI_STATUS_HEIGHT 56
+#define UI_STATUS_CENTER_Y 30
+#define UI_PAGE_Y(legacy_y) ((legacy_y) - (80 - UI_STATUS_HEIGHT))
+
 #define UI_HEADER_TITLE_Y 32
 #define UI_HEADER_SUB_Y 104
 #define UI_HEADER_RULE_Y 152

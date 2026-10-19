@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
         p=subprocess.run([str(ROOT/'build/simulator/cloud-host'),*args],cwd=work,env=env,capture_output=True,text=True,timeout=30)
         assert p.returncode==0,p.stderr;result=json.loads(p.stdout);assert not result.get('error');return result
     def names(result,field):return [Path(p).name for p in result[field] if p]
-    sort_open=tap(600,121);done=tap(490,774);doc_done=tap(490,774);name=tap(200,364);progress=tap(490,364)
+    sort_open=tap(600,92);done=tap(490,774);doc_done=tap(490,774);name=tap(200,364);progress=tap(490,364)
     dates=tap(200,458);recent=tap(490,458);direction=tap(342,563);marked=tap(342,649);only=tap(342,735) # Retired control positions / 已取消控件的旧坐标
     assert render(0,sort_open)['content_sort_open']
     assert render(0)['book_view']==0
@@ -77,10 +77,14 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     # Check native grid captions and number-free bars using only the private test card.
     grid=(build/'frame.bin').read_bytes()
     def tone(frame,x,y):return (frame[y*342+x//2]>>(4 if x%2 else 0))&15
-    assert [tone(grid,x,433) for x in range(62,210)]==[12]*148
-    assert [tone(grid,x,433) for x in range(472,620)]==[0]*49+[12]*99
-    assert any(tone(grid,x,y)==0 for y in range(439,482) for x in range(40,224))
-    assert all(tone(grid,22,top+136)==14 for top in (224,488,752))
+    geometries=b['shelf_geometry']
+    for index,progress_value in ((0,0),(2,33)):
+        cell=geometries[index];x,y,w,h=cell[10:14]
+        shades=[tone(grid,xx,y+1) for xx in range(x,x+w)]
+        filled=(w+2)//3 if progress_value else 0
+        assert shades==[0]*filled+[12]*(w-filled),(index,shades)
+    cell=geometries[0];x,y,w,h=cell[10:14]
+    assert any(tone(grid,xx,yy)==0 for yy in range(y+h+8,min(y+h+72,1048)) for xx in range(cell[0],cell[0]+cell[2]))
     assert render(8)['document_sort_mode']==0
     d=render(8,events(sort_open,progress,direction,doc_done));assert names(d,'document_items')[0]=='B.md'
     assert render(0)['book_sort_mode']==1
@@ -98,8 +102,8 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     command('progress-save','/sdcard/books/Book2.txt')
     b=render(0,events(sort_open,recent,done));assert names(b,'book_items')[0]=='Book2.txt'
     render(8,events(sort_open,name,doc_done))
-    assert render(0,events(tap(490,121)))['book_view']==4
-    assert render(8,events(tap(490,121)))['book_view']==9
+    assert render(0,events(tap(490,92)))['book_view']==4
+    assert render(8,events(tap(490,92)))['book_view']==9
     # 旧星标数据既不显示，也不影响排序或隐藏正文。/ Legacy stars neither render nor filter documents.
     render(8);plain_docs=(build/'frame.bin').read_bytes()
     old_stars=card/'markdown/.index/B.md.prefs';old_stars.write_text('pico-md-prefs-1\n2\n')
@@ -110,7 +114,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     # 文档与图书复用同样的详情卡；卡片之外保留原文档列表。
     # Documents use the same detail card, leaving the surrounding list unchanged.
     render(8);doc_frame=(build/'frame.bin').read_bytes()
-    doc_details='l,340,446,340,446';doc_popup=render(8,doc_details);assert doc_popup['document_menu']
+    doc_details='l,340,350,340,350';doc_popup=render(8,doc_details);assert doc_popup['document_menu']
     popup_frame=(build/'frame.bin').read_bytes()
     for y in range(60,1216):
         a=doc_frame[y*342:(y+1)*342];b=popup_frame[y*342:(y+1)*342]
@@ -122,9 +126,9 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     assert render(8,events(doc_details,tap(430,1176)))['route']!=2
     # 重排后继续操作仍绑定同篇文档；清进度有确认，保留正文和图片。
     # Sorting does not change the modal target; clearing progress needs confirmation and preserves content.
-    render(8,events('l,340,264,340,264',doc_pin,doc_pin,close))
+    render(8,events('l,340,190,340,190',doc_pin,doc_pin,close))
     assert (card/'markdown/.index/C.md.prefs').read_text()=='pico-md-prefs-1\n1\n'
-    single_clear=events('l,340,446,340,446',tap(342,837))
+    single_clear=events('l,340,350,340,350',tap(342,837))
     render(8,events(single_clear,tap(186,837),close));assert command('progress-load','/sdcard/markdown/B.md')['present']
     render(8,events(single_clear,tap(490,837),close));assert not command('progress-load','/sdcard/markdown/B.md')['present']
     assert (card/'markdown/B.md').exists() and (card/'markdown/attachments/B-only.png').exists()
@@ -182,14 +186,14 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     assert render(0)['pages']==2
     assert render(4,tap(550,1144))['reader_page']==1
     assert render(4,events(tap(550,1144),tap(130,1144)))['reader_page']==0
-    paged='t,458,1062,458,1062;l,130,350,130,350'
+    paged='t,620,1090,620,1090;l,130,350,130,350'
     assert render(0,paged)['reader_page']==1
     closed=render(0,events(paged,close));assert closed['book_view']==0 and closed['reader_page']==1
     # 单篇删除取消、失败和重试仍保护其他正文及插图。/ Single-item delete cancellation and retry preserve unrelated content.
     shutil.copyfile(image,card/'markdown/attachments/single-only.png')
     single_path=card/'markdown/DeleteTest.md';single_path.write_text('# Delete test\n\n![own](attachments/single-only.png)\n')
     render(8,events(sort_open,name,doc_done))
-    single_open='l,340,992,340,992';single_delete=events(single_open,tap(550,837),tap(490,837))
+    single_open='l,340,866,340,866';single_delete=events(single_open,tap(550,837),tap(490,837))
     cancelled=render(8,events(sort_open,name,doc_done,single_open,tap(550,837),tap(186,837),close))
     assert single_path.exists() and not cancelled['document_menu']
     single_checkpoint=work/'single-checkpoint';shutil.copytree(card,single_checkpoint/'card');shutil.copytree(build/'nvs',single_checkpoint/'nvs')

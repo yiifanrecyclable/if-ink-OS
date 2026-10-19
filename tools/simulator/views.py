@@ -5,6 +5,7 @@ def add(key, label, group, native, aux=0, mask=0):
     VIEWS[key] = dict(id=key, label=label, group=group, native=native, aux=aux, mask=mask)
 
 add('baseline-home','首页','主界面','baseline-home')
+add('settings-31','Banner 背景','设置子页','settings-31')
 add('documents','内容 · 文档','主界面','book-8')
 add('book-0','内容 · 图书','主界面','book-0')
 add('files-home','文件','主界面','files-0',aux=-1)
@@ -73,3 +74,6 @@ add("settings-28","在线升级","设置子页","settings-28")
 # 保留设置来源，避免返回路径被传书页覆盖。/ Preserve the settings origin independently from upload provisioning.
 add("wifi-settings","无线网络设置","设置子页","transfer-2",aux=3)
 add("wifi-settings-password","无线网络密码","设置子页","transfer-3",aux=3)
+
+add("settings-29","轮播文件夹","设置子页","settings-29")
+add("settings-30","固定壁纸","设置子页","settings-30")

@@ -14,10 +14,7 @@
 // 缓存键的一部分：改动封面生成或封面的解码能力后必须递增，否则旧结果一直命中。
 // Part of the cover cache key: bump it whenever cover rendering or the set of decodable cover
 // formats changes, or stale entries keep winning.
-#define BOOK_AUTO_COVER_VERSION 4u
-
-/// 用稳定标识、书名和作者选择模板。/ Select a template from stable identity, title and author.
-unsigned book_auto_cover_template(const char *identity, const char *title, const char *author);
+#define BOOK_AUTO_COVER_VERSION 5u
 
 /// 生成 8 位灰阶封面；调用方提供 width*height 字节。/ Generate an 8-bit gray cover into caller-owned width*height bytes.
 bool book_auto_cover_render(const char *identity, const char *title, const char *author,

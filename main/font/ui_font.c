@@ -181,7 +181,8 @@ void ui_font_draw_text_px(uint8_t *fb, int x, int baseline, int px,
                 if (!alpha) continue;
                 uint8_t shade = black_white ? (alpha >= 128 ? fg : bg) :
                     (uint8_t)(bg + s_cover[alpha] * ((int)fg - (int)bg) / 255);
-                if (shade != bg) epd_draw_pixel(cursor + g->x0 + xx, baseline + g->y0 + y,
+                // 同色前景/背景用于实心描边遮罩，仍须覆盖图片。/ Equal foreground/background forms a solid halo mask and must still paint over images.
+                if (shade != bg || fg == bg) epd_draw_pixel(cursor + g->x0 + xx, baseline + g->y0 + y,
                                                  shade << 4, fb);
             }
         cursor += g->advance;

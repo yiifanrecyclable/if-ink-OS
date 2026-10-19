@@ -47,12 +47,12 @@ cc "${flags[@]}" "-DPICO_SIM_CARD_PATH=\"$card\"" -std=gnu11 -D_DEFAULT_SOURCE -
     tools/simulator/fs.c tools/simulator/image_decode.c tools/simulator/hardware.c tools/simulator/nvs.c tools/simulator/firmware_settings.c tools/simulator/firmware_dashboard.c \
     components/read_pico_search/read_pico_search.c \
     main/book/book_progress.c main/book/book_history_backup.c main/book/content_library.c main/book/book_title.c main/book/book_source.c main/book/book_markdown.c main/book/document_image.c main/book/document_store.c main/book/book_txt.c main/book/book_epub.c \
-    main/book/book_index_cache.c main/book/zip_reader.c main/book/gbk.c main/book/book_cover_auto.c main/book/book_ticket.c main/apps/file_tree.c \
+    main/book/book_index_cache.c main/book/zip_reader.c main/book/gbk.c main/book/book_cover_auto.c main/book/book_cover_store.c main/book/book_ticket.c main/book/reading_history_store.c main/apps/file_tree.c \
     tools/simulator/firmware_book.c tools/simulator/firmware_files.c tools/simulator/firmware_transfer.c \
     tools/simulator/firmware_image.c main/apps/book_toc.c main/ui/ui_menu.c main/ui/ui_gesture.c main/ui/ui_power_dialog.c \
     main/ui/ui_wifi_qr.c tools/simulator/vendor/qrcodegen.c \
     main/settings.c main/power/battery_history.c main/font/app_font_context.c main/font/ui_font.c main/ui/ui_kit.c main/ui/ui_text_input.c main/ui/ui_pinyin.c main/ui/ui_nav.c main/ui/ui_lunar.c main/ui/ui_banner.c main/ui/ui_nav_icons.c main/ui/datamatrix.c \
-    main/ui/ui_image_dither.c main/ui/ui_wallpaper.c \
+    main/ui/ui_image_dither.c main/ui/ui_wallpaper.c main/ui/ui_wallpaper_rotation.c \
     main/book/book_layout.c main/book/reader_input.c main/book/markdown_table.c main/book/html_text.c main/book/markdown_text.c components/md4c/md4c.c main/cloud/cloud_protocol.c \
     build/simulator/font.S -lm -lz -lexpat -framework CoreFoundation -framework CoreGraphics -framework ImageIO -Wl,-dead_strip -o "$output"
 mv "$output" build/simulator/render

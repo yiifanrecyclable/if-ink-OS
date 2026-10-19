@@ -99,6 +99,7 @@ static void ensure_media_dirs(void) {
     if (mkdir("/sdcard/books", 0777) != 0 && errno != EEXIST) {
         ESP_LOGW(TAG, "mkdir books: %d", errno);
     }
+    (void)mkdir("/sdcard/banner pic",0777);
     (void)mkdir("/sdcard/markdown",0777);
     (void)mkdir("/sdcard/markdown/attachments",0777);
     if (mkdir("/sdcard/pictures", 0777) != 0 && errno != EEXIST) {

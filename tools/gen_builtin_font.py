@@ -23,6 +23,7 @@ SCAN_DIRS = [
     ROOT / "main/settings.c",
     ROOT / "main/ota_online.c",
     ROOT / "main/book/content_library.c",
+    ROOT / "main/book/content_library.h",
     ROOT / "main/book/reader_input.c",
     ROOT / "components/sy7636a",
     ROOT / "components/sc7a20h",

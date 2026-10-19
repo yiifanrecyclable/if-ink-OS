@@ -173,22 +173,22 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         return;
     }
     ui_nav_status(fb);
-    ui_nav_back(fb, 36, 79);
-    ui_text_vc(fb, 342, 107, 34, "图片", EPD_DRAW_ALIGN_CENTER, false);
+    ui_nav_back(fb, 36,UI_PAGE_Y(79));
+    ui_text_vc(fb, 342,UI_PAGE_Y(107), 34, "图片", EPD_DRAW_ALIGN_CENTER, false);
     char caption[64];
     snprintf(caption, sizeof(caption), "%d 张 · JPG / PNG", s_count);
-    ui_text(fb, 36, 165, 21, caption, EPD_DRAW_ALIGN_LEFT, false);
-    ui_hairline(fb, 202, 36, 612, UI_GRAY_LIGHT);
+    ui_text(fb, 36,UI_PAGE_Y(165), 21, caption, EPD_DRAW_ALIGN_LEFT, false);
+    ui_hairline(fb,UI_PAGE_Y(202), 36, 612, UI_GRAY_LIGHT);
     for (int row = 0; row < IMAGE_ROWS; ++row) {
         int idx = s_page * IMAGE_ROWS + row;
         if (idx >= s_count) break;
-        EpdRect box = {36, 214 + row * 101, 612, 84};
+        EpdRect box = {36,UI_PAGE_Y(214 + row * 101), 612, 84};
         epd_fill_rect(box,UI_GRAY_WHITE,fb);
         epd_fill_rect((EpdRect){box.x,box.y+box.height,box.width,2},UI_GRAY_ITEM_LINE,fb);
         ui_text_vc(fb, 58, box.y + 42, 24, s_items[idx].name, EPD_DRAW_ALIGN_LEFT, false);
         ui_text_vc(fb, 623, box.y + 42, 25, "›", EPD_DRAW_ALIGN_RIGHT, false);
     }
-    if (s_message[0]) ui_text(fb, 36, 1035, 21, s_message, EPD_DRAW_ALIGN_LEFT, false);
+    if (s_message[0]) ui_text(fb, 36,UI_PAGE_Y(1035), 21, s_message, EPD_DRAW_ALIGN_LEFT, false);
     ui_nav_draw(fb, 3);
 }
 
@@ -242,13 +242,13 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *event) 
         return APP_REDRAW_PAGE;
     }
     if (event->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
-    if (event->y0 < 160 && event->x0 < 120) { ctx->request_return = true; return APP_REDRAW_NONE; }
+    if (event->y0 < UI_PAGE_Y(160) && event->x0 < 120) { ctx->request_return = true; return APP_REDRAW_NONE; }
     int tab = ui_nav_hit(event->x0, event->y0);
     if (tab >= 0) { ui_nav_request(ctx, tab); return APP_REDRAW_NONE; }
     for (int row = 0; row < IMAGE_ROWS; ++row) {
         int idx = s_page * IMAGE_ROWS + row;
         if (idx >= s_count) break;
-        if (ui_rect_hit((EpdRect){36, 214 + row * 101, 612, 84}, event->x0, event->y0)) {
+        if (ui_rect_hit((EpdRect){36,UI_PAGE_Y(214 + row * 101), 612, 84}, event->x0, event->y0)) {
             if (!load_image(idx)) s_viewing = false;
             return APP_REDRAW_FULL;
         }

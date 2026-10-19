@@ -10,8 +10,12 @@ def prepare(root: Path):
     build = root / 'build/simulator'
     vfs = build / 'vfs'
     card = root.parent / 'TF卡'
-    for name in ('books','pictures','fonts','notes','markdown/attachments'):
+    for name in ('books','pictures','fonts','notes','markdown/attachments','banner pic'):
         (card/name).mkdir(parents=True,exist_ok=True)
+    if not (vfs/'.banner-sample-initialized').exists():
+        sample=card/'banner pic/默认背景.png'
+        if not sample.exists():shutil.copyfile(root/'assets/banner/default-banner.png',sample)
+        vfs.mkdir(parents=True,exist_ok=True);(vfs/'.banner-sample-initialized').write_text('Original sample installed once.\n')
     if not (card/'markdown/.index/.simulator-demo').exists():
         if not (card/'markdown/Markdown 阅读示例.md').exists():
             (card/'markdown/Markdown 阅读示例.md').write_text('# 阅读与笔记\n\n这是 Markdown 阅读示例。标题、列表、引用和插图使用同一阅读器。\n\n## 日常阅读\n\n- 第一项：选择清晰的文字。\n- 第二项：保留阅读进度。\n\n### 阅读计划\n\n> 每天留一点时间阅读。\n\n## 长图查看\n\n点击插图放大，按住上下移动，再点击退出。\n\n![完整长图](attachments/长图示例-test.png)\n\n# 回顾\n\n文档的大纲可以展开，也可以跳转到对应段落。\n',encoding='utf-8')
@@ -44,7 +48,7 @@ def prepare(root: Path):
     subprocess.run([sys.executable, str(root / 'tools/gen_book_fixtures.py'),
                     '--output', str(generated)],
                    cwd=root, check=True, capture_output=True)
-    for name in ('books','pictures','fonts','notes','markdown/attachments'):
+    for name in ('books','pictures','fonts','notes','markdown/attachments','banner pic'):
         (card/name).mkdir(parents=True,exist_ok=True)
     (vfs/'flash/books').mkdir(parents=True,exist_ok=True)
     for source, target in (

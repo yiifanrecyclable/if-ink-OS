@@ -50,8 +50,7 @@ static const char* TAG = "read_pico";
 extern const uint8_t lock_4bpp_bin_start[] asm("_binary_lock_4bpp_bin_start");
 
 static bool draw_wallpaper(uint8_t *framebuffer) {
-    const char *path = app_settings_wallpaper_path();
-    return ui_wallpaper_draw(framebuffer, path, (EpdRect){0, 0, UI_LOCK_WIDTH, UI_LOCK_HEIGHT});
+    return ui_wallpaper_draw_lock(framebuffer);
 }
 
 static void lock_arm_ioe_wakeup(void) {

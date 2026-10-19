@@ -5,7 +5,7 @@ import json, os, shutil, subprocess, tempfile
 ROOT=Path(__file__).resolve().parents[1]
 def tap(x,y): return f't,{x},{y},{x},{y}'
 def events(*steps): return ';'.join(steps)
-clear=tap(573,400);language=tap(89,1152);done=tap(595,1152);cancel=tap(60,110)
+clear=tap(573,400);banner_clear=tap(464,462);language=tap(89,1152);done=tap(595,1152);cancel=tap(60,110)
 # Explicit row/column calculation avoids ambiguous precedence.
 def letters(text):
     keys="1234567890qwertyuiopasdfghjkl'zxcvbnm,./"
@@ -58,20 +58,22 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='input-pages-') as tmp:
     info,_=render('transfer-3',events(letters('short'),done));assert info['transfer_view']==3
     info,_=render('transfer-3',events(letters('dummy'),cancel));assert info['transfer_view']==2
     info,_=render('settings-20',events(tap(340,password_y),letters('dummy'),cancel));assert info['settings_page']==20
-    # 首页格言共用输入、取消不改数据；保存及留空均持久化并返回首页。
-    # Home quotes share input; cancel preserves data, save/blank persist and return home.
-    assert render('settings-21',tap(340,608))[0]['settings_page']==23
-    assert render('settings-21',tap(340,698))[0]['settings_page']==22
-    font=build/'nvs/if_content/quote_font'
-    assert render('settings-22',tap(340,423))[0]['settings_page']==21
-    assert font.read_bytes()==b'/sdcard/fonts/PicoSans-Medium.ttf\0'
-    assert render('settings-22',tap(340,330))[0]['settings_page']==21 and font.read_bytes()==b'\0'
-    quote=build/'nvs/if_content/home_quote'
-    info,_=render('settings-23',events(clear,language,letters('abc'),cancel));assert info['settings_page']==21 and not quote.exists()
-    info,_=render('settings-23',events(clear,language,letters('abc'),done));assert info['settings_page']==21 and quote.read_bytes()==b'abc\0'
-    info,_=render('settings-23',events(clear,done));assert info['settings_page']==21 and quote.read_bytes()==b'\0'
-    # 超出实际字体的两行限制时不提交，保留输入，缩短后仍能保存。
-    # Reject over-two-row text without committing; retain the editor and allow a shorter retry.
-    info,_=render('settings-23',events(clear,language,letters('w'*50),done));assert info['route']==-1 and info['settings_page']==23 and quote.read_bytes()==b'\0'
-    info,_=render('settings-23',events(clear,language,letters('ok'),done));assert info['settings_page']==21 and quote.read_bytes()==b'ok\0'
+    # Banner编辑器只改草稿；最终保存统一写入快照。/ Banner input changes only its draft; final Save persists one snapshot.
+    assert render('settings-21',tap(340,800))[0]['settings_page']==23
+    assert render('settings-21',tap(340,864))[0]['settings_page']==22
+    config=build/'nvs/if_content/banner_v1'
+    info,_=render('settings-22',tap(340,550));assert info['settings_page']==21 and info['banner_font']=='/sdcard/fonts/PicoSans-Medium.ttf' and not config.exists()
+    assert render('settings-22',tap(340,460))[0]['banner_font']==''
+    info,_=render('settings-23',events(banner_clear,language,letters('abc'),cancel));assert info['settings_page']==21 and not config.exists()
+    info,_=render('settings-23',events(banner_clear,language,letters('abc'),done));assert info['settings_page']==21 and info['banner_text']=='abc' and not config.exists()
+    info,_=render('settings-23',events(banner_clear,language,letters('abc'),done,tap(500,1098)));assert info['quote_settings_committed'] and config.exists();saved=config.read_bytes()
+    info,_=render('settings-23',events(banner_clear,done));assert info['settings_page']==21 and info['banner_text']=='' and config.read_bytes()==saved
+    info,_=render('settings-23',events(banner_clear,language,letters('w'*50),done));assert info['route']==-1 and info['settings_page']==23 and config.read_bytes()==saved
+    info,_=render('settings-23',events(banner_clear,language,letters('ok'),done));assert info['settings_page']==21 and info['banner_text']=='ok' and config.read_bytes()==saved
+    # 四行输入保留显式换行，界面返回草稿后仍需最终保存。/ Four-line input retains explicit breaks and remains a draft until final Save.
+    smaller=bytearray(config.read_bytes());smaller[8]=48;smaller[652:654]=(2).to_bytes(2,"little");config.write_bytes(smaller)
+    newline=tap(588,462)
+    steps=events(banner_clear,language,letters('one'),newline,letters('two'),newline,letters('three'),newline,letters('four'),done)
+    info,_=render('settings-23',steps);assert info['settings_page']==21 and info['banner_text']=='one\ntwo\nthree\nfour'
+    info,_=render('settings-23',events(banner_clear,language,letters('a'),newline,newline,newline,newline,done));assert info['banner_text']=='a\n\n\n'
     print('PASS: 10 native input entries have identical bottom key rows; UTF-8 phrases, settings persistence, cancellation, rename validation, search and WiFi validation verified on a private card.')

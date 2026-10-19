@@ -42,6 +42,7 @@
 #include "ui_text_input.h"
 #include "ui_nav.h"
 #include "ui_wallpaper.h"
+#include "ui_wallpaper_rotation.h"
 #include "read_pico_search.h"
 #include "book_store.h"
 #include "book_ticket.h"
@@ -69,7 +70,7 @@ typedef enum { SETTINGS_MAIN, SETTINGS_WIFI, SETTINGS_TIME,
                SETTINGS_WALLPAPER, SETTINGS_WALLPAPER_PREVIEW,
                SETTINGS_CONFIG, SETTINGS_UPGRADE, SETTINGS_BOOT,
                SETTINGS_POWER_SLEEP, SETTINGS_RETIRED_15, SETTINGS_RETIRED_16,
-               SETTINGS_RETIRED_17, SETTINGS_RETIRED_18, SETTINGS_TEXT_EDIT, SETTINGS_CLOUD, SETTINGS_HOME_QUOTE, SETTINGS_QUOTE_FONT, SETTINGS_BATTERY = 24, SETTINGS_STATUS_DATE_FORMAT, SETTINGS_IDLE_SLEEP, SETTINGS_FIRMWARE_INFO, SETTINGS_ONLINE_UPDATE } settings_page_t;
+               SETTINGS_RETIRED_17, SETTINGS_RETIRED_18, SETTINGS_TEXT_EDIT, SETTINGS_CLOUD, SETTINGS_HOME_QUOTE, SETTINGS_QUOTE_FONT, SETTINGS_BATTERY = 24, SETTINGS_STATUS_DATE_FORMAT, SETTINGS_IDLE_SLEEP, SETTINGS_FIRMWARE_INFO, SETTINGS_ONLINE_UPDATE, SETTINGS_WALLPAPER_FOLDER, SETTINGS_WALLPAPER_FIXED, SETTINGS_BANNER_IMAGE, SETTINGS_BANNER_BROWSER } settings_page_t;
 static settings_page_t s_page;
 static int s_main_scroll, s_font_page, s_wallpaper_page, s_cloud_scroll;
 static bool s_battery_week;
@@ -80,7 +81,7 @@ static const char *const size_names[] = {"小", "标准", "大", "特大"};
 static const uint8_t size_values[] = {100, 120, 140, 160};
 static const char *const status_date_labels[]={"2026-10-11","2026/10/11","2026.10.11","10-11","10/11"};
 static int status_date_step(void){return ui_list_row_height(false)+12;}
-static EpdRect status_date_rect(int i){return (EpdRect){36,300+i*status_date_step(),612,status_date_step()-12};}
+static EpdRect status_date_rect(int i){return (EpdRect){36,UI_PAGE_Y(300+i*status_date_step()),612,status_date_step()-12};}
 static int status_display_row_y(int i){return 702+i*(ui_list_row_height(false)+12);}
 static const uint8_t idle_sleep_minutes[]={0,1,3,5,10,30};
 static const char *const idle_sleep_labels[]={"关闭","1分钟","3分钟","5分钟","10分钟","30分钟"};
@@ -92,13 +93,13 @@ static int system_size_index(void) {
     for (int i = 0; i < 4; ++i) if (app_settings_system_font_size() == size_values[i]) return i;
     return 1;
 }
-static EpdRect system_size_rect(int i) { return (EpdRect){58 + 156 * i, 250, 100, 100}; }
-static int font_list_top(void) { return s_page == SETTINGS_SYSTEM_FONT ? 446 : 292; }
+static EpdRect system_size_rect(int i) { return (EpdRect){58 + 156 * i,UI_PAGE_Y(250), 100, 100}; }
+static int font_list_top(void) { return s_page == SETTINGS_SYSTEM_FONT || s_page == SETTINGS_QUOTE_FONT ? UI_PAGE_Y(446) : UI_PAGE_Y(292); }
 static int font_list_step(void) { return ui_list_row_height(false)+12; }
 static int font_list_rows(void) { return ui_list_visible_rows(font_list_top(),1028,font_list_step()); }
 static EpdRect font_list_rect(int slot) { return (EpdRect){36,font_list_top()+slot*font_list_step(),612,font_list_step()-12}; }
-static int wallpaper_rows(void) { return ui_list_visible_rows(292,1028,font_list_step()); }
-static EpdRect wallpaper_rect(int slot) { return (EpdRect){36,292+slot*font_list_step(),612,font_list_step()-12}; }
+static int wallpaper_rows(void) { return ui_list_visible_rows(UI_PAGE_Y(292),1028,font_list_step()); }
+static EpdRect wallpaper_rect(int slot) { return (EpdRect){36,UI_PAGE_Y(292+slot*font_list_step()),612,font_list_step()-12}; }
 
 static bool s_scroll_drag_consumed, s_scroll_present_pending;
 static const char *const cloud_guide[]={
@@ -129,10 +130,10 @@ static const char *const TAG = "device_settings";
 #define SETTINGS_ROW_H (ui_list_row_height(false))
 #define SETTINGS_GROUP_GAP (ui_text_line_height(UI_TEXT_TITLE)+36)
 #define SETTINGS_WIRELESS_ROWS 2
-#define SETTINGS_DISPLAY_ROWS 4
+#define SETTINGS_DISPLAY_ROWS 5
 #define SETTINGS_DEVICE_ROWS 6
 #define SETTINGS_INFO_H 64
-#define SETTINGS_WIRELESS_Y (84+SETTINGS_INFO_H+SETTINGS_GROUP_GAP)
+#define SETTINGS_WIRELESS_Y (UI_STATUS_HEIGHT+4+SETTINGS_INFO_H+SETTINGS_GROUP_GAP)
 // 分组布局从上一组底边推导，绘制与命中共用坐标。/ Derive groups from the previous bottom; drawing and hits share coordinates.
 #define SETTINGS_DISPLAY_Y (SETTINGS_WIRELESS_Y + SETTINGS_WIRELESS_ROWS * SETTINGS_ROW_H + SETTINGS_GROUP_GAP)
 #define SETTINGS_DEVICE_Y (SETTINGS_DISPLAY_Y + SETTINGS_DISPLAY_ROWS * SETTINGS_ROW_H + SETTINGS_GROUP_GAP)
@@ -149,42 +150,47 @@ static bool s_cloud_requested;
 void app_device_settings_request_cloud_config(void){s_cloud_requested=true;}
 bool app_device_settings_cloud_requested(void){return s_cloud_requested;}
 static uint8_t *s_quote_preview;
+static content_banner_config_t s_banner_draft;
 static int s_quote_px;
 static bool s_quote_dragging,s_quote_preview_attempted,s_quote_committed;
 bool app_device_settings_quote_committed(void){return s_quote_committed;}
 int app_device_settings_quote_size(void){return s_quote_px?s_quote_px:content_home_quote_size();}
 static void quote_preview_clear(void){free(s_quote_preview);s_quote_preview=NULL;s_quote_preview_attempted=false;}
-// 只在进入/提交/松手时生成字库效果；拖动只刷新滑块，避免反复加载TF字库和写NVS。
-// Rasterize on entry/commit/release; moves update only the slider without repeated TF loads or NVS writes.
-static bool quote_preview_prepare_alignment(int px,bool save,content_quote_align_t align,bool save_align){
+// 草稿只在最终保存时写NVS；字体栅格化和图片解码只在进入/松手/确认时执行。/ Only final Save writes NVS; rasterize/decode on entry, release or confirmation.
+static bool banner_preview_apply(const content_banner_config_t *next,bool require_fit){
     uint32_t days[30],day=0;bool valid=book_ticket_recent_days(days,&day);s_quote_preview_attempted=true;
 #ifdef PICO_HOST_SIMULATOR
     const char *sample=getenv("PICO_SIM_HOME_DAY");if(sample){unsigned long d=strtoul(sample,NULL,10);if(d>=19723&&d<50000){day=(uint32_t)d;valid=true;}}
 #endif
     uint8_t *image=NULL;bool fits=false;
-    if(!ui_banner_preview(content_home_quote(),content_home_quote_font(),px,align,day,valid,&image,&fits)){
-        strlcpy(s_notice,"预览暂不可用，请重试",sizeof(s_notice));return false;}
-    if((save||save_align)&&!fits){free(image);strlcpy(s_notice,"字号过大，当前文字超过两行",sizeof(s_notice));return false;}
-    if(save&&content_home_quote_size_set((unsigned)px)!=ESP_OK){free(image);strlcpy(s_notice,"字号保存失败，请重试",sizeof(s_notice));return false;}
-    if(save_align&&content_home_quote_alignment_set((unsigned)align)!=ESP_OK){free(image);strlcpy(s_notice,"排版保存失败，请重试",sizeof(s_notice));return false;}
-    free(s_quote_preview);s_quote_preview=image;s_quote_px=px;
-    strlcpy(s_notice,fits?"":"当前文字超出两行，请修改文字",sizeof(s_notice));
-    if(save||save_align)s_quote_committed=true;
-    return true;
+    if(!ui_banner_preview_config(next,day,valid,&image,&fits)){
+        strlcpy(s_notice,next->mode?"图片无法读取，请重新选择":"预览暂不可用，请重试",sizeof(s_notice));return false;}
+    if(require_fit&&!fits){free(image);strlcpy(s_notice,"文字超过四行或高度，请缩小字号或缩短文字",sizeof(s_notice));return false;}
+    s_banner_draft=*next;free(s_quote_preview);s_quote_preview=image;s_quote_px=next->quote_px;
+    strlcpy(s_notice,fits?"":"当前文字超出四行或高度，请修改文字",sizeof(s_notice));return true;
 }
-static bool quote_preview_prepare(int px,bool save){return quote_preview_prepare_alignment(px,save,content_home_quote_alignment(),false);}
-static EpdRect quote_alignment_rect(int i){return (EpdRect){36+156*i,978,144,56};}
-// 三条精简横线表示对齐方式；用原生几何绘制，避免引入四份位图资源。
-// Three compact strokes show alignment; native geometry avoids four bitmap assets.
+static bool quote_preview_prepare(int px,bool validate){content_banner_config_t next=s_banner_draft;next.quote_px=px;return banner_preview_apply(&next,validate);}
+#define BANNER_TEXT_ROW_TOP 764
+#define BANNER_TEXT_ROW_H 72
+#define BANNER_FOOTER_TRACKING 14
+static int banner_text_row_center(int i){return BANNER_TEXT_ROW_TOP+i*BANNER_TEXT_ROW_H+BANNER_TEXT_ROW_H/2;}
+static EpdRect quote_alignment_rect(int i){return (EpdRect){368+72*i,banner_text_row_center(2)-28,64,56};}
+static EpdRect banner_footer(int i){
+    int width=ui_text_fixed_width_px(ui_text_effective_px(UI_TEXT_BODY),i?"保存":"取消")+BANNER_FOOTER_TRACKING+80;
+    if(width<156)width=156;
+    return (EpdRect){(i?466:218)-width/2,1070,width,56};
+}
+static int banner_date_y(void){return s_banner_draft.date_y==CONTENT_BANNER_DATE_AUTO?ui_banner_default_date_y(s_banner_draft.quote_px):s_banner_draft.date_y;}
 static void quote_alignment_draw(uint8_t *fb,int option,bool selected){
     EpdRect r=quote_alignment_rect(option);
-    if(selected)ui_fill_round_rect(fb,r,16,UI_NAV_ACTIVE_GRAY);
+    if(selected)epd_fill_rect(r,UI_NAV_ACTIVE_GRAY,fb);
+    else epd_draw_rect(r,0xbb,fb);
     int cx=r.x+r.width/2,cy=r.y+r.height/2;
-    static const int lengths[]={44,28,36};
+    static const int lengths[]={40,24,32};
     for(int row=0;row<3;++row){
-        int width=option==CONTENT_QUOTE_JUSTIFY?44:lengths[row];
-        int x=option==CONTENT_QUOTE_LEFT?cx-22:option==CONTENT_QUOTE_RIGHT?cx+22-width:cx-width/2;
-        ui_fill_round_rect(fb,(EpdRect){x,cy-17+row*15,width,4},2,selected?UI_GRAY_WHITE:0x38);
+        int width=option==CONTENT_QUOTE_JUSTIFY?40:lengths[row];
+        int x=option==CONTENT_QUOTE_LEFT?cx-20:option==CONTENT_QUOTE_RIGHT?cx+20-width:cx-width/2;
+        epd_fill_rect((EpdRect){x,cy-16+row*14,width,4},selected?UI_GRAY_WHITE:0x38,fb);
     }
 }
 static int quote_slider_size(int x){
@@ -193,17 +199,16 @@ static int quote_slider_size(int x){
     return CONTENT_QUOTE_SIZE_MIN+2*(((x-72)*36+270)/540);
 }
 static app_redraw_t quote_slider_gesture(const ui_gesture_event_t *ev,bool *handled){
-    bool hit=ui_rect_hit((EpdRect){36,812,612,90},ev->x0,ev->y0);
+    bool hit=s_page==SETTINGS_QUOTE_FONT&&ui_rect_hit((EpdRect){36,268,612,64},ev->x0,ev->y0);
     *handled=s_quote_dragging||hit;if(!*handled)return APP_REDRAW_NONE;
-    if(ev->type==UI_GESTURE_CANCEL){s_quote_dragging=false;s_quote_px=content_home_quote_size();return APP_REDRAW_AREA;}
-    if(ev->type==UI_GESTURE_PRESS||ev->type==UI_GESTURE_MOVE){
-        s_quote_dragging=true;int px=quote_slider_size(ev->x);if(px==s_quote_px)return APP_REDRAW_NONE;s_quote_px=px;return APP_REDRAW_AREA;
-    }
+    if(ev->type==UI_GESTURE_CANCEL){s_quote_dragging=false;s_quote_px=s_banner_draft.quote_px;return APP_REDRAW_AREA;}
+    if(ev->type==UI_GESTURE_PRESS)s_quote_dragging=true;
+    if(ev->type==UI_GESTURE_PRESS||ev->type==UI_GESTURE_MOVE){s_quote_px=quote_slider_size(ev->x);return APP_REDRAW_AREA;}
     if(ev->type==UI_GESTURE_LONG_PRESS)return APP_REDRAW_NONE;
     bool release=ev->type==UI_GESTURE_TAP||ev->type==UI_GESTURE_SWIPE_L||ev->type==UI_GESTURE_SWIPE_R||ev->type==UI_GESTURE_SWIPE_U||ev->type==UI_GESTURE_SWIPE_D;
     if(!release)return APP_REDRAW_NONE;
-    s_quote_dragging=false;int px=quote_slider_size(ev->x);
-    if(!quote_preview_prepare(px,true))s_quote_px=content_home_quote_size();
+    s_quote_dragging=false;content_banner_config_t next=s_banner_draft;next.quote_px=quote_slider_size(ev->x);
+    if(!banner_preview_apply(&next,true))s_quote_px=s_banner_draft.quote_px;
     return APP_REDRAW_PAGE;
 }
 
@@ -262,6 +267,28 @@ static void wallpaper_scan(void) {
     wallpaper_scan_dir("/sdcard");
 }
 
+static char s_wallpaper_directory[288]="/sdcard";
+static int wallpaper_folder_rows(void){return ui_list_visible_rows(UI_PAGE_Y(416),1028,font_list_step());}
+static void wallpaper_folder_scan(void){
+    s_wallpaper_count=s_wallpaper_page=0;
+    if(!wallpapers_alloc())return;
+    DIR *dir=opendir(s_wallpaper_directory);if(!dir)return;
+    struct dirent *entry;
+    while(s_wallpaper_count<WALLPAPER_MAX&&(entry=readdir(dir))){
+        if(entry->d_name[0]=='.')continue;
+        wallpaper_item_t *item=&s_wallpapers[s_wallpaper_count];
+        if(snprintf(item->path,sizeof(item->path),"%s/%s",s_wallpaper_directory,entry->d_name)>=sizeof(item->path))continue;
+        struct stat st;if(stat(item->path,&st)||!S_ISDIR(st.st_mode))continue;
+        snprintf(item->name,sizeof(item->name),"%.*s",(int)sizeof(item->name)-1,entry->d_name);++s_wallpaper_count;
+    }
+    closedir(dir);
+}
+static void wallpaper_folder_open(void){
+    snprintf(s_wallpaper_directory,sizeof(s_wallpaper_directory),"%s",app_settings_wallpaper_rotating()?app_settings_wallpaper_path():"/sdcard");
+    size_t n=strlen(s_wallpaper_directory);if(n>7&&s_wallpaper_directory[n-1]=='/')s_wallpaper_directory[n-1]=0;
+    wallpaper_folder_scan();s_notice[0]=0;s_page=SETTINGS_WALLPAPER_FOLDER;
+}
+
 static void profile_editor_open(bool signature) {
     s_home_quote_editor=false;
     s_cloud_editor=0; s_editor_notice[0]=0;
@@ -271,8 +298,8 @@ static void profile_editor_open(bool signature) {
 }
 static void home_quote_editor_open(void) {
     profile_editor_open(false); s_home_quote_editor=true;
-    strlcpy(s_editor,content_home_quote(),sizeof(s_editor));
-    ui_text_input_open(&s_text_input,s_editor,CONTENT_HOME_QUOTE_BYTES,true,false,UI_INPUT_CHINESE);
+    strlcpy(s_editor,s_banner_draft.text,sizeof(s_editor));
+    ui_text_input_open(&s_text_input,s_editor,CONTENT_HOME_QUOTE_BYTES,true,false,UI_INPUT_CHINESE);s_text_input.max_lines=4;
 }
 static settings_page_t editor_return_page(void){return s_cloud_editor?SETTINGS_CLOUD:SETTINGS_MAIN;}
 static void cloud_editor_open(int field) {
@@ -380,9 +407,9 @@ static void section(uint8_t *fb, int y, const char *title) {
 /* ---- 设置子页标题 / Settings sub-page headers ---- */
 
 static void back_header(uint8_t *fb, const char *title) {
-    ui_nav_back(fb, 36, 79);
-    ui_text_vc(fb, 342, 107, 34, title, EPD_DRAW_ALIGN_CENTER, false);
-    settings_divider(fb, 174, 36, 612);
+    ui_nav_back(fb, 36,UI_PAGE_Y(79));
+    ui_text_vc(fb, 342,UI_PAGE_Y(107), 34, title, EPD_DRAW_ALIGN_CENTER, false);
+    settings_divider(fb,UI_PAGE_Y(174), 36, 612);
 }
 
 static void setting_icon(uint8_t *fb, int index, int cx, int cy) {
@@ -483,7 +510,7 @@ static int cloud_guide_bullet(uint8_t *fb, int y, const char *text) {
 
 // 电量曲线仅连接相邻实际采样；超过半小时的空档留白。
 // Connect adjacent measured samples only; leave gaps longer than thirty minutes unfilled.
-static int cloud_row_y(int i) { return 214+i*(SETTINGS_ROW_H+20); }
+static int cloud_row_y(int i) { return UI_PAGE_Y(214)+i*(SETTINGS_ROW_H+20); }
 static int cloud_guide_heading(void) { return cloud_row_y(3)+20; }
 static int cloud_guide_top(void) { return cloud_guide_heading()+ui_text_line_height(UI_TEXT_TITLE)+16; }
 static int cloud_scroll_limit(void) {
@@ -497,19 +524,19 @@ static void draw_battery(uint8_t *fb) {
     const pmu_snapshot_t *pmu = read_pico_pmu_get();
     int percent = pmu_battery_percent(pmu); bool charging = pmu_battery_charging(pmu);
     char value[64]; snprintf(value, sizeof(value), percent >= 0 ? "%d%%" : "--%%", percent);
-    ui_text_fixed_vc(fb, 48, 246, 82, value, EPD_DRAW_ALIGN_LEFT, false);
-    ui_text_vc(fb, 636, 234, UI_TEXT_BODY, charging ? "充电中" : "未充电", EPD_DRAW_ALIGN_RIGHT, false);
+    ui_text_fixed_vc(fb, 48,UI_PAGE_Y(246), 82, value, EPD_DRAW_ALIGN_LEFT, false);
+    ui_text_vc(fb, 636,UI_PAGE_Y(234), UI_TEXT_BODY, charging ? "充电中" : "未充电", EPD_DRAW_ALIGN_RIGHT, false);
     unsigned mv = pmu && pmu->present ? (pmu->quick_ok ? pmu->qb_mv : pmu->battery_mv) : 0;
     snprintf(value, sizeof(value), mv ? "电压 %.2f V" : "电压暂不可用", mv / 1000.0);
-    ui_text_fixed_vc(fb, 636, 284, ui_text_effective_px(UI_TEXT_CAPTION), value, EPD_DRAW_ALIGN_RIGHT, false);
+    ui_text_fixed_vc(fb, 636,UI_PAGE_Y(284), ui_text_effective_px(UI_TEXT_CAPTION), value, EPD_DRAW_ALIGN_RIGHT, false);
     for (int i = 0; i < 2; ++i) {
-        EpdRect box = {36 + i*312, 346, 300, 68}; bool active = s_battery_week == (i == 1);
+        EpdRect box = {36 + i*312,UI_PAGE_Y(346), 300, 68}; bool active = s_battery_week == (i == 1);
         ui_fill_round_rect(fb, box, 18, active ? UI_NAV_ACTIVE_GRAY : UI_GRAY_WHITE);
         ui_draw_round_rect(fb, box, 18, 0x90);
-        ui_text_fixed_vc_gray(fb, box.x + 150, 380, ui_text_effective_px(UI_TEXT_BODY), i ? "近七天" : "近24小时", EPD_DRAW_ALIGN_CENTER, active?15:0, active?(UI_NAV_ACTIVE_GRAY>>4):15);
+        ui_text_fixed_vc_gray(fb, box.x + 150,UI_PAGE_Y(380), ui_text_effective_px(UI_TEXT_BODY), i ? "近七天" : "近24小时", EPD_DRAW_ALIGN_CENTER, active?15:0, active?(UI_NAV_ACTIVE_GRAY>>4):15);
     }
-    ui_text_vc(fb, 42, 465, UI_TEXT_HEADING, "电量记录", EPD_DRAW_ALIGN_LEFT, false);
-    const int left=94, right=626, top=542, bottom=898;
+    ui_text_vc(fb, 42,UI_PAGE_Y(465), UI_TEXT_HEADING, "电量记录", EPD_DRAW_ALIGN_LEFT, false);
+    const int left=94, right=626, top=UI_PAGE_Y(542), bottom=UI_PAGE_Y(898);
     for (int i=0; i<=4; ++i) {
         int y=bottom-i*(bottom-top)/4; snprintf(value,sizeof(value),"%d",i*25);
         ui_text_fixed_vc(fb,76,y,ui_text_effective_px(UI_TEXT_CAPTION),value,EPD_DRAW_ALIGN_RIGHT,false);
@@ -546,29 +573,29 @@ static void draw_battery(uint8_t *fb) {
         time_t local=(time_t)(begin+(uint32_t)((uint64_t)i*window/4))+8*3600;struct tm tm;
         if(end && gmtime_r(&local,&tm))strftime(value,sizeof(value),s_battery_week?"%m-%d":"%H:%M",&tm);
         else strlcpy(value,"--",sizeof(value));
-        ui_text_fixed_vc(fb,left+i*(right-left)/4,934,ui_text_effective_px(UI_TEXT_CAPTION),value,
+        ui_text_fixed_vc(fb,left+i*(right-left)/4,UI_PAGE_Y(934),ui_text_effective_px(UI_TEXT_CAPTION),value,
                          i==0?EPD_DRAW_ALIGN_LEFT:i==4?EPD_DRAW_ALIGN_RIGHT:EPD_DRAW_ALIGN_CENTER,false);
     }
-    if(!shown)ui_text_fixed_vc(fb,360,720,28,end?"尚无记录，开始使用后逐步积累":"请先设置日期与时间",EPD_DRAW_ALIGN_CENTER,false);
-    else if(shown==1)ui_text_fixed_vc(fb,360,720,26,"已开始记录，稍后可查看电量曲线",EPD_DRAW_ALIGN_CENTER,false);
-    ui_text_fixed_vc(fb,36,1000,ui_text_effective_px(UI_TEXT_CAPTION),demo?"模拟数据 · 真机使用实际电量记录":"每15分钟记录一次，休眠和关机期间留白",EPD_DRAW_ALIGN_LEFT,false);
-    ui_text_fixed_vc(fb,36,1046,ui_text_effective_px(UI_TEXT_CAPTION),"暂无分项耗电数据",EPD_DRAW_ALIGN_LEFT,false);
+    if(!shown)ui_text_fixed_vc(fb,360,UI_PAGE_Y(720),28,end?"尚无记录，开始使用后逐步积累":"请先设置日期与时间",EPD_DRAW_ALIGN_CENTER,false);
+    else if(shown==1)ui_text_fixed_vc(fb,360,UI_PAGE_Y(720),26,"已开始记录，稍后可查看电量曲线",EPD_DRAW_ALIGN_CENTER,false);
+    ui_text_fixed_vc(fb,36,UI_PAGE_Y(1000),ui_text_effective_px(UI_TEXT_CAPTION),demo?"模拟数据 · 真机使用实际电量记录":"每15分钟记录一次，休眠和关机期间留白",EPD_DRAW_ALIGN_LEFT,false);
+    ui_text_fixed_vc(fb,36,UI_PAGE_Y(1046),ui_text_effective_px(UI_TEXT_CAPTION),"暂无分项耗电数据",EPD_DRAW_ALIGN_LEFT,false);
     ui_nav_draw(fb,3);
 }
 
 // 信息页保持一屏，在线升级使用独立来源，本地升级保留TF卡流程。
 // Keep information within one screen; online updates use our feed, local updates retain the TF workflow.
-static EpdRect firmware_update_rect(int index) { return (EpdRect){36+318*index,1012,294,80}; }
+static EpdRect firmware_update_rect(int index) { return (EpdRect){36+318*index,UI_PAGE_Y(1012),294,80}; }
 static void firmware_info_draw(uint8_t *fb) {
     back_header(fb,"固件信息");
-    ui_text_vc(fb,342,256,UI_TEXT_TITLE,"if-ink OS",EPD_DRAW_ALIGN_CENTER,false);
-    ui_text_vc(fb,342,322,UI_TEXT_CAPTION,esp_app_get_description()->version,EPD_DRAW_ALIGN_CENTER,false);
-    ui_text_vc(fb,36,424,UI_TEXT_BODY,"为 Pico 打造的阅读系统",EPD_DRAW_ALIGN_LEFT,false);
+    ui_text_vc(fb,342,UI_PAGE_Y(256),UI_TEXT_TITLE,"if-ink OS",EPD_DRAW_ALIGN_CENTER,false);
+    ui_text_vc(fb,342,UI_PAGE_Y(322),UI_TEXT_CAPTION,esp_app_get_description()->version,EPD_DRAW_ALIGN_CENTER,false);
+    ui_text_vc(fb,36,UI_PAGE_Y(424),UI_TEXT_BODY,"为 Pico 打造的阅读系统",EPD_DRAW_ALIGN_LEFT,false);
     static const char *const features[]={"EPUB · TXT · Markdown","坚果云同步与无线传书","自定义字体与阅读布局"};
-    for(int i=0;i<3;++i)ui_text_vc(fb,36,532+82*i,UI_TEXT_BODY,features[i],EPD_DRAW_ALIGN_LEFT,false);
-    settings_divider(fb,802,36,612);
-    ui_text_vc(fb,36,858,UI_TEXT_CAPTION,"基于 kiikoread（原 Pico Reader）",EPD_DRAW_ALIGN_LEFT,false);
-    if(s_notice[0])ui_text_vc(fb,342,950,UI_TEXT_CAPTION,s_notice,EPD_DRAW_ALIGN_CENTER,false);
+    for(int i=0;i<3;++i)ui_text_vc(fb,36,UI_PAGE_Y(532+82*i),UI_TEXT_BODY,features[i],EPD_DRAW_ALIGN_LEFT,false);
+    settings_divider(fb,UI_PAGE_Y(802),36,612);
+    ui_text_vc(fb,36,UI_PAGE_Y(858),UI_TEXT_CAPTION,"基于 kiikoread（原 Pico Reader）",EPD_DRAW_ALIGN_LEFT,false);
+    if(s_notice[0])ui_text_vc(fb,342,UI_PAGE_Y(950),UI_TEXT_CAPTION,s_notice,EPD_DRAW_ALIGN_CENTER,false);
     ui_draw_button(fb,firmware_update_rect(0),"在线升级",false);
     ui_draw_button(fb,firmware_update_rect(1),"本地升级",false);
     ui_nav_draw(fb,3);
@@ -582,7 +609,7 @@ static void online_close(void){
     // 已切换启动槽后必须重启，不把安装完成误报为取消。/ Once activated, restart rather than reporting a completed installation as cancelled.
     if(status.state==IF_UPDATE_READY)esp_restart();
 }
-static EpdRect online_action_rect(void){return (EpdRect){36,990,612,88};}
+static EpdRect online_action_rect(void){return (EpdRect){36,UI_PAGE_Y(990),612,88};}
 static void online_text(uint8_t *fb,int y,const char *text){
     int px=ui_text_fit_px(UI_TEXT_CAPTION,text,612,60);
     ui_text_fixed_vc(fb,342,y,px,text,EPD_DRAW_ALIGN_CENTER,false);
@@ -590,25 +617,27 @@ static void online_text(uint8_t *fb,int y,const char *text){
 static void online_draw(uint8_t *fb){
     if_update_status_t status;if_update_get_status(&status);
     back_header(fb,"在线升级");
-    row(fb,210,"当前版本",status.current);
-    row(fb,330,"可用版本",status.version[0]?status.version:"—");
+    row(fb,UI_PAGE_Y(210),"当前版本",status.current);
+    row(fb,UI_PAGE_Y(330),"可用版本",status.version[0]?status.version:"—");
     online_text(fb,530,s_online_confirm?"确认安装这个版本？":status.message);
     int filled=status.total?(int)((uint64_t)status.received*588/status.total):0;
     if(filled>588)filled=588;
-    epd_fill_rect((EpdRect){48,648,588,6},0xd0,fb);
-    if(filled)epd_fill_rect((EpdRect){48,648,filled,6},0x44,fb);
+    epd_fill_rect((EpdRect){48,UI_PAGE_Y(648),588,6},0xd0,fb);
+    if(filled)epd_fill_rect((EpdRect){48,UI_PAGE_Y(648),filled,6},0x44,fb);
     char progress_text[64]="";
     if(status.total)snprintf(progress_text,sizeof(progress_text),"%u%% · %u / %u KB",
         (unsigned)((uint64_t)status.received*100/status.total),(unsigned)(status.received/1024),(unsigned)((status.total+1023)/1024));
     online_text(fb,716,progress_text);
     online_text(fb,846,"安装期间请保持供电");
     if(s_online_confirm){
-        ui_draw_button(fb,(EpdRect){36,990,294,88},"取消",false);
-        ui_draw_button(fb,(EpdRect){354,990,294,88},"确认安装",false);
+        ui_draw_button(fb,(EpdRect){36,UI_PAGE_Y(990),294,88},"取消",false);
+        ui_draw_button(fb,(EpdRect){354,UI_PAGE_Y(990),294,88},"确认安装",false);
     }else ui_draw_button(fb,online_action_rect(),status.state==IF_UPDATE_READY?"立即重启":
         status.busy?"取消":status.state==IF_UPDATE_AVAILABLE?"安装新版本":"检查更新",false);
     ui_nav_draw(fb,3);
 }
+
+#include "banner_editor_ui.h"
 
 static void render(app_ctx_t *ctx, uint8_t *fb) {
     (void)ctx;
@@ -629,89 +658,69 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         for(size_t i=0;i<sizeof(cloud_guide)/sizeof(cloud_guide[0]);++i)
             guide_y = cloud_guide_bullet(fb,guide_y,cloud_guide[i]);
         if(s_notice[0])ui_text(fb,44,guide_y+12,UI_TEXT_CAPTION,s_notice,EPD_DRAW_ALIGN_LEFT,false);
-        epd_fill_rect((EpdRect){0,0,UI_LOCK_WIDTH,190},UI_GRAY_WHITE,fb);
+        epd_fill_rect((EpdRect){0,0,UI_LOCK_WIDTH,UI_PAGE_Y(190)},UI_GRAY_WHITE,fb);
         ui_nav_status(fb);back_header(fb,"坚果云同步");
         ui_nav_draw(fb,3);return;
     }
     if (s_page == SETTINGS_UPGRADE) {
         back_header(fb, "本地升级");
-        settings_region(fb,(EpdRect){36, 202, 612, 120});
-        ui_text(fb, 60, 224, 22, "当前版本", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 60, 264, 29, esp_app_get_description()->version, EPD_DRAW_ALIGN_LEFT, false);
-        settings_region(fb,(EpdRect){36, 356, 612, 344});
-        ui_text(fb, 60, 383, 29, s_upgrade_confirm ? "确认 IF Edition 升级" : "TF 卡升级", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 60, 447, 23, "根目录：Pico-IF-update.bin", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 60, 510, 23, s_local_update.ready ? s_local_update.candidate_version : "请放入 IF Edition 升级包", EPD_DRAW_ALIGN_LEFT, false);
+        settings_region(fb,(EpdRect){36,UI_PAGE_Y(202), 612, 120});
+        ui_text(fb, 60,UI_PAGE_Y(224), 22, "当前版本", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 60,UI_PAGE_Y(264), 29, esp_app_get_description()->version, EPD_DRAW_ALIGN_LEFT, false);
+        settings_region(fb,(EpdRect){36,UI_PAGE_Y(356), 612, 344});
+        ui_text(fb, 60,UI_PAGE_Y(383), 29, s_upgrade_confirm ? "确认 IF Edition 升级" : "TF 卡升级", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 60,UI_PAGE_Y(447), 23, "根目录：Pico-IF-update.bin", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 60,UI_PAGE_Y(510), 23, s_local_update.ready ? s_local_update.candidate_version : "请放入 IF Edition 升级包", EPD_DRAW_ALIGN_LEFT, false);
         if (s_upgrade_confirm) {
-            ui_text(fb, 60, 559, 21, "升级期间请保持供电", EPD_DRAW_ALIGN_LEFT, false);
-            ui_draw_button(fb, (EpdRect){60, 613, 260, 64}, "取消", false);
-            ui_draw_button(fb, (EpdRect){364, 613, 260, 64}, "确认升级", true);
+            ui_text(fb, 60,UI_PAGE_Y(559), 21, "升级期间请保持供电", EPD_DRAW_ALIGN_LEFT, false);
+            ui_draw_button(fb, (EpdRect){60,UI_PAGE_Y(613), 260, 64}, "取消", false);
+            ui_draw_button(fb, (EpdRect){364,UI_PAGE_Y(613), 260, 64}, "确认升级", true);
         } else {
-            ui_draw_button(fb, (EpdRect){60, 613, 564, 64}, s_local_pending ? "正在安装，请勿断电" : s_local_update.ready ? "安装 TF 卡升级包" : "重新检查 TF 卡", s_local_update.ready);
+            ui_draw_button(fb, (EpdRect){60,UI_PAGE_Y(613), 564, 64}, s_local_pending ? "正在安装，请勿断电" : s_local_update.ready ? "安装 TF 卡升级包" : "重新检查 TF 卡", s_local_update.ready);
         }
-        if (s_upgrade_notice[0]) ui_text(fb, 48, 760, 21, s_upgrade_notice, EPD_DRAW_ALIGN_LEFT, false);
+        if (s_upgrade_notice[0]) ui_text(fb, 48,UI_PAGE_Y(760), 21, s_upgrade_notice, EPD_DRAW_ALIGN_LEFT, false);
         ui_nav_draw(fb, 3); return;
     }
-    if(s_page==SETTINGS_HOME_QUOTE){
-        back_header(fb,"首页文字");
-        ui_text_fixed_vc(fb,36,205,28,"效果预览",EPD_DRAW_ALIGN_LEFT,false);
-        if(s_quote_preview)ui_bitmap_draw(fb,(EpdRect){0,230,UI_LOCK_WIDTH,300},s_quote_preview);
-        else ui_text_fixed_vc(fb,36,358,22,"预览暂不可用",EPD_DRAW_ALIGN_LEFT,false);
-        settings_region(fb,(EpdRect){36,572,612,72});
-        ui_text_vc(fb,60,608,28,"修改文字",EPD_DRAW_ALIGN_LEFT,false);
-        settings_region(fb,(EpdRect){36,662,612,72});
-        ui_text_vc(fb,60,698,28,"选择字体",EPD_DRAW_ALIGN_LEFT,false);
-        char font[96];snprintf(font,sizeof(font),"%s",content_home_quote_font()[0]?system_font_label(content_home_quote_font()):"跟随系统字体");fit_value(font,270);
-        ui_text_vc(fb,624,698,20,font,EPD_DRAW_ALIGN_RIGHT,false);
-        ui_text_fixed_vc(fb,36,778,30,"修改字号",EPD_DRAW_ALIGN_LEFT,false);
-        char size[32];snprintf(size,sizeof(size),"%d px",s_quote_px);ui_text_fixed_vc(fb,648,778,30,size,EPD_DRAW_ALIGN_RIGHT,false);
-        epd_fill_rect((EpdRect){72,846,540,4},0xc0,fb);int knob=72+(s_quote_px-CONTENT_QUOTE_SIZE_MIN)*540/72;
-        epd_fill_rect((EpdRect){72,846,knob-72,4},0x44,fb);epd_fill_circle(knob,848,12,0x44,fb);
-        ui_text_fixed_vc(fb,36,548,20,s_notice[0]?s_notice:"拖动调整字号，最多显示两行",EPD_DRAW_ALIGN_LEFT,false);
-        ui_text_fixed_vc(fb,36,946,30,"文字排版",EPD_DRAW_ALIGN_LEFT,false);
-        content_quote_align_t align=content_home_quote_alignment();
-        for(int i=0;i<4;++i)quote_alignment_draw(fb,i,align==(content_quote_align_t)i);
-        ui_draw_button(fb,(EpdRect){36,1064,612,56},"完成",true);
-        ui_nav_draw(fb,0);return;
-    }
+    if(s_page==SETTINGS_HOME_QUOTE){banner_editor_draw(fb);return;}
+    if(s_page==SETTINGS_BANNER_IMAGE||s_page==SETTINGS_BANNER_BROWSER){banner_picker_draw(fb);return;}
     if (s_page == SETTINGS_TEXT_EDIT) {
         ui_text_input_draw(fb,&s_text_input,
             s_home_quote_editor?"首页格言":s_cloud_editor==1?"同步文件夹":s_cloud_editor==2?"坚果云账号":s_cloud_editor==3?"应用密码":"状态栏签名",
-            s_home_quote_editor?"最多两行，超出请缩短后保存；留空隐藏":s_cloud_editor?"应用密码独立于坚果云登录密码":"状态栏中间显示，留空则隐藏",
+            s_home_quote_editor?"最多四行，超出请缩短后保存；留空隐藏":s_cloud_editor?"应用密码独立于坚果云登录密码":"状态栏中间显示，留空则隐藏",
             NULL,"完成",s_editor_notice);
         return;
     }
     if (s_page == SETTINGS_TIME_EDIT) {
-        ui_nav_back(fb, 36, 79);
-        ui_text(fb, 36, 151, 47, "日期与时间", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 36, 216, 23, "北京时间 · UTC+8", EPD_DRAW_ALIGN_LEFT, false);
-        ui_hairline(fb, 259, 36, 612, UI_GRAY_LIGHT);
+        ui_nav_back(fb, 36,UI_PAGE_Y(79));
+        ui_text(fb, 36,UI_PAGE_Y(151), 47, "日期与时间", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 36,UI_PAGE_Y(216), 23, "北京时间 · UTC+8", EPD_DRAW_ALIGN_LEFT, false);
+        ui_hairline(fb,UI_PAGE_Y(259), 36, 612, UI_GRAY_LIGHT);
         static const char *const labels[] = {"年", "月", "日", "时", "分"};
         int values[] = {s_year, s_month, s_day, s_hour, s_minute};
         for (int i = 0; i < 5; ++i) {
             int x = 36 + i * 122;
-            ui_text(fb, x + 52, 300, 24, labels[i], EPD_DRAW_ALIGN_CENTER, false);
-            ui_draw_round_rect(fb, (EpdRect){x, 354, 106, 62}, 8, UI_GRAY_BLACK);
-            ui_text_vc(fb, x + 53, 385, 30, "+", EPD_DRAW_ALIGN_CENTER, false);
+            ui_text(fb, x + 52,UI_PAGE_Y(300), 24, labels[i], EPD_DRAW_ALIGN_CENTER, false);
+            ui_draw_round_rect(fb, (EpdRect){x,UI_PAGE_Y(354), 106, 62}, 8, UI_GRAY_BLACK);
+            ui_text_vc(fb, x + 53,UI_PAGE_Y(385), 30, "+", EPD_DRAW_ALIGN_CENTER, false);
             char value[8]; snprintf(value, sizeof(value), i == 0 ? "%04d" : "%02d", values[i]);
-            ui_text(fb, x + 53, 456, i == 0 ? 34 : 39, value, EPD_DRAW_ALIGN_CENTER, false);
-            ui_draw_round_rect(fb, (EpdRect){x, 535, 106, 62}, 8, UI_GRAY_BLACK);
-            ui_text_vc(fb, x + 53, 566, 30, "−", EPD_DRAW_ALIGN_CENTER, false);
+            ui_text(fb, x + 53,UI_PAGE_Y(456), i == 0 ? 34 : 39, value, EPD_DRAW_ALIGN_CENTER, false);
+            ui_draw_round_rect(fb, (EpdRect){x,UI_PAGE_Y(535), 106, 62}, 8, UI_GRAY_BLACK);
+            ui_text_vc(fb, x + 53,UI_PAGE_Y(566), 30, "−", EPD_DRAW_ALIGN_CENTER, false);
         }
-        ui_text(fb, 36, 649, 23, "点上方 + 或下方 − 调整数字", EPD_DRAW_ALIGN_LEFT, false);
-        ui_draw_button(fb, (EpdRect){36, 767, 612, 78}, "保存时间", false);
-        ui_draw_button(fb, (EpdRect){36, 874, 612, 78}, "取消", false);
-        if (s_notice[0]) ui_text(fb, 36, 996, 22, s_notice, EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 36,UI_PAGE_Y(649), 23, "点上方 + 或下方 − 调整数字", EPD_DRAW_ALIGN_LEFT, false);
+        ui_draw_button(fb, (EpdRect){36,UI_PAGE_Y(767), 612, 78}, "保存时间", false);
+        ui_draw_button(fb, (EpdRect){36,UI_PAGE_Y(874), 612, 78}, "取消", false);
+        if (s_notice[0]) ui_text(fb, 36,UI_PAGE_Y(996), 22, s_notice, EPD_DRAW_ALIGN_LEFT, false);
         return;
     }
     if (s_page == SETTINGS_WIFI) {
         back_header(fb, "WiFi");
         char ssid[33] = {0}; bool saved = false;
         (void)read_pico_transfer_get_saved_wifi(ssid, &saved);
-        section(fb, 253, "已保存网络");
-        row(fb, 296, saved ? ssid : "尚未配置", saved ? "已保存" : "");
-        row(fb, 408, "连接或更改网络", "前往传输  ›");
-        ui_text(fb, 54, 529, 21, "配网后可在日期与时间中进行 WiFi 对时。", EPD_DRAW_ALIGN_LEFT, false);
+        section(fb,UI_PAGE_Y(253), "已保存网络");
+        row(fb,UI_PAGE_Y(296), saved ? ssid : "尚未配置", saved ? "已保存" : "");
+        row(fb,UI_PAGE_Y(408), "连接或更改网络", "前往传输  ›");
+        ui_text(fb, 54,UI_PAGE_Y(529), 21, "配网后可在日期与时间中进行 WiFi 对时。", EPD_DRAW_ALIGN_LEFT, false);
         ui_nav_draw(fb, 3);
         return;
     }
@@ -725,10 +734,16 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
                 ui_text_fixed_vc_gray(fb, box.x + box.width/2, box.y + box.height/2, ui_text_effective_px(UI_TEXT_BODY),
                                       (const char *const[]){"S","M","L","XL"}[i], EPD_DRAW_ALIGN_CENTER, active?15:0, active?(UI_NAV_ACTIVE_GRAY>>4):15);
             }
-            ui_text_vc(fb,342,210,UI_TEXT_TITLE,"字号",EPD_DRAW_ALIGN_CENTER,false);
-            ui_text_vc(fb,342,405,UI_TEXT_TITLE,"字体",EPD_DRAW_ALIGN_CENTER,false);
-        } else section(fb, 244, s_notice[0]?s_notice:"只影响首页第三行文字");
-        const char *selected = s_page==SETTINGS_QUOTE_FONT?content_home_quote_font():app_settings_system_font_path();
+            ui_text_vc(fb,342,UI_PAGE_Y(210),UI_TEXT_TITLE,"字号",EPD_DRAW_ALIGN_CENTER,false);
+            ui_text_vc(fb,342,UI_PAGE_Y(405),UI_TEXT_TITLE,"字体",EPD_DRAW_ALIGN_CENTER,false);
+        } else {
+            ui_text_vc(fb,36,220,UI_TEXT_BODY,"修改字号",EPD_DRAW_ALIGN_LEFT,false);
+            char size[32];snprintf(size,sizeof(size),"%d px",s_quote_px);ui_text_vc(fb,648,220,UI_TEXT_BODY,size,EPD_DRAW_ALIGN_RIGHT,false);
+            banner_slider_draw(fb,300,s_quote_px,CONTENT_QUOTE_SIZE_MIN,CONTENT_QUOTE_SIZE_MAX,true);
+            ui_text_vc(fb,36,UI_PAGE_Y(405),UI_TEXT_BODY,"选择字体",EPD_DRAW_ALIGN_LEFT,false);
+            if(s_notice[0])ui_text_fixed_vc(fb,36,346,20,s_notice,EPD_DRAW_ALIGN_LEFT,false);
+        }
+        const char *selected = s_page==SETTINGS_QUOTE_FONT?s_banner_draft.font:app_settings_system_font_path();
         int count = ttf_font_count();
         int first = s_font_page * font_list_rows();
         for (int slot = 0; slot < font_list_rows(); ++slot) {
@@ -749,15 +764,48 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             if (active) epd_fill_circle(609, box.y + box.height/2, 6, UI_GRAY_BLACK, fb);
         }
         char pages[32]; snprintf(pages, sizeof(pages), "%d / %d", s_font_page + 1, (count + font_list_rows()) / font_list_rows());
-        ui_text(fb, 648, 1050, 20, pages, EPD_DRAW_ALIGN_RIGHT, false);
+        ui_text(fb, 648,UI_PAGE_Y(1050), 20, pages, EPD_DRAW_ALIGN_RIGHT, false);
         ui_nav_draw(fb, s_page==SETTINGS_QUOTE_FONT?0:3);
         return;
     }
-    if (s_page == SETTINGS_WALLPAPER) {
-        back_header(fb, "锁屏壁纸");
-        section(fb, 244, "TF 卡图片 · JPG / PNG · 不超过 2 MB");
+    if(s_page==SETTINGS_WALLPAPER){
+        back_header(fb,"锁屏壁纸");
+        const bool rotating=app_settings_wallpaper_rotating();
+        for(int i=0;i<2;++i){
+            EpdRect row={36,UI_PAGE_Y(236+i*190),612,170};settings_option(fb,row,i==rotating);
+            ui_text_vc(fb,54,row.y+48,UI_TEXT_HEADING,i?"壁纸轮播":"固定壁纸",EPD_DRAW_ALIGN_LEFT,false);
+            const char *value=i?(rotating?app_settings_wallpaper_path()+7:"选择 TF 卡中的图片文件夹"):(!rotating&&app_settings_wallpaper_path()[0]?strrchr(app_settings_wallpaper_path(),'/')+1:"选择单张图片或默认壁纸");
+            char label[288];snprintf(label,sizeof(label),"%s",value);fit_value(label,510);
+            ui_text_vc(fb,54,row.y+112,UI_TEXT_CAPTION,label,EPD_DRAW_ALIGN_LEFT,false);
+            if(i==rotating)epd_fill_circle(612,row.y+48,6,UI_GRAY_BLACK,fb);
+        }
+        ui_text(fb,54,UI_PAGE_Y(690),UI_TEXT_CAPTION,"每次休眠随机更换，多张图片连续不重复",EPD_DRAW_ALIGN_LEFT,false);
+        ui_text(fb,54,UI_PAGE_Y(744),UI_TEXT_CAPTION,"JPG / JPEG / PNG · 单张不超过 2 MB",EPD_DRAW_ALIGN_LEFT,false);
+        ui_nav_draw(fb,3);return;
+    }
+    if(s_page==SETTINGS_WALLPAPER_FOLDER){
+        back_header(fb,"选择轮播文件夹");
+        char path[288];snprintf(path,sizeof(path),"%s",s_wallpaper_directory+7);fit_value(path,440);
+        ui_text_vc(fb,42,UI_PAGE_Y(220),UI_TEXT_BODY,path[0]?path:"/",EPD_DRAW_ALIGN_LEFT,false);
+        if(strcmp(s_wallpaper_directory,"/sdcard"))ui_text_vc(fb,642,UI_PAGE_Y(220),UI_TEXT_BODY,"上一级",EPD_DRAW_ALIGN_RIGHT,false);
+        settings_option(fb,(EpdRect){36,UI_PAGE_Y(266),612,82},false);
+        ui_text_vc(fb,342,UI_PAGE_Y(307),UI_TEXT_BODY,"使用此文件夹",EPD_DRAW_ALIGN_CENTER,false);
+        ui_text_vc(fb,42,UI_PAGE_Y(378),UI_TEXT_CAPTION,s_notice[0]?s_notice:"至少一张可用图片 · 只读取本层文件",EPD_DRAW_ALIGN_LEFT,false);
+        for(int i=0;i<wallpaper_folder_rows();++i){
+            int index=s_wallpaper_page*wallpaper_folder_rows()+i;if(index>=s_wallpaper_count)break;
+            EpdRect row={36,UI_PAGE_Y(416+i*font_list_step()),612,font_list_step()-12};settings_option(fb,row,false);
+            char name[96];snprintf(name,sizeof(name),"%s",s_wallpapers[index].name);fit_value(name,510);
+            ui_text_vc(fb,54,row.y+row.height/2,UI_TEXT_BODY,name,EPD_DRAW_ALIGN_LEFT,false);
+            ui_text_vc(fb,624,row.y+row.height/2,UI_TEXT_BODY,"›",EPD_DRAW_ALIGN_RIGHT,false);
+        }
+        if(!s_wallpaper_count)ui_text(fb,54,UI_PAGE_Y(464),UI_TEXT_CAPTION,"此处没有子文件夹",EPD_DRAW_ALIGN_LEFT,false);
+        ui_nav_draw(fb,3);return;
+    }
+    if (s_page == SETTINGS_WALLPAPER_FIXED) {
+        back_header(fb, "固定壁纸");
+        ui_text_vc(fb,54,UI_PAGE_Y(244),UI_TEXT_BODY,"使用默认壁纸",EPD_DRAW_ALIGN_LEFT,false);
         if (!s_wallpaper_count)
-            ui_text(fb, 54, 325, 25, "未找到图片，请放入 TF 卡的 pictures 文件夹", EPD_DRAW_ALIGN_LEFT, false);
+            ui_text(fb, 54,UI_PAGE_Y(325), 25, "未找到图片，请放入 TF 卡的 pictures 文件夹", EPD_DRAW_ALIGN_LEFT, false);
         for (int i = 0; i < wallpaper_rows(); ++i) {
             int index = s_wallpaper_page * wallpaper_rows() + i;
             if (index >= s_wallpaper_count) break;
@@ -774,44 +822,44 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     }
     if (s_page == SETTINGS_WALLPAPER_PREVIEW) {
         back_header(fb, "预览壁纸");
-        EpdRect image = {166, 194, 352, 626};
+        EpdRect image = {166,UI_PAGE_Y(194), 352, 626};
         epd_fill_rect(image,UI_GRAY_WHITE,fb);
         s_wallpaper_preview_ok = s_wallpaper_selected >= 0 && s_wallpaper_selected < s_wallpaper_count &&
             ui_wallpaper_draw(fb, s_wallpapers[s_wallpaper_selected].path, image);
         epd_fill_rect((EpdRect){image.x,image.y+image.height,image.width,2},UI_GRAY_ITEM_LINE,fb);
         if (!s_wallpaper_preview_ok)
-            ui_text_vc(fb, 342, 507, 23, "图片无法预览", EPD_DRAW_ALIGN_CENTER, false);
+            ui_text_vc(fb, 342,UI_PAGE_Y(507), 23, "图片无法预览", EPD_DRAW_ALIGN_CENTER, false);
         if (s_wallpaper_selected >= 0 && s_wallpaper_selected < s_wallpaper_count) {
             char name[96]; snprintf(name, sizeof(name), "%s", s_wallpapers[s_wallpaper_selected].name);
             fit_value(name, 570);
-            ui_text_vc(fb, 342, 859, 24, name, EPD_DRAW_ALIGN_CENTER, false);
+            ui_text_vc(fb, 342,UI_PAGE_Y(859), 24, name, EPD_DRAW_ALIGN_CENTER, false);
             char position[40];
             snprintf(position, sizeof(position), "%d / %d · 上下滑动切换", s_wallpaper_selected + 1, s_wallpaper_count);
-            ui_text_vc(fb, 342, 908, 20, position, EPD_DRAW_ALIGN_CENTER, false);
+            ui_text_vc(fb, 342,UI_PAGE_Y(908), 20, position, EPD_DRAW_ALIGN_CENTER, false);
         }
         if (s_wallpaper_preview_ok) {
-            EpdRect button = {94, 962, 496, 70};
+            EpdRect button = {94,UI_PAGE_Y(962), 496, 70};
             ui_fill_round_rect(fb, button, 22, 0x30);
-            ui_text_vc(fb, 342, 997, 25, "设为锁屏壁纸", EPD_DRAW_ALIGN_CENTER, true);
+            ui_text_vc(fb, 342,UI_PAGE_Y(997), 25, "设为锁屏壁纸", EPD_DRAW_ALIGN_CENTER, true);
         }
         if (s_wallpaper_confirm) {
-            EpdRect dialog = {68, 435, 548, 306};
+            EpdRect dialog = {68,UI_PAGE_Y(435), 548, 306};
             ui_fill_round_rect(fb, dialog, 26, UI_GRAY_WHITE);
             ui_draw_round_rect(fb, dialog, 26, 0x50);
-            ui_text_vc(fb, 342, 503, 31, "设为壁纸锁屏？", EPD_DRAW_ALIGN_CENTER, false);
-            ui_text_vc(fb, 342, 565, 20, "确认后，短按电源键将显示此图片", EPD_DRAW_ALIGN_CENTER, false);
-            EpdRect cancel = {94, 643, 232, 68}, confirm = {358, 643, 232, 68};
+            ui_text_vc(fb, 342,UI_PAGE_Y(503), 31, "设为壁纸锁屏？", EPD_DRAW_ALIGN_CENTER, false);
+            ui_text_vc(fb, 342,UI_PAGE_Y(565), 20, "确认后，短按电源键将显示此图片", EPD_DRAW_ALIGN_CENTER, false);
+            EpdRect cancel = {94,UI_PAGE_Y(643), 232, 68}, confirm = {358, 643, 232, 68};
             ui_fill_round_rect(fb, cancel, 18, 0xe0);
             ui_fill_round_rect(fb, confirm, 18, 0x30);
-            ui_text_vc(fb, 210, 677, 24, "取消", EPD_DRAW_ALIGN_CENTER, false);
-            ui_text_vc(fb, 474, 677, 24, "确认", EPD_DRAW_ALIGN_CENTER, true);
+            ui_text_vc(fb, 210,UI_PAGE_Y(677), 24, "取消", EPD_DRAW_ALIGN_CENTER, false);
+            ui_text_vc(fb, 474,UI_PAGE_Y(677), 24, "确认", EPD_DRAW_ALIGN_CENTER, true);
         }
         ui_nav_draw(fb, 3);
         return;
     }
     if(s_page==SETTINGS_STATUS_DATE_FORMAT){
         back_header(fb,"日期格式");
-        ui_text_vc(fb,36,232,UI_TEXT_CAPTION,"选择左上角显示的日期格式",EPD_DRAW_ALIGN_LEFT,false);
+        ui_text_vc(fb,36,UI_PAGE_Y(232),UI_TEXT_CAPTION,"选择左上角显示的日期格式",EPD_DRAW_ALIGN_LEFT,false);
         for(int i=0;i<APP_STATUS_DATE_FORMAT_COUNT;++i){
             EpdRect r=status_date_rect(i);bool selected=(int)app_settings_status_date_format()==i;
             ui_text_vc(fb,54,r.y+r.height/2,UI_TEXT_BODY,status_date_labels[i],EPD_DRAW_ALIGN_LEFT,false);
@@ -829,20 +877,20 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             if (gmtime_r(&local, &tm)) snprintf(shown, sizeof(shown), "%04d-%02d-%02d  %02d:%02d",
                 tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min);
         }
-        section(fb,253,"当前时间 · 北京时间");row(fb,296,shown,"");
-        row(fb,407,"通过 WiFi 对时","立即同步  ›");row(fb,518,"手动设置","编辑  ›");
-        settings_divider(fb,624,36,612);section(fb,640,"状态栏显示");
+        section(fb,UI_PAGE_Y(253),"当前时间 · 北京时间");row(fb,UI_PAGE_Y(296),shown,"");
+        row(fb,UI_PAGE_Y(407),"通过 WiFi 对时","立即同步  ›");row(fb,UI_PAGE_Y(518),"手动设置","编辑  ›");
+        settings_divider(fb,UI_PAGE_Y(624),36,612);section(fb,UI_PAGE_Y(640),"状态栏显示");
         row(fb,status_display_row_y(0),"显示日期",app_settings_status_show_date()?"开启  ›":"关闭  ›");
         row(fb,status_display_row_y(1),"日期格式",status_date_labels[app_settings_status_date_format()]);
         if(s_notice[0]){
             int px=ui_text_fit_px(UI_TEXT_CAPTION,s_notice,576,40);
-            ui_text_fixed_vc(fb,54,1048,px,s_notice,EPD_DRAW_ALIGN_LEFT,false);
+            ui_text_fixed_vc(fb,54,UI_PAGE_Y(1048),px,s_notice,EPD_DRAW_ALIGN_LEFT,false);
         }
         ui_nav_draw(fb,3);return;
     }
     if(s_page==SETTINGS_IDLE_SLEEP){
         back_header(fb,"自动休眠");
-        ui_text_vc(fb,36,232,UI_TEXT_CAPTION,"多久不操作后进入休眠",EPD_DRAW_ALIGN_LEFT,false);
+        ui_text_vc(fb,36,UI_PAGE_Y(232),UI_TEXT_CAPTION,"多久不操作后进入休眠",EPD_DRAW_ALIGN_LEFT,false);
         for(int i=0;i<6;++i){EpdRect r=status_date_rect(i);
             ui_text_vc(fb,54,r.y+r.height/2,UI_TEXT_BODY,idle_sleep_labels[i],EPD_DRAW_ALIGN_LEFT,false);
             if(app_settings_idle_sleep_minutes()==idle_sleep_minutes[i])epd_fill_circle(617,r.y+r.height/2,7,UI_GRAY_BLACK,fb);
@@ -852,64 +900,64 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     }
     if (s_page == SETTINGS_POWER_SLEEP) {
         back_header(fb, "关机睡眠");
-        section(fb, 248, "选择电源菜单中“关机”的方式");
+        section(fb,UI_PAGE_Y(248), "选择电源菜单中“关机”的方式");
         const char *labels[] = {"彻底关机", "先浅睡，10 分钟后深睡"};
         const char *details[] = {"完全断电，长按电源键开机",
                                  "锁屏画面保留；深睡后短按电源键开机"};
         for (int i = 0; i < 2; ++i) {
-            EpdRect box = {36, 300 + i * 154, 612, 132};
+            EpdRect box = {36,UI_PAGE_Y(300 + i * 154), 612, 132};
             bool active = app_settings_staged_shutdown() == (i == 1);
             settings_option(fb,box,active);
             ui_text(fb, 64, box.y + 23, 29, labels[i], EPD_DRAW_ALIGN_LEFT, false);
             ui_text(fb, 64, box.y + 79, 20, details[i], EPD_DRAW_ALIGN_LEFT, false);
             if (active) epd_fill_circle(609, box.y + 66, 8, UI_GRAY_BLACK, fb);
         }
-        settings_divider(fb,640,36,612);section(fb,656,"自动休眠");
-        row(fb,714,"无操作后休眠",idle_sleep_label());
-        ui_text_vc(fb,54,866,UI_TEXT_CAPTION,"无操作时自动锁屏并休眠",EPD_DRAW_ALIGN_LEFT,false);
-        ui_text_vc(fb,54,910,UI_TEXT_CAPTION,"传输期间暂停计时",EPD_DRAW_ALIGN_LEFT,false);
+        settings_divider(fb,UI_PAGE_Y(640),36,612);section(fb,UI_PAGE_Y(656),"自动休眠");
+        row(fb,UI_PAGE_Y(714),"无操作后休眠",idle_sleep_label());
+        ui_text_vc(fb,54,UI_PAGE_Y(866),UI_TEXT_CAPTION,"无操作时自动锁屏并休眠",EPD_DRAW_ALIGN_LEFT,false);
+        ui_text_vc(fb,54,UI_PAGE_Y(910),UI_TEXT_CAPTION,"传输期间暂停计时",EPD_DRAW_ALIGN_LEFT,false);
         ui_nav_draw(fb, 3);
         return;
     }
     if (s_page == SETTINGS_BOOT) {
         back_header(fb, "电脑刷机");
-        settings_region(fb,(EpdRect){36, 254, 612, 298});
-        ui_text(fb, 60, 288, 29, "进入 BOOT 模式", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 60, 350, 22, "用于官网完整刷机或故障恢复", EPD_DRAW_ALIGN_LEFT, false);
-        ui_draw_button(fb, (EpdRect){60, 438, 564, 78}, s_boot_pending ? "正在进入" : "进入 BOOT 模式", false);
-        ui_text(fb, 48, 620, 22, "请用 USB 连接电脑，再打开官网刷机页", EPD_DRAW_ALIGN_LEFT, false);
+        settings_region(fb,(EpdRect){36,UI_PAGE_Y(254), 612, 298});
+        ui_text(fb, 60,UI_PAGE_Y(288), 29, "进入 BOOT 模式", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 60,UI_PAGE_Y(350), 22, "用于官网完整刷机或故障恢复", EPD_DRAW_ALIGN_LEFT, false);
+        ui_draw_button(fb, (EpdRect){60,UI_PAGE_Y(438), 564, 78}, s_boot_pending ? "正在进入" : "进入 BOOT 模式", false);
+        ui_text(fb, 48,UI_PAGE_Y(620), 22, "请用 USB 连接电脑，再打开官网刷机页", EPD_DRAW_ALIGN_LEFT, false);
         ui_nav_draw(fb, 3); return;
     }
 
     if (s_page == SETTINGS_CONFIG) {
         back_header(fb, "保存与恢复配置");
-        section(fb, 248, "换机或刷机后，快速恢复个性化设置");
-        settings_region(fb,(EpdRect){36, 299, 612, 197});
-        ui_text(fb, 60, 326, 26, "TF 卡根目录", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 60, 377, 23, "Pico-settings.backup", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 60, 435, 19, "文字排版、设备资料、阅读记录与书签", EPD_DRAW_ALIGN_LEFT, false);
-        ui_draw_button(fb, (EpdRect){36, 561, 612, 83}, "保存当前配置到 TF 卡", false);
-        ui_draw_button(fb, (EpdRect){36, 681, 612, 83},
+        section(fb,UI_PAGE_Y(248), "换机或刷机后，快速恢复个性化设置");
+        settings_region(fb,(EpdRect){36,UI_PAGE_Y(299), 612, 197});
+        ui_text(fb, 60,UI_PAGE_Y(326), 26, "TF 卡根目录", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 60,UI_PAGE_Y(377), 23, "Pico-settings.backup", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 60,UI_PAGE_Y(435), 19, "文字排版、设备资料、阅读记录与书签", EPD_DRAW_ALIGN_LEFT, false);
+        ui_draw_button(fb, (EpdRect){36,UI_PAGE_Y(561), 612, 83}, "保存当前配置到 TF 卡", false);
+        ui_draw_button(fb, (EpdRect){36,UI_PAGE_Y(681), 612, 83},
                        s_config_confirm ? "再次点按，确认恢复配置" : "从 TF 卡恢复配置", false);
-        if (s_notice[0]) ui_text(fb, 48, 819, 21, s_notice, EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 48, 899, 19, "包含阅读记录、设备资料、WiFi和坚果云。", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 48, 939, 19, "书籍、字体和图片仍需留在 TF 卡。", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 48, 979, 19, "备份含WiFi和坚果云应用密码，请妥善保管。", EPD_DRAW_ALIGN_LEFT, false);
+        if (s_notice[0]) ui_text(fb, 48,UI_PAGE_Y(819), 21, s_notice, EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 48,UI_PAGE_Y(899), 19, "包含阅读记录、设备资料、WiFi和坚果云。", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 48,UI_PAGE_Y(939), 19, "书籍、字体和图片仍需留在 TF 卡。", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 48,UI_PAGE_Y(979), 19, "备份含WiFi和坚果云应用密码，请妥善保管。", EPD_DRAW_ALIGN_LEFT, false);
         ui_nav_draw(fb, 3);
         return;
     }
 
     // 名称、版本与口号共用紧凑单行，按可用宽度适配，避免大字号互相覆盖。
     // Fit the brand, version and slogan on one compact line without overlap at large presets.
-    const int info_y = 84 - s_main_scroll;
-    if (info_y + SETTINGS_INFO_H > 80) {
+    const int info_y = UI_PAGE_Y(84) - s_main_scroll;
+    if (info_y + SETTINGS_INFO_H > UI_STATUS_HEIGHT) {
         int center=info_y+SETTINGS_INFO_H/2;
         int title_px=ui_text_fit_px(UI_TEXT_TITLE,"if-ink OS",196,48);
         ui_text_fixed_vc(fb,36,center,title_px,"if-ink OS",EPD_DRAW_ALIGN_LEFT,false);
         int version_x=36+ui_text_fixed_width_px(title_px,"if-ink OS")+12;
-        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.1.2",92,48);
-        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.1.2",EPD_DRAW_ALIGN_LEFT,false);
-        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.1.2")-24;
+        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.1.3",92,48);
+        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.1.3",EPD_DRAW_ALIGN_LEFT,false);
+        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.1.3")-24;
         const char *slogan="支持md文档的Pico固件";
         int slogan_px=ui_text_fit_px(UI_TEXT_CAPTION,slogan,width,48);
         ui_text_fixed_vc_gray(fb,648,center,slogan_px,slogan,EPD_DRAW_ALIGN_RIGHT,8,15);
@@ -926,7 +974,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     static const int wireless_icons[] = {0, 12};
     setting_group(fb, SETTINGS_WIRELESS_Y - 34, "账号与链接", SETTINGS_WIRELESS_Y,
                   wireless_icons, wireless_labels, wireless_values, SETTINGS_WIRELESS_ROWS);
-    const char *reading_labels[] = {"系统文字", "状态栏签名", "首页强刷", "锁屏壁纸"};
+    const char *reading_labels[] = {"系统文字", "状态栏签名", "首页强刷", "锁屏壁纸", "首页Banner"};
     char font[96];
     const char *chosen_font = app_settings_system_font_path();
     snprintf(font, sizeof(font), "%s  ›", system_font_label(chosen_font));
@@ -938,24 +986,24 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
              app_settings_status_signature()[0] ? app_settings_status_signature() : "未设置");
     fit_value(signature_value, 235);
     const char *reading_values[] = {font,
-                                    signature_value, app_settings_home_full_refresh() ? "开启  ›" : "关闭  ›", "选择  ›"};
-    static const int reading_icons[] = {2, 10, 11, 5};
+                                    signature_value, app_settings_home_full_refresh() ? "开启  ›" : "关闭  ›", "选择  ›", "编辑  ›"};
+    static const int reading_icons[] = {2, 10, 11, 5, 5};
     setting_group(fb, SETTINGS_DISPLAY_Y - 34, "显示与个性化", SETTINGS_DISPLAY_Y,
                   reading_icons, reading_labels, reading_values, SETTINGS_DISPLAY_ROWS);
     const char *device_labels[] = {"日期与时间", "关机与休眠", "电池管理", "保存与恢复", "固件信息", "BOOT 刷机"};
     const char *device_values[] = {"设置  ›", app_settings_staged_shutdown() ? "先浅后深  ›" : "彻底断电  ›",
-                                   "查看  ›", "配置  ›", "v0.1.2  ›", "电脑刷机  ›"};
+                                   "查看  ›", "配置  ›", "v0.1.3  ›", "电脑刷机  ›"};
     static const int device_icons[] = {6, 9, 13, 8, 14, 11};
     setting_group(fb, SETTINGS_DEVICE_Y - 34, "系统与设备", SETTINGS_DEVICE_Y,
                   device_icons, device_labels, device_values, SETTINGS_DEVICE_ROWS);
-    epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, 80}, UI_GRAY_WHITE, fb);
+    epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_STATUS_HEIGHT}, UI_GRAY_WHITE, fb);
     ui_nav_status(fb);
     ui_nav_draw(fb, 3);
 }
 
 static void on_enter(app_ctx_t *ctx) {
     (void)ctx;
-    quote_preview_clear();s_quote_px=content_home_quote_size();s_quote_dragging=false;s_quote_committed=false;
+    quote_preview_clear();content_banner_load(&s_banner_draft);s_quote_px=s_banner_draft.quote_px;s_quote_dragging=false;s_quote_committed=false;
     s_notice[0] = 0;
     s_page = s_cloud_requested?SETTINGS_CLOUD:SETTINGS_MAIN;s_cloud_requested=false;s_cloud_editor=0;
     s_main_scroll = s_font_page = s_wallpaper_page = s_cloud_scroll = 0;
@@ -984,7 +1032,7 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
         }
         return APP_REDRAW_NONE;
     }
-    if(s_page==SETTINGS_HOME_QUOTE&&!s_quote_preview&&!s_quote_preview_attempted){quote_preview_prepare(content_home_quote_size(),false);return APP_REDRAW_PAGE;}
+    if(s_page==SETTINGS_HOME_QUOTE&&!s_quote_preview&&!s_quote_preview_attempted){quote_preview_prepare(s_banner_draft.quote_px,false);return APP_REDRAW_PAGE;}
     (void)ctx;
     if (s_page == SETTINGS_BATTERY) {
         const pmu_snapshot_t *p = read_pico_pmu_get();
@@ -1049,12 +1097,12 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
 static app_redraw_t profile_editor_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev) {
     ui_input_result_t result=ui_text_input_gesture(&s_text_input,ev);
     if(result==UI_INPUT_NONE)return APP_REDRAW_NONE;
-    if(result==UI_INPUT_CANCEL){ui_text_input_clear(&s_text_input);if(s_home_quote_editor){s_home_quote_editor=false;s_page=SETTINGS_HOME_QUOTE;quote_preview_prepare(content_home_quote_size(),false);return APP_REDRAW_PAGE;}s_page=editor_return_page();return APP_REDRAW_PAGE;}
+    if(result==UI_INPUT_CANCEL){ui_text_input_clear(&s_text_input);if(s_home_quote_editor){s_home_quote_editor=false;s_page=SETTINGS_HOME_QUOTE;quote_preview_prepare(s_banner_draft.quote_px,false);return APP_REDRAW_PAGE;}s_page=editor_return_page();return APP_REDRAW_PAGE;}
     if(result==UI_INPUT_CHANGED){s_editor_notice[0]=0;return APP_REDRAW_AREA;}
     if(s_home_quote_editor){
-        if(!ui_banner_quote_fits_font(s_editor,content_home_quote_font())){strlcpy(s_editor_notice,"文字最多显示两行，请缩短后保存",sizeof(s_editor_notice));return APP_REDRAW_PAGE;}
-        if(content_home_quote_set(s_editor)!=ESP_OK){strlcpy(s_editor_notice,"保存失败，请检查设置存储空间",sizeof(s_editor_notice));return APP_REDRAW_PAGE;}
-        ui_text_input_clear(&s_text_input);s_home_quote_editor=false;s_quote_committed=true;s_page=SETTINGS_HOME_QUOTE;quote_preview_prepare(content_home_quote_size(),false);return APP_REDRAW_PAGE;
+        content_banner_config_t next=s_banner_draft;strlcpy(next.text,s_editor,sizeof(next.text));
+        if(!banner_preview_apply(&next,true)){strlcpy(s_editor_notice,"文字最多四行，请缩短内容或缩小字号",sizeof(s_editor_notice));return APP_REDRAW_PAGE;}
+        ui_text_input_clear(&s_text_input);s_home_quote_editor=false;s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;
     }
     if(s_cloud_editor){
         cloud_config_t cfg;cloud_config_load(&cfg);
@@ -1089,7 +1137,7 @@ static app_redraw_t scroll_gesture(const ui_gesture_event_t *ev, int *offset, in
     }
     if (ev->type != UI_GESTURE_MOVE && ev->type != UI_GESTURE_SWIPE_U && ev->type != UI_GESTURE_SWIPE_D)
         return APP_REDRAW_NONE;
-    if (ev->y0 < (s_page == SETTINGS_MAIN ? 80 : 190) || ev->y0 >= UI_NAV_TOP)
+    if (ev->y0 < (s_page == SETTINGS_MAIN ? UI_STATUS_HEIGHT : UI_PAGE_Y(190)) || ev->y0 >= UI_NAV_TOP)
         return APP_REDRAW_NONE;
     if (s_scroll_drag_consumed) {
         if (ev->type != UI_GESTURE_MOVE) s_scroll_drag_consumed = false;
@@ -1115,7 +1163,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     if(s_page==SETTINGS_ONLINE_UPDATE){
         if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
         int tab=ui_nav_hit(ev->x0,ev->y0);
-        if((ev->y0<190&&ev->x0<170)||tab>=0){
+        if((ev->y0<UI_PAGE_Y(190)&&ev->x0<170)||tab>=0){
             online_close();s_online_pending=s_online_confirm=false;
             if(tab>=0)ui_nav_request(ctx,tab);else s_page=SETTINGS_FIRMWARE_INFO;
             return APP_REDRAW_PAGE;
@@ -1133,8 +1181,8 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     }
     if (s_page == SETTINGS_BOOT) {
         if (ev->type != UI_GESTURE_TAP || s_boot_pending) return APP_REDRAW_NONE;
-        if (ev->y0 < 190 && ev->x0 < 170) { s_page = SETTINGS_MAIN; return APP_REDRAW_PAGE; }
-        if (ui_rect_hit((EpdRect){60, 438, 564, 78}, ev->x0, ev->y0)) { s_boot_pending = true; return APP_REDRAW_PAGE; }
+        if (ev->y0 < UI_PAGE_Y(190) && ev->x0 < 170) { s_page = SETTINGS_MAIN; return APP_REDRAW_PAGE; }
+        if (ui_rect_hit((EpdRect){60,UI_PAGE_Y(438), 564, 78}, ev->x0, ev->y0)) { s_boot_pending = true; return APP_REDRAW_PAGE; }
         int tab = ui_nav_hit(ev->x0, ev->y0);
         if (tab >= 0) ui_nav_request(ctx, tab);
         return APP_REDRAW_NONE;
@@ -1142,32 +1190,23 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     if (s_page == SETTINGS_UPGRADE) {
         if (ev->type != UI_GESTURE_TAP || s_local_pending || s_upgrade_restart) return APP_REDRAW_NONE;
         int y = ev->y0;
-        if (y < 190 && ev->x0 < 170) {
+        if (y < UI_PAGE_Y(190) && ev->x0 < 170) {
             if (s_upgrade_confirm) s_upgrade_confirm = false; else s_page = SETTINGS_FIRMWARE_INFO;
             return APP_REDRAW_PAGE;
         }
         int tab = ui_nav_hit(ev->x0, y);
         if (tab >= 0) { s_upgrade_confirm = false; ui_nav_request(ctx, tab); return APP_REDRAW_NONE; }
-        if (y >= 613 && y < 677 && ev->x0 >= 60 && ev->x0 < 624) {
+        if (y >= UI_PAGE_Y(613) && y < UI_PAGE_Y(677) && ev->x0 >= 60 && ev->x0 < 624) {
             if (s_upgrade_confirm) { s_upgrade_confirm = false; if (ev->x0 >= 364) s_local_pending = true; }
             else { (void)pico_ota_inspect(PICO_OTA_UPDATE_PATH, &s_local_update); s_upgrade_confirm = s_local_update.ready; if (!s_local_update.ready) snprintf(s_upgrade_notice,sizeof(s_upgrade_notice),"%s",s_local_update.message); }
             return APP_REDRAW_PAGE;
         }
         return APP_REDRAW_NONE;
     }
-    if(s_page==SETTINGS_HOME_QUOTE){
-        bool handled;app_redraw_t redraw=quote_slider_gesture(ev,&handled);if(handled)return redraw;
-        if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
-        if(ev->y0<190||ui_rect_hit((EpdRect){36,1064,612,56},ev->x0,ev->y0)){ui_nav_request(ctx,0);return APP_REDRAW_NONE;}
-        if(ui_rect_hit((EpdRect){36,572,612,72},ev->x0,ev->y0)){home_quote_editor_open();return APP_REDRAW_PAGE;}
-        if(ui_rect_hit((EpdRect){36,662,612,72},ev->x0,ev->y0)){ttf_font_scan();s_font_page=0;s_page=SETTINGS_QUOTE_FONT;s_notice[0]=0;return APP_REDRAW_PAGE;}
-        for(int i=0;i<4;++i)if(ui_rect_hit(quote_alignment_rect(i),ev->x0,ev->y0)){
-            if(content_home_quote_alignment()==(content_quote_align_t)i)return APP_REDRAW_NONE;
-            (void)quote_preview_prepare_alignment(content_home_quote_size(),false,(content_quote_align_t)i,true);return APP_REDRAW_PAGE;
-        }
-        int tab=ui_nav_hit(ev->x0,ev->y0);if(tab>=0)ui_nav_request(ctx,tab);return APP_REDRAW_NONE;
-    }
-    if(s_page==SETTINGS_QUOTE_FONT&&ev->type==UI_GESTURE_TAP&&ev->y0<190){s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;}
+    if(s_page==SETTINGS_HOME_QUOTE)return banner_editor_gesture(ctx,ev);
+    if(s_page==SETTINGS_BANNER_IMAGE||s_page==SETTINGS_BANNER_BROWSER)return banner_picker_gesture(ctx,ev);
+    if(s_page==SETTINGS_QUOTE_FONT){bool handled;app_redraw_t redraw=quote_slider_gesture(ev,&handled);if(handled)return redraw;}
+    if(s_page==SETTINGS_QUOTE_FONT&&ev->type==UI_GESTURE_TAP&&ev->y0<UI_PAGE_Y(190)){s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;}
     if (s_page == SETTINGS_TEXT_EDIT) return profile_editor_gesture(ctx,ev);
     if (s_page == SETTINGS_CLOUD) {
         bool handled;app_redraw_t redraw=scroll_gesture(ev,&s_cloud_scroll,cloud_scroll_limit(),&handled);
@@ -1186,14 +1225,14 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         int next = s_wallpaper_selected + (ev->type == UI_GESTURE_SWIPE_U ? 1 : -1);
         if (next < 0 || next >= s_wallpaper_count) return APP_REDRAW_NONE;
         s_wallpaper_selected = next;
-        s_wallpaper_page = next / 8;
+        s_wallpaper_page = next / wallpaper_rows();
         return APP_REDRAW_PAGE;
     }
-    if ((s_page == SETTINGS_SYSTEM_FONT || s_page == SETTINGS_QUOTE_FONT || s_page == SETTINGS_WALLPAPER) &&
+    if ((s_page == SETTINGS_SYSTEM_FONT || s_page == SETTINGS_QUOTE_FONT || s_page == SETTINGS_WALLPAPER_FIXED || s_page == SETTINGS_WALLPAPER_FOLDER) &&
         (ev->type == UI_GESTURE_SWIPE_U || ev->type == UI_GESTURE_SWIPE_D)) {
         int *page = (s_page == SETTINGS_SYSTEM_FONT || s_page == SETTINGS_QUOTE_FONT) ? &s_font_page : &s_wallpaper_page;
         int count = (s_page == SETTINGS_SYSTEM_FONT || s_page == SETTINGS_QUOTE_FONT) ? ttf_font_count() + 1 : s_wallpaper_count;
-        int rows = s_page == SETTINGS_WALLPAPER ? wallpaper_rows() : font_list_rows();
+        int rows = s_page == SETTINGS_WALLPAPER_FOLDER ? wallpaper_folder_rows() : s_page == SETTINGS_WALLPAPER_FIXED ? wallpaper_rows() : font_list_rows();
         int pages = count > 0 ? (count + rows - 1) / rows : 1;
         int old = *page;
         if (ev->type == UI_GESTURE_SWIPE_U && *page + 1 < pages) ++*page;
@@ -1204,51 +1243,73 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     }
     if (ev->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
     if (s_page == SETTINGS_WALLPAPER_PREVIEW && s_wallpaper_confirm) {
-        if (ev->y0 >= 643 && ev->y0 < 711 && ev->x0 >= 358 && ev->x0 < 590) {
+        if (ev->y0 >= UI_PAGE_Y(643) && ev->y0 < UI_PAGE_Y(711) && ev->x0 >= 358 && ev->x0 < 590) {
             const char *path = s_wallpapers[s_wallpaper_selected].path;
             app_settings_set_wallpaper_path(path);
             if (!strcmp(app_settings_wallpaper_path(), path)) {
                 app_settings_set_lock_style(1);
-                s_page = SETTINGS_MAIN;
+                s_page = SETTINGS_WALLPAPER;
             }
         }
         s_wallpaper_confirm = false;
         return APP_REDRAW_PAGE;
     }
     if (s_page == SETTINGS_TIME_EDIT) {
-        if (ev->y0 < 190) { s_page = SETTINGS_TIME; return APP_REDRAW_PAGE; }
-        if (ev->y0 >= 354 && ev->y0 < 597) {
+        if (ev->y0 < UI_PAGE_Y(190)) { s_page = SETTINGS_TIME; return APP_REDRAW_PAGE; }
+        if (ev->y0 >= UI_PAGE_Y(354) && ev->y0 < UI_PAGE_Y(597)) {
             int field = (ev->x0 - 36) / 122;
             if (ev->x0 >= 36 && field >= 0 && field < 5 && (ev->x0 - 36) % 122 < 106) {
-                if (ev->y0 < 416) time_adjust(field, 1);
-                else if (ev->y0 >= 535) time_adjust(field, -1);
+                if (ev->y0 < UI_PAGE_Y(416)) time_adjust(field, 1);
+                else if (ev->y0 >= UI_PAGE_Y(535)) time_adjust(field, -1);
                 else return APP_REDRAW_NONE;
                 return APP_REDRAW_PAGE;
             }
         }
-        if (ev->y0 >= 767 && ev->y0 < 845) { (void)time_save(); return APP_REDRAW_PAGE; }
-        if (ev->y0 >= 874 && ev->y0 < 952) { s_page = SETTINGS_TIME; return APP_REDRAW_PAGE; }
+        if (ev->y0 >= UI_PAGE_Y(767) && ev->y0 < UI_PAGE_Y(845)) { (void)time_save(); return APP_REDRAW_PAGE; }
+        if (ev->y0 >= UI_PAGE_Y(874) && ev->y0 < UI_PAGE_Y(952)) { s_page = SETTINGS_TIME; return APP_REDRAW_PAGE; }
         return APP_REDRAW_NONE;
     }
     int tab = ui_nav_hit(ev->x0, ev->y0);
     if (tab >= 0) { ui_nav_request(ctx, tab); return APP_REDRAW_NONE; }
     int y = ev->y0;
     if (s_page == SETTINGS_WALLPAPER_PREVIEW) {
-        if (y < 190) { s_page = SETTINGS_WALLPAPER; return APP_REDRAW_PAGE; }
-        if (s_wallpaper_preview_ok && y >= 194 && y < 1032) {
+        if (y < UI_PAGE_Y(190)) { s_page = SETTINGS_WALLPAPER_FIXED; return APP_REDRAW_PAGE; }
+        if (s_wallpaper_preview_ok && y >= UI_PAGE_Y(194) && y < UI_PAGE_Y(1032)) {
             s_wallpaper_confirm = true;
             return APP_REDRAW_PAGE;
         }
         return APP_REDRAW_NONE;
     }
-    if (s_page == SETTINGS_WALLPAPER && y < 190) {
+    if (s_page == SETTINGS_WALLPAPER && y < UI_PAGE_Y(190)) {
         s_page = SETTINGS_MAIN;
         return APP_REDRAW_PAGE;
     }
 
-    if(s_page==SETTINGS_IDLE_SLEEP&&y<190){s_page=SETTINGS_POWER_SLEEP;return APP_REDRAW_PAGE;}
-    if(s_page==SETTINGS_STATUS_DATE_FORMAT && y<190){s_page=SETTINGS_TIME;return APP_REDRAW_PAGE;}
-    if (s_page != SETTINGS_MAIN && y < 190) { s_page = SETTINGS_MAIN; return APP_REDRAW_PAGE; }
+    if((s_page==SETTINGS_WALLPAPER_FIXED||s_page==SETTINGS_WALLPAPER_FOLDER)&&y<UI_PAGE_Y(190)){s_page=SETTINGS_WALLPAPER;s_notice[0]=0;return APP_REDRAW_PAGE;}
+    if(s_page==SETTINGS_WALLPAPER){
+        if(y>=UI_PAGE_Y(236)&&y<UI_PAGE_Y(406)){wallpaper_scan();s_page=SETTINGS_WALLPAPER_FIXED;return APP_REDRAW_PAGE;}
+        if(y>=UI_PAGE_Y(426)&&y<UI_PAGE_Y(596)){wallpaper_folder_open();return APP_REDRAW_PAGE;}
+        return APP_REDRAW_NONE;
+    }
+    if(s_page==SETTINGS_WALLPAPER_FOLDER){
+        if(y>=UI_PAGE_Y(190)&&y<UI_PAGE_Y(250)&&ev->x0>=520&&strcmp(s_wallpaper_directory,"/sdcard")){
+            char *slash=strrchr(s_wallpaper_directory,'/');if(slash&&slash>s_wallpaper_directory+6)*slash=0;
+            wallpaper_folder_scan();s_notice[0]=0;return APP_REDRAW_PAGE;
+        }
+        if(ui_rect_hit((EpdRect){36,UI_PAGE_Y(266),612,82},ev->x0,y)){
+            if(!ui_wallpaper_check_directory(ctx->fb,s_wallpaper_directory)){snprintf(s_notice,sizeof(s_notice),"此文件夹没有可用图片，请重新选择");return APP_REDRAW_PAGE;}
+            if(app_settings_set_wallpaper_directory(s_wallpaper_directory)!=ESP_OK){snprintf(s_notice,sizeof(s_notice),"保存失败，请重试");return APP_REDRAW_PAGE;}
+            s_notice[0]=0;s_page=SETTINGS_WALLPAPER;return APP_REDRAW_PAGE;
+        }
+        if(ev->x0>=36&&ev->x0<648&&y>=UI_PAGE_Y(416)&&y<UI_PAGE_Y(416)+wallpaper_folder_rows()*font_list_step()&&(y-UI_PAGE_Y(416))%font_list_step()<font_list_step()-12){
+            int index=s_wallpaper_page*wallpaper_folder_rows()+(y-UI_PAGE_Y(416))/font_list_step();if(index>=s_wallpaper_count)return APP_REDRAW_NONE;
+            snprintf(s_wallpaper_directory,sizeof(s_wallpaper_directory),"%s",s_wallpapers[index].path);wallpaper_folder_scan();s_notice[0]=0;return APP_REDRAW_PAGE;
+        }
+        return APP_REDRAW_NONE;
+    }
+    if(s_page==SETTINGS_IDLE_SLEEP&&y<UI_PAGE_Y(190)){s_page=SETTINGS_POWER_SLEEP;return APP_REDRAW_PAGE;}
+    if(s_page==SETTINGS_STATUS_DATE_FORMAT && y<UI_PAGE_Y(190)){s_page=SETTINGS_TIME;return APP_REDRAW_PAGE;}
+    if (s_page != SETTINGS_MAIN && y < UI_PAGE_Y(190)) { s_page = SETTINGS_MAIN; return APP_REDRAW_PAGE; }
     if (s_page == SETTINGS_FIRMWARE_INFO) {
         if (ui_rect_hit(firmware_update_rect(0),ev->x0,y)) {
             s_page=SETTINGS_ONLINE_UPDATE;s_online_pending=true;s_online_confirm=false;
@@ -1261,13 +1322,13 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         return APP_REDRAW_NONE;
     }
     if (s_page == SETTINGS_BATTERY) {
-        if (y>=346 && y<414 && ev->x0>=36 && ev->x0<648) {
+        if (y>=UI_PAGE_Y(346) && y<UI_PAGE_Y(414) && ev->x0>=36 && ev->x0<648) {
             s_battery_week = ev->x0>=348; return APP_REDRAW_PAGE;
         }
         return APP_REDRAW_NONE;
     }
     if (s_page == SETTINGS_WIFI) {
-        if (y >= 408 && y < 408+SETTINGS_ROW_H) {
+        if (y >= UI_PAGE_Y(408) && y < UI_PAGE_Y(408)+SETTINGS_ROW_H) {
             extern const app_desc_t app_transfer;
             app_transfer_request_wifi_setup();
             ctx->request_app = &app_transfer;
@@ -1276,7 +1337,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     }
     if (s_page == SETTINGS_SYSTEM_FONT || s_page == SETTINGS_QUOTE_FONT) {
         if (s_page == SETTINGS_SYSTEM_FONT) {
-            for (int i = 0; i < 4; ++i) if ((ev->x0-(system_size_rect(i).x+50))*(ev->x0-(system_size_rect(i).x+50))+(y-300)*(y-300)<=2500) {
+            for (int i = 0; i < 4; ++i) if ((ev->x0-(system_size_rect(i).x+50))*(ev->x0-(system_size_rect(i).x+50))+(y-UI_PAGE_Y(300))*(y-UI_PAGE_Y(300))<=2500) {
                 app_settings_set_system_font_size(size_values[i]);
                 s_font_page=0; s_main_scroll=0;
                 ui_text_set_system_scale(true);
@@ -1290,10 +1351,9 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         if (index > count) return APP_REDRAW_NONE;
         const ttf_font_item_t *item = index ? ttf_font_item(index - 1) : NULL;
         if(s_page==SETTINGS_QUOTE_FONT){
-            if(!ui_banner_quote_fits_font(content_home_quote(),item?item->path:"")){strlcpy(s_notice,"此字体下超出两行，请先缩短文字",sizeof(s_notice));return APP_REDRAW_PAGE;}
-            esp_err_t e=content_home_quote_font_set(item?item->path:"");
-            if(e!=ESP_OK){strlcpy(s_notice,"字体设置保存失败",sizeof(s_notice));return APP_REDRAW_PAGE;}
-            s_quote_committed=true;s_page=SETTINGS_HOME_QUOTE;quote_preview_prepare(content_home_quote_size(),false);return APP_REDRAW_PAGE;
+            content_banner_config_t next=s_banner_draft;strlcpy(next.font,item?item->path:"",sizeof(next.font));
+            if(!banner_preview_apply(&next,true))return APP_REDRAW_PAGE;
+            s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;
         }
         app_settings_set_system_font_path(item ? item->path : "");
         app_font_activate_system();
@@ -1301,9 +1361,10 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         if(s_main_scroll>SETTINGS_SCROLL_MAX)s_main_scroll=SETTINGS_SCROLL_MAX;
         return APP_REDRAW_PAGE;
     }
-    if (s_page == SETTINGS_WALLPAPER) {
-        if (y < 292 || y >= 292+wallpaper_rows()*font_list_step() || (y-292)%font_list_step()>=font_list_step()-12) return APP_REDRAW_NONE;
-        int index = s_wallpaper_page * wallpaper_rows() + (y - 292) / font_list_step();
+    if (s_page == SETTINGS_WALLPAPER_FIXED) {
+        if(y>=UI_PAGE_Y(200)&&y<UI_PAGE_Y(282)){app_settings_set_wallpaper_path("");s_page=SETTINGS_WALLPAPER;return APP_REDRAW_PAGE;}
+        if (y < UI_PAGE_Y(292) || y >= UI_PAGE_Y(292)+wallpaper_rows()*font_list_step() || (y-UI_PAGE_Y(292))%font_list_step()>=font_list_step()-12) return APP_REDRAW_NONE;
+        int index = s_wallpaper_page * wallpaper_rows() + (y - UI_PAGE_Y(292)) / font_list_step();
         if (index >= s_wallpaper_count) return APP_REDRAW_NONE;
         s_wallpaper_selected = index;
         s_wallpaper_confirm = false;
@@ -1317,8 +1378,8 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         return APP_REDRAW_NONE;
     }
     if(s_page==SETTINGS_TIME){
-        if(y>=407&&y<407+SETTINGS_ROW_H){s_notice[0]=0;s_sync_pending=true;snprintf(s_notice,sizeof(s_notice),"正在获取网络时间…");return APP_REDRAW_PAGE;}
-        if(y>=518&&y<518+SETTINGS_ROW_H){time_open();return APP_REDRAW_PAGE;}
+        if(y>=UI_PAGE_Y(407)&&y<UI_PAGE_Y(407)+SETTINGS_ROW_H){s_notice[0]=0;s_sync_pending=true;snprintf(s_notice,sizeof(s_notice),"正在获取网络时间…");return APP_REDRAW_PAGE;}
+        if(y>=UI_PAGE_Y(518)&&y<UI_PAGE_Y(518)+SETTINGS_ROW_H){time_open();return APP_REDRAW_PAGE;}
         if(y>=status_display_row_y(0)&&y<status_display_row_y(0)+SETTINGS_ROW_H){
             app_settings_set_status_show_date(!app_settings_status_show_date());return APP_REDRAW_PAGE;
         }
@@ -1337,19 +1398,19 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         return APP_REDRAW_NONE;
     }
     if (s_page == SETTINGS_POWER_SLEEP) {
-        if (y >= 300 && y < 432) {
+        if (y >= UI_PAGE_Y(300) && y < UI_PAGE_Y(432)) {
             app_settings_set_staged_shutdown(false);
             return APP_REDRAW_PAGE;
         }
-        if (y >= 454 && y < 586) {
+        if (y >= UI_PAGE_Y(454) && y < UI_PAGE_Y(586)) {
             app_settings_set_staged_shutdown(true);
             return APP_REDRAW_PAGE;
         }
-        if(y>=714&&y<714+SETTINGS_ROW_H){s_page=SETTINGS_IDLE_SLEEP;return APP_REDRAW_PAGE;}
+        if(y>=UI_PAGE_Y(714)&&y<UI_PAGE_Y(714)+SETTINGS_ROW_H){s_page=SETTINGS_IDLE_SLEEP;return APP_REDRAW_PAGE;}
         return APP_REDRAW_NONE;
     }
     if (s_page == SETTINGS_CONFIG) {
-        if (y >= 561 && y < 644) {
+        if (y >= UI_PAGE_Y(561) && y < UI_PAGE_Y(644)) {
             s_config_confirm = false;
             esp_err_t err = app_settings_backup_save();
             snprintf(s_notice, sizeof(s_notice), "%s",
@@ -1358,7 +1419,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
                      "保存失败，请检查 TF 卡剩余空间");
             return APP_REDRAW_PAGE;
         }
-        if (y >= 681 && y < 764) {
+        if (y >= UI_PAGE_Y(681) && y < UI_PAGE_Y(764)) {
             if (!s_config_confirm) {
                 s_config_confirm = true;
                 snprintf(s_notice, sizeof(s_notice), "恢复将覆盖当前设置，请再点按一次确认");
@@ -1390,7 +1451,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         return APP_REDRAW_NONE;
     }
 
-    if (y < 80 || y >= UI_NAV_TOP) return APP_REDRAW_NONE;
+    if (y < UI_PAGE_Y(80) || y >= UI_NAV_TOP) return APP_REDRAW_NONE;
     y += s_main_scroll;
     if (y >= SETTINGS_WIRELESS_Y && y < SETTINGS_WIRELESS_Y + SETTINGS_ROW_H) {
         extern const app_desc_t app_transfer;
@@ -1410,8 +1471,12 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     }
     if(y>=SETTINGS_DISPLAY_Y+SETTINGS_ROW_H&&y<SETTINGS_DISPLAY_Y+2*SETTINGS_ROW_H){profile_editor_open(true);return APP_REDRAW_PAGE;}
     if(y>=SETTINGS_DISPLAY_Y+2*SETTINGS_ROW_H&&y<SETTINGS_DISPLAY_Y+3*SETTINGS_ROW_H){app_settings_set_home_full_refresh(!app_settings_home_full_refresh());return APP_REDRAW_PAGE;}
-    if (y >= SETTINGS_DISPLAY_Y + 3 * SETTINGS_ROW_H && y < SETTINGS_DISPLAY_Y + SETTINGS_DISPLAY_ROWS * SETTINGS_ROW_H) {
+    if (y >= SETTINGS_DISPLAY_Y + 3 * SETTINGS_ROW_H && y < SETTINGS_DISPLAY_Y + 4 * SETTINGS_ROW_H) {
         wallpaper_scan(); s_page = SETTINGS_WALLPAPER; return APP_REDRAW_PAGE;
+    }
+    if(y>=SETTINGS_DISPLAY_Y+4*SETTINGS_ROW_H&&y<SETTINGS_DISPLAY_Y+SETTINGS_DISPLAY_ROWS*SETTINGS_ROW_H){
+        quote_preview_clear();content_banner_load(&s_banner_draft);s_quote_px=s_banner_draft.quote_px;s_quote_committed=false;s_notice[0]=0;
+        s_page=SETTINGS_HOME_QUOTE;quote_preview_prepare(s_quote_px,false);return APP_REDRAW_PAGE;
     }
     if (y >= SETTINGS_DEVICE_Y && y < SETTINGS_DEVICE_Y + SETTINGS_DEVICE_ROWS * SETTINGS_ROW_H) {
         switch ((y - SETTINGS_DEVICE_Y) / SETTINGS_ROW_H) {
@@ -1428,10 +1493,11 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     return APP_REDRAW_NONE;
 }
 static app_redraw_t on_key(app_ctx_t *ctx, int key) {
-    if(key!=1&&(s_page==SETTINGS_SYSTEM_FONT||s_page==SETTINGS_QUOTE_FONT||s_page==SETTINGS_WALLPAPER)){
-        int *page=s_page==SETTINGS_WALLPAPER?&s_wallpaper_page:&s_font_page;
-        int rows=s_page==SETTINGS_WALLPAPER?wallpaper_rows():font_list_rows();
-        int count=s_page==SETTINGS_WALLPAPER?s_wallpaper_count:ttf_font_count()+1;
+    if(key!=1&&(s_page==SETTINGS_SYSTEM_FONT||s_page==SETTINGS_QUOTE_FONT||s_page==SETTINGS_WALLPAPER_FIXED||s_page==SETTINGS_WALLPAPER_FOLDER)){
+        bool wallpaper=s_page==SETTINGS_WALLPAPER_FIXED||s_page==SETTINGS_WALLPAPER_FOLDER;
+        int *page=wallpaper?&s_wallpaper_page:&s_font_page;
+        int rows=s_page==SETTINGS_WALLPAPER_FOLDER?wallpaper_folder_rows():wallpaper?wallpaper_rows():font_list_rows();
+        int count=wallpaper?s_wallpaper_count:ttf_font_count()+1;
         if(count>rows){int next=*page+(key==0?-1:1);if(next<0||next*rows>=count)return APP_REDRAW_NONE;*page=next;return APP_REDRAW_PAGE;}
     }
     if(s_page==SETTINGS_ONLINE_UPDATE){
@@ -1448,13 +1514,15 @@ static app_redraw_t on_key(app_ctx_t *ctx, int key) {
     if (key == 1) { ui_nav_request(ctx, 0); return APP_REDRAW_NONE; }
     if (s_page == SETTINGS_WALLPAPER_PREVIEW) {
         if (s_wallpaper_confirm) s_wallpaper_confirm = false;
-        else s_page = SETTINGS_WALLPAPER;
+        else s_page = SETTINGS_WALLPAPER_FIXED;
         return APP_REDRAW_PAGE;
     }
+    if(s_page==SETTINGS_WALLPAPER_FIXED||s_page==SETTINGS_WALLPAPER_FOLDER){s_page=SETTINGS_WALLPAPER;s_notice[0]=0;return APP_REDRAW_PAGE;}
     if (s_page == SETTINGS_WALLPAPER) { s_page = SETTINGS_MAIN; return APP_REDRAW_PAGE; }
     if(s_page==SETTINGS_HOME_QUOTE){ui_nav_request(ctx,0);return APP_REDRAW_NONE;}
-    if(s_page==SETTINGS_QUOTE_FONT){s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;}
-    if (s_page == SETTINGS_TEXT_EDIT) { memset(s_editor,0,sizeof(s_editor));if(s_home_quote_editor){s_home_quote_editor=false;s_page=SETTINGS_HOME_QUOTE;quote_preview_prepare(content_home_quote_size(),false);return APP_REDRAW_PAGE;}s_page = editor_return_page(); return APP_REDRAW_PAGE; }
+    if(s_page==SETTINGS_BANNER_BROWSER){s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;}
+    if(s_page==SETTINGS_QUOTE_FONT||s_page==SETTINGS_BANNER_IMAGE){s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;}
+    if (s_page == SETTINGS_TEXT_EDIT) { memset(s_editor,0,sizeof(s_editor));if(s_home_quote_editor){s_home_quote_editor=false;s_page=SETTINGS_HOME_QUOTE;quote_preview_prepare(s_banner_draft.quote_px,false);return APP_REDRAW_PAGE;}s_page = editor_return_page(); return APP_REDRAW_PAGE; }
     if (s_page == SETTINGS_TIME_EDIT) { s_page = SETTINGS_TIME; return APP_REDRAW_PAGE; }
     if(s_page==SETTINGS_STATUS_DATE_FORMAT){s_page=SETTINGS_TIME;return APP_REDRAW_PAGE;}
     if(s_page==SETTINGS_IDLE_SLEEP){s_page=SETTINGS_POWER_SLEEP;return APP_REDRAW_PAGE;}
@@ -1475,10 +1543,10 @@ static bool no_menu_handle(app_ctx_t *ctx) { (void)ctx; return false; }
 static bool settings_present(app_ctx_t *ctx, app_redraw_t redraw) {
     if(redraw==APP_REDRAW_AREA&&s_page==SETTINGS_ONLINE_UPDATE){
         render(ctx,ctx->fb);
-        guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,(EpdRect){0,190,UI_LOCK_WIDTH,UI_NAV_TOP-190}));
+        guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,(EpdRect){0,UI_PAGE_Y(190),UI_LOCK_WIDTH,UI_NAV_TOP-UI_PAGE_Y(190)}));
         return true;
     }
-    if(redraw==APP_REDRAW_AREA&&s_page==SETTINGS_HOME_QUOTE){render(ctx,ctx->fb);guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,(EpdRect){0,752,UI_LOCK_WIDTH,182}));return true;}
+    if(redraw==APP_REDRAW_AREA&&s_page==SETTINGS_QUOTE_FONT){render(ctx,ctx->fb);guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,(EpdRect){0,190,UI_LOCK_WIDTH,160}));return true;}
     if(redraw==APP_REDRAW_AREA && s_page==SETTINGS_TEXT_EDIT){
         render(ctx,ctx->fb);
         guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,ui_text_input_area()));
@@ -1487,10 +1555,10 @@ static bool settings_present(app_ctx_t *ctx, app_redraw_t redraw) {
     if (redraw == APP_REDRAW_AREA && s_scroll_present_pending &&
         (s_page == SETTINGS_MAIN ||
          s_page == SETTINGS_CLOUD || s_page == SETTINGS_SYSTEM_FONT ||
-         s_page == SETTINGS_WALLPAPER)) {
+         s_page == SETTINGS_WALLPAPER_FIXED || s_page == SETTINGS_WALLPAPER_FOLDER)) {
         s_scroll_present_pending = false;
         render(ctx, ctx->fb);
-        int top = s_page == SETTINGS_MAIN ? 80 : 190;
+        int top = s_page == SETTINGS_MAIN ? UI_STATUS_HEIGHT : UI_PAGE_Y(190);
         EpdRect area = {0, top, UI_LOCK_WIDTH, UI_NAV_TOP - top};
         // 只驱动变化像素，滚动次数不触发黑白清屏；题头与底栏保持稳定。
         // Drive changed pixels only; scroll counts never trigger a wipe, and header/nav stay stable.

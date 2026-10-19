@@ -25,13 +25,13 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='system-text-') as tmp:
         assert render('settings-5')[0]['system_size']==size
         state,frame=render('book-8');assert state['document_count']==1
         def ink(x,y): return ((frame[y*342+x//2]>>(4 if x%2 else 0))&15)<10
-        title_pixels.append(sum(ink(x,y) for y in range(236,290) for x in range(52,420)))
+        title_pixels.append(sum(ink(x,y) for y in range(148,236) for x in range(52,420)))
         state,frame=render('book-1')
         if reader is None:reader=frame
         else:assert frame[80*342:]==reader[80*342:],'UI text preset must not change reading body or controls'
         # 三分区绘制/点击在四档字号下保持一致。/ Three groups share paint/hit geometry at every preset.
         info,_=render('settings-0');g=info['settings_geometry']
-        for group,pages in ((1,(5,19,None,9)),(2,(2,14,24,11,27,13))):
+        for group,pages in ((1,(5,19,None,9,21)),(2,(2,14,24,11,27,13))):
             for row,page in enumerate(pages):
                 if page is None:continue  # 首页强刷为开关，不离开本页。 / Home refresh toggles in place.
                 y=g[group]+row*g[4]+g[4]//2;scroll=min(g[5],max(0,y-970))

@@ -2,8 +2,8 @@
  * SPDX-FileCopyrightText: 2026 mindreset
  * SPDX-License-Identifier: Apache-2.0
  *
- * 中文：从书籍标识确定三种封面版式，并用内建字形在小画布绘制灰阶。
- * English: Choose one of three book-cover layouts from a stable identity and draw grayscale with built-in glyphs.
+ * 中文：无封面书籍统一使用深灰底、白色书名与作者的极简版式。
+ * English: Use one minimal dark-gray cover with a white title and author for coverless books.
  */
 #include "book_cover_auto.h"
 
@@ -17,29 +17,6 @@
 
 #define COVER_LINE_MAX 4
 #define COVER_TEXT_CAP 256
-
-static uint64_t hash_text(uint64_t hash, const char *text) {
-    if (!text) text = "";
-    for (const unsigned char *p = (const unsigned char *)text; *p; ++p)
-        hash = (hash ^ *p) * UINT64_C(1099511628211);
-    return (hash ^ 0xffu) * UINT64_C(1099511628211);
-}
-
-static uint64_t cover_seed(const char *identity) {
-    uint64_t hash = UINT64_C(14695981039346656037);
-    hash = hash_text(hash, identity);
-    // 版式更新只触发缓存重建，书籍原先分配到的版式保持不变。
-    // Template revisions invalidate caches without reassigning a book's layout.
-    hash ^= 1u;
-    hash ^= hash >> 30; hash *= UINT64_C(0xbf58476d1ce4e5b9);
-    hash ^= hash >> 27; hash *= UINT64_C(0x94d049bb133111eb);
-    return hash ^ (hash >> 31);
-}
-
-unsigned book_auto_cover_template(const char *identity, const char *title, const char *author) {
-    (void)title; (void)author;
-    return (unsigned)(cover_seed(identity) % 3u);
-}
 
 typedef struct {
     uint8_t *fb;
@@ -93,13 +70,6 @@ static void fill(cover_canvas_t *c, int x0, int y0, int x1, int y1, uint8_t gray
     if (y1 > (int)c->height) y1 = (int)c->height;
     for (int y = y0; y < y1; ++y)
         for (int x = x0; x < x1; ++x) put(c, x, y, gray4);
-}
-
-static void outline(cover_canvas_t *c, int inset, uint8_t gray4) {
-    fill(c, inset, inset, (int)c->width - inset, inset + 1, gray4);
-    fill(c, inset, (int)c->height - inset - 1, (int)c->width - inset, (int)c->height - inset, gray4);
-    fill(c, inset, inset, inset + 1, (int)c->height - inset, gray4);
-    fill(c, (int)c->width - inset - 1, inset, (int)c->width - inset, (int)c->height - inset, gray4);
 }
 
 static size_t cp_bytes(const char *p) {
@@ -223,96 +193,27 @@ static void draw_author(cover_canvas_t *c, const char *author, int x, int y,
     draw_text(c, x, y, px, shown, align, fg, bg);
 }
 
-static void paper_grain(cover_canvas_t *c, uint64_t seed, uint8_t base) {
-    for (unsigned y = 0; y < c->height; ++y)
-        for (unsigned x = 0; x < c->width; ++x) {
-            uint64_t noise = seed ^ ((uint64_t)x * UINT64_C(0x9e3779b97f4a7c15)) ^
-                                   ((uint64_t)y * UINT64_C(0xc2b2ae3d27d4eb4f));
-            noise ^= noise >> 29;
-            if ((noise & 63u) == 0) put(c, (int)x, (int)y, base ? base - 1 : base);
-        }
-}
-
-static void dark_library(cover_canvas_t *c, const char *title, const char *author, uint64_t seed) {
-    uint8_t bg = (uint8_t)(3 + ((seed >> 8) & 1u));
-    fill(c, 0, 0, (int)c->width, (int)c->height, bg);
-    paper_grain(c, seed, bg);
-    outline(c, xy(7, c->width, 176), 14);
-    outline(c, xy(10, c->width, 176), 12);
+static void minimal_dark_cover(cover_canvas_t *c, const char *title, const char *author) {
+    const uint8_t bg=4;
+    fill(c,0,0,(int)c->width,(int)c->height,bg);
     char lines[COVER_LINE_MAX][COVER_TEXT_CAP];
-    int px = title_lines(title, font_px(c, 30), font_px(c, 17),
-                         (int)c->width - xy(34, c->width, 176),
-                         xy(96, c->height, 240), xy(6, c->height, 240), 3, lines);
-    int count = 0;
-    while (count < 3 && lines[count][0]) ++count;
-    int step = px + xy(6, c->height, 240);
-    int top = xy(author && *author ? 102 : 111, c->height, 240) - count * step / 2;
-    for (int i = 0; i < count; ++i)
-        draw_text(c, (int)c->width / 2, top + i * step, px, lines[i], EPD_DRAW_ALIGN_CENTER, 15, bg);
-    int rule_y = xy(author && *author ? 186 : 190, c->height, 240);
-    fill(c, xy(65, c->width, 176), rule_y, xy(111, c->width, 176), rule_y + 1, 13);
-    if (author && *author)
-        draw_author(c, author, (int)c->width / 2, xy(198, c->height, 240),
-                    (int)c->width - xy(46, c->width, 176), font_px(c, 15),
-                    EPD_DRAW_ALIGN_CENTER, 14, bg);
-}
-
-static void modern_whitespace(cover_canvas_t *c, const char *title, const char *author, uint64_t seed) {
-    uint8_t bg = (uint8_t)(14 + ((seed >> 9) & 1u));
-    fill(c, 0, 0, (int)c->width, (int)c->height, bg);
-    paper_grain(c, seed, bg);
-    outline(c, xy(6, c->width, 176), 4);
-    outline(c, xy(8, c->width, 176), 9);
-    char lines[COVER_LINE_MAX][COVER_TEXT_CAP];
-    int px = title_lines(title, font_px(c, 37), font_px(c, 18),
-                         (int)c->width - xy(43, c->width, 176),
-                         xy(86, c->height, 240), xy(3, c->height, 240), 3, lines);
-    int step = px + xy(3, c->height, 240);
-    for (int i = 0; i < 3 && lines[i][0]; ++i)
-        draw_text(c, xy(23, c->width, 176), xy(46, c->height, 240) + i * step,
-                  px, lines[i], EPD_DRAW_ALIGN_LEFT, 2, bg);
-    int left = xy(24, c->width, 176);
-    fill(c, left, xy(139, c->height, 240), left + 1,
-         xy(author && *author ? 185 : 203, c->height, 240), 5);
-    if (author && *author)
-        draw_author(c, author, left, xy(190, c->height, 240),
-                    xy(100, c->width, 176), font_px(c, 15), EPD_DRAW_ALIGN_LEFT, 3, bg);
-    int accent_x = xy(135 + (unsigned)((seed >> 15) & 3u), c->width, 176);
-    fill(c, accent_x, xy(161, c->height, 240),
-         accent_x + xy(18, c->width, 176), xy(204, c->height, 240), 12);
-    fill(c, accent_x + xy(13, c->width, 176), xy(182, c->height, 240),
-         accent_x + xy(24, c->width, 176), xy(209, c->height, 240), 8);
-}
-
-static void split_dark_cover(cover_canvas_t *c, const char *title, const char *author, uint64_t seed) {
-    int panel_bottom = xy(108, c->height, 240);
-    fill(c, 0, 0, (int)c->width, panel_bottom, 4);
-    fill(c, 0, panel_bottom, (int)c->width, (int)c->height, 15);
-    fill(c, 0, panel_bottom, (int)c->width, panel_bottom + 3, 8);
-    for (int y = panel_bottom + 7; y < (int)c->height; y += 8)
-        fill(c, 0, y, (int)c->width, y + 1, 14);
-    char lines[COVER_LINE_MAX][COVER_TEXT_CAP];
-    int px = title_lines(title, font_px(c, 34), font_px(c, 14),
-                         (int)c->width - xy(28, c->width, 176),
-                         xy(58, c->height, 240), xy(2, c->height, 240), 3, lines);
-    int step = px + xy(2, c->height, 240);
-    for (int i = 0; i < 3 && lines[i][0]; ++i)
-        draw_text(c, (int)c->width / 2, xy(13, c->height, 240) + i * step,
-                  px, lines[i], EPD_DRAW_ALIGN_CENTER, 15, 4);
-    int rule_y = xy(77, c->height, 240);
-    fill(c, xy(14, c->width, 176), rule_y, xy(162, c->width, 176), rule_y + 1, 13);
-    if (author && *author)
-        draw_author(c, author, xy(15, c->width, 176), xy(84, c->height, 240),
-                    (int)c->width - xy(30, c->width, 176), font_px(c, 13),
-                    EPD_DRAW_ALIGN_LEFT, 14, 4);
-    char number[8];
-    snprintf(number, sizeof(number), "%04u", (unsigned)((seed >> 16) % 10000u));
-    draw_text(c, xy(161, c->width, 176), xy(96, c->height, 240),
-              font_px(c, 10), number, EPD_DRAW_ALIGN_RIGHT, 11, 4);
+    int gap=xy(6,c->height,240);
+    int px=title_lines(title,font_px(c,30),font_px(c,17),
+                       (int)c->width-xy(32,c->width,176),
+                       xy(104,c->height,240),gap,3,lines);
+    int count=0;while(count<3&&lines[count][0])++count;
+    int block_height=count*px+(count>0?count-1:0)*gap;
+    int top=xy(94,c->height,240)-block_height/2;
+    for(int i=0;i<count;++i)
+        draw_text(c,(int)c->width/2,top+i*(px+gap),px,lines[i],EPD_DRAW_ALIGN_CENTER,15,bg);
+    if(author&&*author)
+        draw_author(c,author,(int)c->width/2,xy(196,c->height,240),
+                    (int)c->width-xy(32,c->width,176),font_px(c,15),EPD_DRAW_ALIGN_CENTER,15,bg);
 }
 
 bool book_auto_cover_render(const char *identity, const char *title, const char *author,
                             unsigned width, unsigned height, uint8_t *out) {
+    (void)identity;
     if (!out || !title || !*title || width < 96 || height < 128 ||
         width > 320 || height > 440 || width + 104 >= (unsigned)epd_rotated_display_width() ||
         height > (unsigned)epd_rotated_display_height()) return false;
@@ -322,12 +223,7 @@ bool book_auto_cover_render(const char *identity, const char *title, const char 
     if (!scratch) return false;
     memset(scratch, 0xff, (size_t)stride * epd_height());
     cover_canvas_t canvas = {.fb = scratch, .width = width, .height = height, .stride = stride};
-    uint64_t seed = cover_seed(identity);
-    switch (seed % 3u) {
-        case 0: dark_library(&canvas, title, author, seed); break;
-        case 1: modern_whitespace(&canvas, title, author, seed); break;
-        default: split_dark_cover(&canvas, title, author, seed); break;
-    }
+    minimal_dark_cover(&canvas,title,author);
     for (unsigned y = 0; y < height; ++y)
         for (unsigned x = 0; x < width; ++x)
             out[(size_t)y * width + x] = (uint8_t)(get(&canvas, (int)x, (int)y) * 17u);

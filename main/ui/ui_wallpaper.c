@@ -19,6 +19,9 @@
 #include "ui_image_dither.h"
 #include "ui_kit.h"
 #include "ui_wallpaper_crop.h"
+#include "ui_wallpaper_rotation.h"
+#include "settings.h"
+#include "esp_random.h"
 
 static bool inside_rounded(EpdRect area, int radius, int x, int y) {
     if (radius <= 0) return true;
@@ -143,4 +146,19 @@ bool ui_wallpaper_draw(uint8_t *fb, const char *path, EpdRect area) {
 bool ui_wallpaper_draw_rounded(uint8_t *fb, const char *path, EpdRect area, int radius) {
     if (radius < 0 || radius > area.width / 2 || radius > area.height / 2) return false;
     return draw_image(fb, path, area, radius);
+}
+
+typedef struct {uint8_t *fb;EpdRect area;} wallpaper_draw_context_t;
+static bool rotation_draw(const char *path,void *context){wallpaper_draw_context_t *draw=context;return ui_wallpaper_draw(draw->fb,path,draw->area);}
+bool ui_wallpaper_check_directory(uint8_t *fb,const char *directory){
+    wallpaper_draw_context_t draw={fb,{0,0,8,8}};char selected[288];
+    return wallpaper_rotation_pick(directory,NULL,0,rotation_draw,&draw,selected,sizeof(selected));
+}
+bool ui_wallpaper_draw_lock(uint8_t *fb){
+    EpdRect area={0,0,UI_LOCK_WIDTH,UI_LOCK_HEIGHT};
+    if(!app_settings_wallpaper_rotating()){bool ok=ui_wallpaper_draw(fb,app_settings_wallpaper_path(),area);if(ok)app_settings_note_wallpaper(app_settings_wallpaper_path());return ok;}
+    wallpaper_draw_context_t draw={fb,area};char selected[288];
+    bool ok=wallpaper_rotation_pick(app_settings_wallpaper_path(),app_settings_wallpaper_last(),esp_random(),rotation_draw,&draw,selected,sizeof(selected));
+    if(ok)app_settings_note_wallpaper(selected);
+    return ok;
 }

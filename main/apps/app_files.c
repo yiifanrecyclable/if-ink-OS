@@ -87,12 +87,12 @@ static int transfer_extra_height(void){
     int bottom=91+78+(lines-1)*ui_text_line_height(UI_TEXT_BODY)+ui_text_line_height(UI_TEXT_BODY)/2+18;
     return bottom>212?bottom-212:0;
 }
-#define ROOT_LIST_TOP (360+transfer_extra_height())
+#define ROOT_LIST_TOP (UI_PAGE_Y(360)+transfer_extra_height())
 static int file_row_height(void) { return ui_list_row_height(true); }
-static int visible_rows(void) { return ui_list_visible_rows(214,s_view==FILE_VIEW_MOVE?865:UI_NAV_PAGER_TOP,file_row_height()); }
+static int visible_rows(void) { return ui_list_visible_rows(UI_PAGE_Y(214),s_view==FILE_VIEW_MOVE?865:UI_NAV_PAGER_TOP,file_row_height()); }
 static int root_rows(void) { return ui_list_visible_rows(ROOT_LIST_TOP,UI_NAV_PAGER_TOP,file_row_height()); }
 static EpdRect home_transfer_rect(int index) {
-    return (EpdRect){36+index*208,91,196,109+transfer_extra_height()};
+    return (EpdRect){36+index*208,UI_PAGE_Y(91),196,109+transfer_extra_height()};
 }
 
 static void copy_utf8(char *dst, size_t cap, const char *src) {
@@ -467,38 +467,38 @@ static void editor_start(void) {
 
 static void render_actions(uint8_t *fb) {
     // S03：保留当前目录作背景，只叠加文件操作底部面板。/ S03: keep the directory visible and overlay a file-action sheet.
-    EpdRect sheet = {20, 430, 644, 626};
+    EpdRect sheet = {20,UI_PAGE_Y(430), 644, 626};
     ui_fill_round_rect(fb, sheet, 28, UI_GRAY_WHITE);
     file_card_border(fb, sheet, 28);
-    ui_fill_round_rect(fb, (EpdRect){604, 454, 38, 38}, 19, 0xe0);
-    ui_text_vc(fb, 623, 473, 24, "×", EPD_DRAW_ALIGN_CENTER, false);
+    ui_fill_round_rect(fb, (EpdRect){604,UI_PAGE_Y(454), 38, 38}, 19, 0xe0);
+    ui_text_vc(fb, 623,UI_PAGE_Y(473), 24, "×", EPD_DRAW_ALIGN_CENTER, false);
     char name[128]; copy_utf8(name, sizeof(name), s_selected.name); fit_name(name, 28, 540);
-    file_icon(fb, 48, 467, s_selected.is_dir);
-    ui_text(fb, 102, 462, 28, name, EPD_DRAW_ALIGN_LEFT, false);
+    file_icon(fb, 48,UI_PAGE_Y(467), s_selected.is_dir);
+    ui_text(fb, 102,UI_PAGE_Y(462), 28, name, EPD_DRAW_ALIGN_LEFT, false);
     char detail[48]; file_detail(detail, sizeof(detail), &s_selected);
-    ui_text(fb, 102, 507, 20, detail, EPD_DRAW_ALIGN_LEFT, false);
+    ui_text(fb, 102,UI_PAGE_Y(507), 20, detail, EPD_DRAW_ALIGN_LEFT, false);
     char path[128]; copy_utf8(path, sizeof(path), s_selected.path); fit_name(path, 19, 585);
-    ui_text(fb, 50, 552, 19, path, EPD_DRAW_ALIGN_LEFT, false);
-    file_rule(fb, 42, 590, 600);
-    if (s_message[0]) ui_text(fb, 50, 608, 20, s_message, EPD_DRAW_ALIGN_LEFT, false);
+    ui_text(fb, 50,UI_PAGE_Y(552), 19, path, EPD_DRAW_ALIGN_LEFT, false);
+    file_rule(fb, 42,UI_PAGE_Y(590), 600);
+    if (s_message[0]) ui_text(fb, 50,UI_PAGE_Y(608), 20, s_message, EPD_DRAW_ALIGN_LEFT, false);
     if (s_delete_confirm) {
-        ui_text_vc(fb, 342, 712, s_selected.is_dir ? 23 : 28,
+        ui_text_vc(fb, 342,UI_PAGE_Y(712), s_selected.is_dir ? 23 : 28,
                    s_selected.is_dir ? "将删除文件夹内所有内容，无法恢复" : "删除后无法恢复，是否继续？",
                    EPD_DRAW_ALIGN_CENTER, false);
-        ui_draw_button(fb, (EpdRect){50, 788, 278, 76}, "取消", false);
-        ui_draw_button(fb, (EpdRect){356, 788, 278, 76}, "确认删除", true);
+        ui_draw_button(fb, (EpdRect){50,UI_PAGE_Y(788), 278, 76}, "取消", false);
+        ui_draw_button(fb, (EpdRect){356,UI_PAGE_Y(788), 278, 76}, "确认删除", true);
     } else {
         static const char *labels[] = {"重命名", "复制", "移动", "删除"};
         for (int i = 0; i < 4; ++i) {
-            EpdRect button = {40 + (i % 2) * 312, 648 + (i / 2) * 122, 292, 100};
+            EpdRect button = {40 + (i % 2) * 312,UI_PAGE_Y(648 + (i / 2) * 122), 292, 100};
             ui_fill_round_rect(fb, button, 20, 0xe8);
             ui_draw_round_rect(fb, button, 20, 0x60);
             ui_text_vc(fb, button.x + button.width / 2, button.y + 50, 25,
                        labels[i], EPD_DRAW_ALIGN_CENTER, false);
         }
-        ui_text_vc(fb, 342, 900, 20, "长按文件或文件夹打开操作", EPD_DRAW_ALIGN_CENTER, false);
-        ui_fill_round_rect(fb, (EpdRect){40, 930, 604, 76}, 26, 0xe0);
-        ui_text_vc(fb, 342, 968, 23, "取消", EPD_DRAW_ALIGN_CENTER, false);
+        ui_text_vc(fb, 342,UI_PAGE_Y(900), 20, "长按文件或文件夹打开操作", EPD_DRAW_ALIGN_CENTER, false);
+        ui_fill_round_rect(fb, (EpdRect){40,UI_PAGE_Y(930), 604, 76}, 26, 0xe0);
+        ui_text_vc(fb, 342,UI_PAGE_Y(968), 23, "取消", EPD_DRAW_ALIGN_CENTER, false);
     }
 }
 
@@ -523,22 +523,22 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         return;
     }
     if (s_folder >= 0) {
-        ui_nav_back(fb, 36, 79);
-        ui_text_vc(fb, 342, 107, 34, s_view == FILE_VIEW_MOVE ? "选择目标文件夹" : names[s_folder], EPD_DRAW_ALIGN_CENTER, false);
+        ui_nav_back(fb, 36,UI_PAGE_Y(79));
+        ui_text_vc(fb, 342,UI_PAGE_Y(107), 34, s_view == FILE_VIEW_MOVE ? "选择目标文件夹" : names[s_folder], EPD_DRAW_ALIGN_CENTER, false);
         char path[144];
         snprintf(path, sizeof(path), "TF卡%s", folder_root(s_folder) + 7);
-        ui_text(fb, 36, 172, 20, path, EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 36,UI_PAGE_Y(172), 20, path, EPD_DRAW_ALIGN_LEFT, false);
         int folders = 0, files = 0;
         for (int i = 0; i < s_count; ++i) s_files[i].is_dir ? ++folders : ++files;
         char summary[48]; snprintf(summary, sizeof(summary), "%d个文件夹 · %d个文件", folders, files);
-        ui_text(fb, 648, 172, 20, summary, EPD_DRAW_ALIGN_RIGHT, false);
-        file_rule(fb, 36, 202, 612);
-        if (s_message[0]) ui_text(fb, 36, 238, 27, s_message, EPD_DRAW_ALIGN_LEFT, false);
-        else if (!s_count) ui_text(fb, 36, 238, 27, "此目录还没有文件", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 648,UI_PAGE_Y(172), 20, summary, EPD_DRAW_ALIGN_RIGHT, false);
+        file_rule(fb, 36,UI_PAGE_Y(202), 612);
+        if (s_message[0]) ui_text(fb, 36,UI_PAGE_Y(238), 27, s_message, EPD_DRAW_ALIGN_LEFT, false);
+        else if (!s_count) ui_text(fb, 36,UI_PAGE_Y(238), 27, "此目录还没有文件", EPD_DRAW_ALIGN_LEFT, false);
         for (int row = 0; row < visible_rows(); ++row) {
             int index = s_page * visible_rows() + row;
             if (index >= s_count) break;
-            int y = 214 + row * file_row_height();
+            int y = UI_PAGE_Y(214) + row * file_row_height();
             char name[128]; snprintf(name, sizeof(name), "%s", s_files[index].name);
             const char *tag = !strcmp(s_files[index].path, app_settings_books_dir()) ? "书籍目录" :
                               !strcmp(s_files[index].path, app_settings_fonts_dir()) ? "字体目录" : NULL;
@@ -557,11 +557,11 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             epd_fill_rect((EpdRect){36,y+file_row_height()-2,612,2},UI_GRAY_ITEM_LINE,fb);
         }
         if (s_view == FILE_VIEW_MOVE) {
-            ui_draw_round_rect(fb, (EpdRect){36, 875, 293, 76}, 8, UI_GRAY_BLACK);
-            ui_draw_round_rect(fb, (EpdRect){355, 875, 293, 76}, 8, UI_GRAY_BLACK);
-            ui_text(fb, 182, 897, 24, "取消移动", EPD_DRAW_ALIGN_CENTER, false);
-            ui_text(fb, 501, 897, 24, "移动到此处", EPD_DRAW_ALIGN_CENTER, false);
-            if (s_message[0]) ui_text(fb, 36, 995, 22, s_message, EPD_DRAW_ALIGN_LEFT, false);
+            ui_draw_round_rect(fb, (EpdRect){36,UI_PAGE_Y(875), 293, 76}, 8, UI_GRAY_BLACK);
+            ui_draw_round_rect(fb, (EpdRect){355,UI_PAGE_Y(875), 293, 76}, 8, UI_GRAY_BLACK);
+            ui_text(fb, 182,UI_PAGE_Y(897), 24, "取消移动", EPD_DRAW_ALIGN_CENTER, false);
+            ui_text(fb, 501,UI_PAGE_Y(897), 24, "移动到此处", EPD_DRAW_ALIGN_CENTER, false);
+            if (s_message[0]) ui_text(fb, 36,UI_PAGE_Y(995), 22, s_message, EPD_DRAW_ALIGN_LEFT, false);
         }
         if(s_count>visible_rows())ui_nav_draw_pager(fb,s_count,"项",s_page,(s_count+visible_rows()-1)/visible_rows());
     } else {
@@ -577,8 +577,8 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             if(wrap)ui_text_fixed_vc(fb,card.x+card.width/2,card.y+78+ui_text_line_height(UI_TEXT_BODY),px,second[i],EPD_DRAW_ALIGN_CENTER,false);
         }
         int extra=transfer_extra_height();
-        file_rule(fb,36,212+extra,612);
-        ui_text(fb, 58, 236+extra, 27, "存储卡", EPD_DRAW_ALIGN_LEFT, false);
+        file_rule(fb,36,UI_PAGE_Y(212+extra),612);
+        ui_text(fb, 58,UI_PAGE_Y(236+extra), 27, "存储卡", EPD_DRAW_ALIGN_LEFT, false);
         char total[32], usage[80];
         if (s_sd.mounted) {
             snprintf(total, sizeof(total), "%.1f GB", s_sd.capacity_bytes / 1073741824.0);
@@ -590,20 +590,20 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             snprintf(total, sizeof(total), "未挂载");
             snprintf(usage, sizeof(usage), "请检查 TF 卡");
         }
-        ui_text(fb, 624, 239+extra, 21, total, EPD_DRAW_ALIGN_RIGHT, false);
-        ui_text(fb, 58, 279+extra, 19, usage, EPD_DRAW_ALIGN_LEFT, false);
-        EpdRect capacity = {58, 311+extra, 566, 6};
+        ui_text(fb, 624,UI_PAGE_Y(239+extra), 21, total, EPD_DRAW_ALIGN_RIGHT, false);
+        ui_text(fb, 58,UI_PAGE_Y(279+extra), 19, usage, EPD_DRAW_ALIGN_LEFT, false);
+        EpdRect capacity = {58,UI_PAGE_Y(311+extra), 566, 6};
         ui_fill_round_rect(fb, capacity, 3, 0xa0);
         if (s_sd.mounted && s_sd.space_valid && s_sd.capacity_bytes) {
             capacity.width = (int)((s_sd.capacity_bytes - s_sd.free_bytes) * 566 / s_sd.capacity_bytes);
             if (capacity.width > 0) ui_fill_round_rect(fb, capacity, 3, 0x68);
         }
-        file_rule(fb,36,350+extra,612);
+        file_rule(fb,36,UI_PAGE_Y(350+extra),612);
         int first = s_page * root_rows();
         int rows = s_count - first;
         if (rows > root_rows()) rows = root_rows();
         if (rows < 0) rows = 0;
-        if (!s_count) ui_text_vc(fb, 342, 485, 22, s_message[0] ? s_message : "根目录为空", EPD_DRAW_ALIGN_CENTER, false);
+        if (!s_count) ui_text_vc(fb, 342,UI_PAGE_Y(485), 22, s_message[0] ? s_message : "根目录为空", EPD_DRAW_ALIGN_CENTER, false);
         for (int row = 0; row < root_rows(); ++row) {
             int index = first + row;
             if (index >= s_count) break;
@@ -756,19 +756,19 @@ static app_redraw_t save_rename(void) {
 
 static app_redraw_t action_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     if (ev->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
-    if (ev->y0 < 430 || (ev->x0 >= 596 && ev->y0 < 510) || ev->y0 >= 918) {
+    if (ev->y0 < UI_PAGE_Y(430) || (ev->x0 >= 596 && ev->y0 < UI_PAGE_Y(510)) || ev->y0 >= UI_PAGE_Y(918)) {
         s_view = FILE_VIEW_LIST; s_delete_confirm = false; rescan_current(); return APP_REDRAW_PAGE;
     }
     if (s_delete_confirm) {
-        if (ev->y0 >= 788 && ev->y0 < 864) {
+        if (ev->y0 >= UI_PAGE_Y(788) && ev->y0 < UI_PAGE_Y(864)) {
             if (ev->x0 < 342) s_delete_confirm = false;
             else delete_selected();
             return APP_REDRAW_PAGE;
         }
         return APP_REDRAW_NONE;
     }
-    if (ev->y0 >= 648 && ev->y0 < 870) {
-        int action = (ev->y0 >= 770 ? 2 : 0) + (ev->x0 >= 352 ? 1 : 0);
+    if (ev->y0 >= UI_PAGE_Y(648) && ev->y0 < UI_PAGE_Y(870)) {
+        int action = (ev->y0 >= UI_PAGE_Y(770) ? 2 : 0) + (ev->x0 >= 352 ? 1 : 0);
         if(fixed_media_root(s_selected.path)){snprintf(s_message,sizeof(s_message),"系统目录不可修改");return APP_REDRAW_PAGE;}
         if (if_managed_path(s_selected.path) && (action != 3 || !if_managed_document(&s_selected))) {
             snprintf(s_message, sizeof(s_message), "文档目录由同步管理；删除请在内容页操作");
@@ -810,21 +810,21 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         }
         if (ev->type == UI_GESTURE_SWIPE_R && s_page > 0) { --s_page; return APP_REDRAW_PAGE; }
         if (ev->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
-        if (ev->y0 < 185) {
+        if (ev->y0 < UI_PAGE_Y(185)) {
             if (strcmp(s_dir, "/sdcard")) {
                 char *slash = strrchr(s_dir, '/'); if (slash) *slash = 0;
                 scan_folder(3);
             } else leave_move(false);
             return APP_REDRAW_PAGE;
         }
-        if (ev->y0 >= 875 && ev->y0 < 951) {
+        if (ev->y0 >= UI_PAGE_Y(875) && ev->y0 < UI_PAGE_Y(951)) {
             if (ev->x0 < 342) leave_move(false);
             else return move_selected();
             return APP_REDRAW_PAGE;
         }
-        int row = (ev->y0 - 214) / file_row_height();
+        int row = (ev->y0 - UI_PAGE_Y(214)) / file_row_height();
         int index = s_page * visible_rows() + row;
-        if (ev->y0 >= 214 && row >= 0 && row < visible_rows() && index < s_count) {
+        if (ev->y0 >= UI_PAGE_Y(214) && row >= 0 && row < visible_rows() && index < s_count) {
             copy_utf8(s_dir, sizeof(s_dir), s_files[index].path);
             scan_folder(3);
             return APP_REDRAW_PAGE;
@@ -841,16 +841,16 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     int tab = ui_nav_hit(ev->x0, ev->y0);
     if (!long_press && tab >= 0) { ui_nav_request(ctx, tab); return APP_REDRAW_NONE; }
     if (s_folder >= 0) {
-        if (!long_press && ev->y0 < 185) {
+        if (!long_press && ev->y0 < UI_PAGE_Y(185)) {
             if (s_folder == 3 && strcmp(s_dir, "/sdcard")) {
                 char *slash = strrchr(s_dir, '/'); if (slash) *slash = 0;
                 scan_folder(3);
             } else s_folder = -1;
             return APP_REDRAW_PAGE;
         }
-        int row = (int)(ev->y0 - 214) / file_row_height();
+        int row = (int)(ev->y0 - UI_PAGE_Y(214)) / file_row_height();
         int index = s_page * visible_rows() + row;
-        if (ev->y0 >= 214 && row >= 0 && row < visible_rows() && index < s_count) {
+        if (ev->y0 >= UI_PAGE_Y(214) && row >= 0 && row < visible_rows() && index < s_count) {
             if (long_press) {
                 s_selected = s_files[index]; s_view = FILE_VIEW_ACTIONS;
                 s_delete_confirm = false; s_message[0] = 0;

@@ -31,3 +31,26 @@ book_crop_t book_cover_crop(unsigned src_width, unsigned src_height,
 bool book_cover_load_gray(const char *path, const char *title, const char *author,
                           uint8_t out[BOOK_COVER_W * BOOK_COVER_H],
                           bool allow_decode, bool *pending);
+
+/// 完整封面等比缩入边界，不裁切；输出至少1像素。/ Contain the entire source within bounds without cropping, at least one pixel.
+static inline void book_cover_fit_size(unsigned source_w,unsigned source_h,unsigned max_w,unsigned max_h,unsigned *width,unsigned *height){
+    if(!source_w||!source_h||!max_w||!max_h){*width=*height=0;return;}
+    if((uint64_t)source_w*max_h>(uint64_t)source_h*max_w){*width=max_w;*height=(unsigned)((uint64_t)max_w*source_h/source_w);}
+    else{*height=max_h;*width=(unsigned)((uint64_t)max_h*source_w/source_h);}
+    if(!*width)*width=1;
+    if(!*height)*height=1;
+}
+// 封面按最终显示尺寸裁角，首页与书架共用。/ Clip covers at their final display size on both Home and the shelf.
+#define BOOK_COVER_RADIUS 7
+static inline bool book_cover_pixel_inside(int x,int y,int width,int height){
+    int radius=BOOK_COVER_RADIUS;if(radius>width/2)radius=width/2;if(radius>height/2)radius=height/2;
+    if(radius<=0)return true;
+    int cx=x<radius?radius:x>=width-radius?width-1-radius:x;
+    int cy=y<radius?radius:y>=height-radius?height-1-radius:y;
+    int dx=x-cx,dy=y-cy;return dx*dx+dy*dy<=radius*radius;
+}
+/// 缓冲容量仍为176x240，实际像素紧密排列，宽高随图返回；独立版本缓存避开旧裁切缩略图。
+/// Keep the 176x240 capacity but return tightly packed pixels and actual dimensions; use a separate cache revision from cropped thumbnails.
+bool book_cover_load_fitted_gray(const char *path,const char *title,const char *author,
+                                uint8_t out[BOOK_COVER_W*BOOK_COVER_H],bool allow_decode,bool *pending,
+                                unsigned *width,unsigned *height);

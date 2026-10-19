@@ -35,10 +35,6 @@ bool book_image_grayscale(const uint8_t*d,size_t n,bool png,unsigned w,unsigned 
  // Bitmap rows already match CGImage order; an additional transform inverts covers and inline images.
  CGContextDrawImage(ctx,CGRectMake(0,0,w,h),img);CGContextRelease(ctx);CGImageRelease(img);return true;
 }
-bool book_cover_load_gray(const char*p,const char*t,const char*a,uint8_t*out,bool allow,bool*pending){
- if(pending)*pending=false;
- if(allow){uint8_t*data=NULL;size_t size=0;bool png=false;
-  if(book_epub_cover(p,&data,&size,&png)==ESP_OK){bool ok=book_image_grayscale(data,size,png,BOOK_COVER_W,BOOK_COVER_H,out);free(data);if(ok)return true;}
- }
- return book_auto_cover_render(p,t,a,BOOK_COVER_W,BOOK_COVER_H,out);
+bool book_cover_thumbnail(const uint8_t *data,size_t size,bool png,uint8_t out[BOOK_COVER_W*BOOK_COVER_H]){
+ return book_image_grayscale(data,size,png,BOOK_COVER_W,BOOK_COVER_H,out);
 }

@@ -5,8 +5,8 @@
 static char s_reader_face_label[96];
 static int reader_px(int role){return (role*app_settings_system_font_size()+50)/100;}
 static int reader_row_height(void){if(s_reader_panel==READER_PANEL_SHORTCUTS)return 790/READER_SHORTCUT_COUNT;if(s_reader_panel==READER_PANEL_BINDING)return 790/READER_ACTION_COUNT;int h=reader_px(UI_TEXT_BODY)*2+48;return h<112?112:h;}
-static int reader_control_rows(void){if(s_reader_panel==READER_PANEL_SHORTCUTS)return READER_SHORTCUT_COUNT;if(s_reader_panel==READER_PANEL_BINDING)return READER_ACTION_COUNT;int n=(1010-220)/reader_row_height();return n<1?1:n;}
-static EpdRect reader_control_row(int visible){return (EpdRect){36,220+visible*reader_row_height(),612,reader_row_height()};}
+static int reader_control_rows(void){if(s_reader_panel==READER_PANEL_SHORTCUTS)return READER_SHORTCUT_COUNT;if(s_reader_panel==READER_PANEL_BINDING)return READER_ACTION_COUNT;int n=(1010-UI_PAGE_Y(220))/reader_row_height();return n<1?1:n;}
+static EpdRect reader_control_row(int visible){return (EpdRect){36,UI_PAGE_Y(220)+visible*reader_row_height(),612,reader_row_height()};}
 static int reader_control_top(void){int h=reader_px(UI_TEXT_TITLE)+reader_px(UI_TEXT_BODY)*2+reader_px(UI_TEXT_CAPTION)*2+168;return 1096-h;}
 static int reader_progress_y(void){return reader_control_top()+reader_px(UI_TEXT_TITLE)+reader_px(UI_TEXT_CAPTION)+70;}
 static int reader_actions_y(void){return reader_progress_y()+reader_px(UI_TEXT_CAPTION)+48;}
@@ -40,11 +40,11 @@ static void reader_control_footer(uint8_t *fb){
     }
 }
 static void reader_control_header(uint8_t *fb,const char *title){
-    epd_fill_rect((EpdRect){0,80,684,1016},UI_GRAY_WHITE,fb);
-    ui_draw_icon(fb,62,126,34,UI_ICON_CHEVRON_LEFT,UI_GRAY_BLACK);
-    reader_control_text(fb,342,126,UI_TEXT_TITLE,title,EPD_DRAW_ALIGN_CENTER,false);
-    reader_control_text(fb,626,126,UI_TEXT_BODY,"×",EPD_DRAW_ALIGN_CENTER,false);
-    ui_hairline(fb,180,36,612,UI_GRAY_SECTION_LINE);
+    epd_fill_rect((EpdRect){0,UI_STATUS_HEIGHT,684,1096-UI_STATUS_HEIGHT},UI_GRAY_WHITE,fb);
+    ui_draw_icon(fb,62,UI_PAGE_Y(126),34,UI_ICON_CHEVRON_LEFT,UI_GRAY_BLACK);
+    reader_control_text(fb,342,UI_PAGE_Y(126),UI_TEXT_TITLE,title,EPD_DRAW_ALIGN_CENTER,false);
+    reader_control_text(fb,626,UI_PAGE_Y(126),UI_TEXT_BODY,"×",EPD_DRAW_ALIGN_CENTER,false);
+    ui_hairline(fb,UI_PAGE_Y(180),36,612,UI_GRAY_SECTION_LINE);
 }
 static void reader_control_pager(uint8_t *fb,int count,int page){
     int pages=count?1+(count-1)/reader_control_rows():1;
@@ -136,7 +136,7 @@ static void draw_reader_basic(uint8_t *fb){
     reader_control_text(fb,342,1020,UI_TEXT_CAPTION,"图书与文档共用，实体按键不变",EPD_DRAW_ALIGN_CENTER,false);
 }
 static void draw_reader_help(uint8_t *fb){
-    epd_fill_rect((EpdRect){0,80,684,1136},UI_GRAY_WHITE,fb);
+    epd_fill_rect((EpdRect){0,UI_STATUS_HEIGHT,684,1216-UI_STATUS_HEIGHT},UI_GRAY_WHITE,fb);
     // 朱自清《荷塘月色》开篇，公有领域；出处见阅读操作说明。/ Public-domain opening by Zhu Ziqing; source in reader documentation.
     static const char *const paragraphs[]={
         "这几天心里颇不宁静。今晚在院子里坐着乘凉，忽然想起日日走过的荷塘，在这满月的光里，总该另有一番样子吧。月亮渐渐地升高了，墙外马路上孩子们的欢笑，已经听不见了；妻在屋里拍着闰儿，迷迷糊糊地哼着眠歌。我悄悄地披了大衫，带上门出去。",
@@ -163,17 +163,21 @@ static void draw_reader_help(uint8_t *fb){
     EpdRect area=reader_area();
     const char *labels[]={"上一页","打开面板","下一页"};
     reader_tap_layout_t layout=reader_input_tap_layout();
-    for(int i=0;i<3;++i){EpdRect r=reader_tap_rect(area,layout,(unsigned)i);int top=r.y<160?160:r.y,end=r.y+r.height;if(end>1179)end=1179;
-        if(i){if(layout==READER_TAP_ROWS)epd_draw_line(0,r.y,683,r.y,0x66,fb);else epd_draw_line(r.x,160,r.x,1179,0x66,fb);}
+    for(int i=0;i<3;++i){EpdRect r=reader_tap_rect(area,layout,(unsigned)i);int top=r.y<UI_PAGE_Y(160)?UI_PAGE_Y(160):r.y,end=r.y+r.height;if(end>1179)end=1179;
+        if(i){if(layout==READER_TAP_ROWS)epd_fill_rect((EpdRect){0,r.y,684,2},UI_GRAY_BLACK,fb);else epd_fill_rect((EpdRect){r.x,UI_PAGE_Y(160),2,1180-UI_PAGE_Y(160)},UI_GRAY_BLACK,fb);}
         int x=r.x+r.width/2,cy=(top+end)/2;reader_help_label(fb,x,cy-25,36,"单击");reader_help_label(fb,x,cy+25,36,labels[i]);}
-    epd_fill_rect((EpdRect){0,80,684,80},UI_GRAY_WHITE,fb);
-    epd_draw_rect((EpdRect){28,109,28,28},0x66,fb);
-    if(!s_help_hide){epd_draw_line(32,122,40,131,0,fb);epd_draw_line(40,131,53,113,0,fb);}
-    reader_help_label_aligned(fb,70,123,28,"在每本书开始时显示",EPD_DRAW_ALIGN_LEFT);
-    reader_help_label_aligned(fb,625,123,30,"关闭",EPD_DRAW_ALIGN_RIGHT);
+    epd_fill_rect((EpdRect){0,UI_STATUS_HEIGHT,684,80},UI_GRAY_WHITE,fb);
+    for(int inset=0;inset<2;++inset)epd_draw_rect((EpdRect){28+inset,UI_PAGE_Y(109)+inset,28-2*inset,28-2*inset},UI_GRAY_BLACK,fb);
+    if(!s_help_hide)epd_fill_rect((EpdRect){35,UI_PAGE_Y(116),14,14},UI_GRAY_BLACK,fb);
+    reader_help_label_aligned(fb,70,UI_PAGE_Y(123),28,"在每本书开始时显示",EPD_DRAW_ALIGN_LEFT);
+    reader_help_label_aligned(fb,625,UI_PAGE_Y(123),30,"关闭",EPD_DRAW_ALIGN_RIGHT);
     // 箭头向下指向实体键并避开装配遮挡区。/ Arrows point to the physical keys above the bezel occlusion zone.
     const char *keys[]={"上一页","短按：面板","下一页"};
-    for(int i=0;i<3;++i){int x=114+i*228;reader_help_label(fb,x,1088,36,keys[i]);if(i==1)reader_help_label(fb,x,1128,36,"长按：首页");for(int y=i==1?1154:1118;y<1169;y+=12)epd_draw_line(x,y,x,y+6,0x66,fb);epd_draw_line(x-7,1164,x,1174,0x66,fb);epd_draw_line(x+7,1164,x,1174,0x66,fb);}
+    for(int i=0;i<3;++i){
+        int x=114+i*228;reader_help_label(fb,x,1088,36,keys[i]);if(i==1)reader_help_label(fb,x,1128,36,"长按：首页");
+        for(int y=i==1?1154:1118;y<1169;y+=12)epd_fill_rect((EpdRect){x,y,2,7},UI_GRAY_BLACK,fb);
+        for(int d=0;d<2;++d){epd_draw_line(x-7+d,1164,x+d,1174,UI_GRAY_BLACK,fb);epd_draw_line(x+7+d,1164,x+d,1174,UI_GRAY_BLACK,fb);}
+    }
 }
 static EpdRect reader_rule_offset_rect(int direction){EpdRect row=reader_control_row(3-s_control_page*reader_control_rows());return (EpdRect){direction<0?332:540,row.y+12,96,row.height-24};}
 static void reader_rule_offset(uint8_t *fb,EpdRect r){
@@ -268,7 +272,7 @@ static void draw_reader_panel(uint8_t *fb){
         if(s_reader_panel==READER_PANEL_BASIC){draw_reader_basic(fb);}
         else if(reader_markdown_font_panel()){
             const uint8_t *sizes=s_reader_slider>=5?s_md_draft:s_md_sizes;
-            reader_control_label(fb,(EpdRect){36,210,612,80},"阅读字体",s_reader_face_label);
+            reader_control_label(fb,(EpdRect){36,UI_PAGE_Y(210),612,80},"阅读字体",s_reader_face_label);
             for(int i=1;i<4;++i)reader_markdown_slider(fb,i,sizes);
             reader_markdown_slider(fb,0,sizes);
             reader_control_text(fb,36,920,UI_TEXT_CAPTION,"正文效果",EPD_DRAW_ALIGN_LEFT,false);

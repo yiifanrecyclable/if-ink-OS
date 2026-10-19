@@ -99,7 +99,7 @@ void ui_nav_status(uint8_t *fb) {
     if (now < 1704067200 && pmu && pmu->time_synced && pmu->unix_sec >= 1704067200)
         now = pmu->unix_sec;
     char clock[64];app_settings_format_status_clock(now,clock,sizeof(clock));
-    const int status_center_y = 40;
+    const int status_center_y = UI_STATUS_CENTER_Y;
     // 固定状态栏字号，让系统字体缩放时文字仍与图标共用中心线。
     // Keep status type fixed so text and glyphs share one centerline at every system font scale.
     ui_text_fixed_vc(fb, 36, status_center_y, UI_STATUS_TIME_PX, clock, EPD_DRAW_ALIGN_LEFT, false);

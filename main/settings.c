@@ -27,6 +27,7 @@
 #include "read_pico_transfer.h"
 #include "book/book_history_backup.h"
 #include "cloud/cloud_config.h"
+#include "ui/ui_wallpaper_rotation.h"
 
 #define TAG "settings"
 #define NVS_NS "read_pico"
@@ -84,6 +85,7 @@ static uint8_t system_size_preset(uint8_t value) {
 static uint8_t s_system_size = 120;
 static uint8_t s_lock_style = 1;
 static char s_wallpaper[288];
+static char s_wallpaper_last[288];
 static uint8_t s_last_wake;
 static uint8_t s_last_boot;
 static bool s_pickup_wake;
@@ -194,7 +196,9 @@ void app_settings_init(void) {
         s_lock_style = 1;
     size_t wallpaper_len = sizeof(s_wallpaper);
     if (nvs_get_str(h, NVS_KEY_WALLPAPER, s_wallpaper, &wallpaper_len) != ESP_OK ||
-        strncmp(s_wallpaper, "/sdcard/", 8)) s_wallpaper[0] = 0;
+        !wallpaper_card_path_valid(s_wallpaper)) s_wallpaper[0] = 0;
+    size_t last_len=sizeof(s_wallpaper_last);
+    if(nvs_get_str(h,"wp_last",s_wallpaper_last,&last_len)!=ESP_OK || !wallpaper_card_path_valid(s_wallpaper_last)) s_wallpaper_last[0]=0;
     uint8_t wake = 0;
     if (nvs_get_u8(h, NVS_KEY_WAKE, &wake) == ESP_OK) s_last_wake = wake;
     uint8_t boot = 0;
@@ -377,14 +381,28 @@ void app_settings_set_lock_style(uint8_t style) {
     s_lock_style = 1;
 }
 const char* app_settings_wallpaper_path(void) { return s_wallpaper; }
-void app_settings_set_wallpaper_path(const char* path) {
-    if (!path || (path[0] && strncmp(path, "/sdcard/", 8)) ||
-        strnlen(path, sizeof(s_wallpaper)) >= sizeof(s_wallpaper)) return;
-    strlcpy(s_wallpaper, path, sizeof(s_wallpaper));
-    nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
-    nvs_set_str(h, NVS_KEY_WALLPAPER, s_wallpaper);
-    nvs_commit(h);
+// 目录以末尾斜线存入既有字段，保持备份格式不变。/ A trailing slash encodes a directory in the existing backup field.
+bool app_settings_wallpaper_rotating(void) { size_t n=strlen(s_wallpaper);return n && s_wallpaper[n-1]=='/'; }
+static esp_err_t wallpaper_store(const char *path) {
+    if(!path || (path[0] && !wallpaper_card_path_valid(path)) || strlen(path)>=sizeof(s_wallpaper))return ESP_ERR_INVALID_ARG;
+    nvs_handle_t h;esp_err_t err=nvs_open(NVS_NS,NVS_READWRITE,&h);if(err!=ESP_OK)return err;
+    err=nvs_set_str(h,NVS_KEY_WALLPAPER,path);if(err==ESP_OK)err=nvs_commit(h);nvs_close(h);
+    if(err==ESP_OK)strlcpy(s_wallpaper,path,sizeof(s_wallpaper));
+    return err;
+}
+void app_settings_set_wallpaper_path(const char* path) { (void)wallpaper_store(path); }
+esp_err_t app_settings_set_wallpaper_directory(const char *path) {
+    if(!wallpaper_card_path_valid(path))return ESP_ERR_INVALID_ARG;
+    char directory[288];size_t n=strlen(path);
+    if(snprintf(directory,sizeof(directory),"%s%s",path,n && path[n-1]=='/'?"":"/") >= (int)sizeof(directory))return ESP_ERR_INVALID_ARG;
+    return wallpaper_store(directory);
+}
+const char *app_settings_wallpaper_last(void){return s_wallpaper_last;}
+void app_settings_note_wallpaper(const char *path){
+    if(!wallpaper_card_path_valid(path)||!strcmp(path,s_wallpaper_last))return;
+    strlcpy(s_wallpaper_last,path,sizeof(s_wallpaper_last));
+    nvs_handle_t h;if(nvs_open(NVS_NS,NVS_READWRITE,&h)!=ESP_OK)return;
+    if(nvs_set_str(h,"wp_last",path)==ESP_OK)(void)nvs_commit(h);
     nvs_close(h);
 }
 
@@ -840,7 +858,7 @@ static bool backup_valid(const settings_backup_v1_t *backup) {
         strnlen(backup->fonts_dir, sizeof(backup->fonts_dir)) == sizeof(backup->fonts_dir)) return false;
     return backup_path_valid(backup->font, sizeof(backup->font)) &&
            backup_path_valid(backup->system_font, sizeof(backup->system_font)) &&
-           backup_path_valid(backup->wallpaper, sizeof(backup->wallpaper)) &&
+           (!backup->wallpaper[0] || wallpaper_card_path_valid(backup->wallpaper)) &&
            valid_media_dir(backup->books_dir) && valid_media_dir(backup->fonts_dir);
 }
 
@@ -964,7 +982,7 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
     // 备份只含资源路径；资源已被删除时回退到安全的内建选项。
     if (backup.font[0] && !backup_file_exists(backup.font, false)) backup.font[0] = 0;
     if (backup.system_font[0] && !backup_file_exists(backup.system_font, false)) backup.system_font[0] = 0;
-    if (backup.wallpaper[0] && !backup_file_exists(backup.wallpaper, false)) {
+    if (backup.wallpaper[0] && !backup_file_exists(backup.wallpaper, backup.wallpaper[strlen(backup.wallpaper)-1]=='/')) {
         backup.wallpaper[0] = 0;
         backup.flags[BK_LOCK] = 0;
     }

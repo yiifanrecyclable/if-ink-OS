@@ -134,7 +134,9 @@ int main(void) {
     assert(put(6,pin_record_key,NVS_TYPE_STR,path,path_len)==ESP_OK);
     assert(counts[0]==13);
     assert(content_home_quote_valid("阅读每一天") && content_home_quote_valid(""));
-    assert(!content_home_quote_valid("bad\n") && !content_home_quote_valid("\xc0\xaf"));
+    assert(content_home_quote_valid("one\ntwo\nthree\nfour")&&!content_home_quote_valid("one\ntwo\nthree\nfour\nfive"));
+    assert(!content_home_quote_valid("bad\r") && !content_home_quote_valid("\xc0\xaf"));
+    assert(!content_home_quote_font_valid("/sdcard/fonts/bad\n.ttf"));
     assert(content_home_quote_font_valid("/sdcard/fonts/Test.ttf") && content_home_quote_font_valid(""));
     assert(!content_home_quote_font_valid("/sdcard/../secret.ttf") && !content_home_quote_font_valid("/etc/font.ttf"));
     assert(content_home_quote_size_valid(48)&&content_home_quote_size_valid(96)&&content_home_quote_size_valid(120));
@@ -151,6 +153,13 @@ int main(void) {
     assert(!valid_record(6,NVS_TYPE_BLOB,"md_sizes",wanted,3));
     uint8_t invalid_sizes[4]={0,80,68,60};assert(!content_markdown_sizes_valid(invalid_sizes));
     assert(!valid_record(6,NVS_TYPE_BLOB,"md_sizes",invalid_sizes,4));
+    assert(content_home_quote_valign()==CONTENT_QUOTE_VTOP);
+    assert(content_home_quote_valign_set(CONTENT_QUOTE_VBOTTOM)==ESP_OK);
+    assert(content_home_quote_valign()==CONTENT_QUOTE_VBOTTOM);
+    uint8_t vertical=CONTENT_QUOTE_VBOTTOM,invalid_vertical=3;
+    assert(valid_record(6,NVS_TYPE_U8,"quote_valign",&vertical,1));
+    assert(!valid_record(6,NVS_TYPE_U8,"quote_valign",&invalid_vertical,1));
+    assert(!valid_record(6,NVS_TYPE_U32,"quote_valign",&vertical,1));
     uint8_t quote_px=84;assert(put(6,"quote_px",NVS_TYPE_U8,&quote_px,1)==ESP_OK);
     const char *quote_font="/sdcard/fonts/Test.ttf";
     assert(content_markdown_font_valid("builtin")&&!content_markdown_font_valid("")&&!content_markdown_font_valid("/sdcard/../secret.ttf"));
@@ -167,6 +176,17 @@ int main(void) {
     record_t *added_record=find_record(6,added_record_key);assert(added_record);
     assert(!valid_record(6,NVS_TYPE_BLOB,added_record_key,added_record->data,added_record->len-1));
 
+    content_banner_config_t banner;content_banner_load(&banner);assert(banner.version==3&&banner.show_text==1&&banner.mode==0&&banner.quote_px==84);
+    banner.mode=1;banner.date_y=210;assert(content_banner_save(&banner)==ESP_OK);
+    assert(valid_record(6,NVS_TYPE_BLOB,"banner_v1",(const uint8_t *)&banner,sizeof(banner)));
+    content_banner_config_t invalid_banner=banner;invalid_banner.mode=2;
+    assert(!content_banner_valid(&invalid_banner)&&!valid_record(6,NVS_TYPE_BLOB,"banner_v1",(const uint8_t *)&invalid_banner,sizeof(invalid_banner)));
+    invalid_banner=banner;snprintf(invalid_banner.image,sizeof(invalid_banner.image),"/sdcard/../private.png");assert(!content_banner_valid(&invalid_banner));
+    invalid_banner=banner;invalid_banner.date_y=261;assert(!content_banner_valid(&invalid_banner));
+    invalid_banner=banner;invalid_banner.show_text=2;assert(!content_banner_valid(&invalid_banner));
+    content_banner_config_t legacy_banner=banner;legacy_banner.version=1;legacy_banner.show_text=0;assert(valid_record(6,NVS_TYPE_BLOB,"banner_v1",(const uint8_t *)&legacy_banner,652));
+    invalid_banner=banner;invalid_banner.text_y=297;assert(!content_banner_valid(&invalid_banner));
+    content_banner_config_t decoded;assert(content_banner_decode(&legacy_banner,652,&decoded)&&decoded.version==3&&decoded.text_y==CONTENT_BANNER_TEXT_AUTO);
     FILE *f=tmpfile(); assert(f);
     assert(book_history_backup_write(f)==ESP_OK);
     rewind(f); assert(book_history_backup_validate(f));
@@ -199,6 +219,8 @@ int main(void) {
     rewind(f); assert(book_history_backup_validate(f));
     active=1; rewind(f);
     assert(book_history_backup_restore(f)==ESP_OK && counts[1]==counts[0]);
+    content_banner_config_t restored_banner;content_banner_load(&restored_banner);assert(!memcmp(&restored_banner,&banner,sizeof(banner)));
+    assert(content_home_quote_valign()==CONTENT_QUOTE_VBOTTOM);
     assert(!strcmp(content_markdown_font(),quote_font));
     for (int i=0;i<counts[0];++i) {
         record_t *a=&records[0][i], *b=find_record(a->ns,a->key);

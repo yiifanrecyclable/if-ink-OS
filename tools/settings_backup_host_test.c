@@ -409,6 +409,14 @@ int main(void) {
     assert(app_settings_backup_restore()==ESP_OK);
     assert(reader_input_action(READER_SWIPE_RIGHT)==READER_ACTION_TOC&&app_settings_book_margin()==8);
     assert(reader_input_tap_layout()==READER_TAP_ROWS);
+    assert(app_settings_set_wallpaper_directory("/sdcard/wallpapers")==ESP_OK);
+    assert(app_settings_wallpaper_rotating()&&!strcmp(app_settings_wallpaper_path(),"/sdcard/wallpapers/"));
+    assert(app_settings_set_wallpaper_directory("/sdcard/../outside")==ESP_ERR_INVALID_ARG);
+    assert(app_settings_backup_save()==ESP_OK);
+    FILE *wallpaper_backup=fopen(BACKUP_FILE,"rb");settings_backup_v1_t wallpaper_record;
+    assert(wallpaper_backup&&fread(&wallpaper_record,1,sizeof(wallpaper_record),wallpaper_backup)==sizeof(wallpaper_record));fclose(wallpaper_backup);
+    assert(backup_valid(&wallpaper_record)&&!strcmp(wallpaper_record.wallpaper,"/sdcard/wallpapers/"));
+    assert(app_settings_backup_restore()==ESP_OK&&!app_settings_wallpaper_rotating()); // 缺失目录回退默认。/ Missing directories use the default.
     puts("settings backup host test passed (including numeric status dates, display preferences, four size presets and legacy restore)");
     return 0;
 }

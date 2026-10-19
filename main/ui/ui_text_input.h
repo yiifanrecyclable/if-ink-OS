@@ -12,6 +12,7 @@ typedef struct {
     char *text;
     size_t capacity, cursor;
     bool chinese_allowed, secret, revealed, uppercase;
+    uint8_t max_lines; ///< 默认单行，Banner可启用最多四行。/ Single line by default; Banner opts into up to four lines.
     ui_input_mode_t mode, letters_mode;
     char pinyin[33], notice[96];
     size_t candidate_page, candidate_count;

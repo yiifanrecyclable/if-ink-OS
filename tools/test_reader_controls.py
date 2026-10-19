@@ -159,7 +159,7 @@ with tempfile.TemporaryDirectory(prefix='reader-controls-',dir=ROOT/'build') as 
     bottom_gray=[(pixels[y*342+x//2]>>(4*(x%2)))&15 for y in range(1080,1179) for x in range(36,648)]
     assert sum(11<=gray<15 for gray in bottom_gray)>300
     for x in (228,456):
-        assert ((pixels[1160*342+x//2]>>(4*(x%2)))&15)==6
+        assert ((pixels[1160*342+x//2]>>(4*(x%2)))&15)==0
         assert ((pixels[1200*342+x//2]>>(4*(x%2)))&15)==15
     # 引导的画面点击只作说明，不翻页；顶部关闭及不再显示有效。/ Guide regions explain rather than turn; header controls work.
     state=frame(tap(550,500)+';'+tap(100,123)+';'+tap(610,123),panel=14)

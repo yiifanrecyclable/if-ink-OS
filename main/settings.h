@@ -69,6 +69,12 @@ uint8_t app_settings_lock_style(void);
 void app_settings_set_lock_style(uint8_t style);
 const char* app_settings_wallpaper_path(void);
 void app_settings_set_wallpaper_path(const char* path);
+/// 轮播目录复用壁纸路径字段（末尾斜线），纳入配置备份。/ Store rotation directories with a trailing slash in the backed-up wallpaper path.
+bool app_settings_wallpaper_rotating(void);
+esp_err_t app_settings_set_wallpaper_directory(const char *path);
+/// 上次成功显示的图片跨唤醒/重启保留，不属于用户配置。/ Retain the last successfully shown image across wakes/reboots, outside user configuration.
+const char *app_settings_wallpaper_last(void);
+void app_settings_note_wallpaper(const char *path);
 /// 上次浅睡唤醒源（app_wake_source_t），掉电也保留。/ Last light-sleep wake source (app_wake_source_t); kept across power loss.
 uint8_t app_settings_last_wake(void);
 void app_settings_set_last_wake(uint8_t src);

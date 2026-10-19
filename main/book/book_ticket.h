@@ -16,4 +16,6 @@ esp_err_t book_ticket_record(uint32_t seconds, uint32_t turns);
 /// end_day 可为空；否则接收与统计同一快照的本地日序号（UTC+8）。
 /// Optional end_day receives the history snapshot's local day number (UTC+8).
 bool book_ticket_recent_days(uint32_t seconds[30], uint32_t *end_day);
+/// 把NVS中的近期记录幂等归档到TF卡，任一非空日保存失败返回false。/ Idempotently archive recent NVS days to TF; false if any nonempty day fails.
+bool book_ticket_archive_days(void);
 bool book_ticket_draw(uint8_t *fb, bool reader_background);

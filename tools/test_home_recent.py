@@ -41,6 +41,7 @@ typedef int esp_err_t;
 static home_book_t s_current, s_recent[6];
 static void refresh_recent_documents(void){}
 static void prepare_quote_bitmap(void){}
+static bool s_history_open;
 static bool s_books_cache_valid,s_cached_sd_present,s_cached_sd_mounted,s_scan_pending,s_home_force_full_once;
 static unsigned s_cached_store_revision;
 static char s_cached_books_dir[128],s_cached_last_path[BOOK_STORE_PATH_MAX];

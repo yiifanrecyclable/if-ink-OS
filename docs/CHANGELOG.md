@@ -4,6 +4,30 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 2026-10-19 · Codex · if-ink OS v0.1.3
+
+- 修正书架翻页的局部刷新范围，覆盖上移后的封面顶部。 / Include the raised cover grid in shelf page refreshes.
+
+- Banner文字放宽至四行，编辑键盘新增“换行”并支持四行光标编辑与保存校验；启用背景图时，与下方阅读记录的分割线贯通两侧。 / Support four-line Banner text with explicit newlines and multiline editing, validate layout on Save, and span the divider edge to edge when artwork is enabled.
+
+- Banner改为背景、日期、文字独立叠加；背景可选无图或TF图片，日期用上下箭头调位，文字关闭后隐藏详细控件，字号收进字体页；对齐图标同行，文字高度可跨整个Banner调节，选图合并一页，开关和箭头精简，移除英文品牌行，保存/取消采用白底黑框胶囊；文字设置等高分行、内容摘要及圆形圆头箭头统一。日期与文字默认白描边，示例采用白底思考猩猩PNG，保留原位预览、取消/保存及旧配置迁移，见[Banner设置](BANNER.md)。 / Compose independent background, date and text layers with outlined overlays, arrow-positioned dates, conditional text controls, a font-page size slider and a white-background thoughtful-ape sample; retain in-place drafts and migrate legacy settings.
+
+- 首页长按Banner后原位预览，下面的阅读记录/最近阅读区域改为文字、字体、字号和排版控件；新增格言上/中/下三种垂直对齐，日期与英文行固定，偏好随配置备份恢复。 / Keep the Home banner preview in place and replace the lower sections with editing controls. Add top/center/bottom quote alignment while keeping date and brand fixed, with backed-up preferences.
+
+- 首页长按阅读记录进入独立日/周记录页，日期由近到远、圆角横向时长条（日用分钟、周用小时/分钟）、左右翻页并适配系统字号；TF按年归档，不设固定天数淘汰，迁移既有30天记录。双副本校验、缺卡补存及首页归档读取保持统计连续，见[阅读记录](READING_HISTORY.md)。 / Add long-press daily/weekly reading history with duration bars and type-aware pagination. Archive yearly on TF without age-based eviction, migrate recent totals, retain checked copies and recover pending records; share archived data with Home.
+
+- 首页最近阅读封面区域左右各扩8px、向上增加12px，保持原比例与7px圆角，书名和进度位置不变；触区和局部刷新覆盖扩大的区域。 / Enlarge the Home cover slot 8px on each side and 12px upward, preserving proportions, corners and caption anchors; expand hit and redraw bounds accordingly.
+
+- 首页最近阅读改用书架的完整比例封面缓存，在既有区域内完整缩放居中，按最终尺寸统一7px圆角；保留标题、进度条及区域高度。 / Share the shelf’s aspect-preserving cover cache on Home, contain and center artwork, and apply final-size 7px corners without moving captions or progress.
+
+- 书架进度条收窄至统一标准封面比例宽度；书名保持独立栏宽。无封面书籍统一深灰底、上部居中白色书名和下部白色作者，无装饰并自动重建旧缓存；2×2模式的封面与说明整体下移、均衡行内留白，继续共用原比例和7px圆角规则。 / Narrow shelf progress bars to the standard cover aspect width independently of captions. Use one undecorated dark-gray automatic cover with white title and author, invalidate old caches, and center large-cover blocks vertically while retaining aspect ratios and 7px corners.
+
+- 内容页顶部胶囊压缩至64px，展示区起点提前52px；三列外侧单元格靠近屏幕边缘。书架封面保留原始比例、完整缩放并使用7px圆角，宽图在统一高度区域上下居中，书名与进度条使用独立统一栏宽，独立版本缓存自动绕开旧裁切图，保留逐张空闲解码。 / Compact the content header, widen the three-column shelf and raise its grid 52px; contain full cover aspect ratios with 7px corners, centered width-limited images and uniform caption/progress widths, plus separately versioned caches while retaining one idle decode per tick.
+
+- 全局状态栏高度56px、文字/电量中心上移10px；首页按56/300/340/440/80px分配，其他产品页的上部内容和命中同步上移24px，保留底部导航和键盘定位。 / Share a 56px status band with text and battery raised 10px; use 56/300/340/440/80px Home sections, raise upper page anchors and their hit targets 24px, and retain bottom navigation and keyboard placement.
+
+- 锁屏壁纸可选固定图片或自选TF文件夹轮播；每次休眠随机选本层JPG/JPEG/PNG，多张可用图片时连续不重复，并跨重启记住上次选择。空目录/坏图不能启用；目录失效时回退默认壁纸，配置备份保留轮播目录。 / Choose a fixed image or a TF folder; randomize direct JPG/JPEG/PNG images per sleep without consecutive repeats when alternatives exist, retain the last choice across reboots, reject unusable folders, fall back safely and preserve the folder in backups.
+
 ## 2026-10-18 · Codex · if-ink OS v0.1.2
 
 - 修复独立Markdown字体未纳入配置备份校验而导致备份失败的问题；恢复后保留文档字体和基础操作分区。 / Include the independent Markdown font in validated backups and retain document fonts and tap layouts after restore.

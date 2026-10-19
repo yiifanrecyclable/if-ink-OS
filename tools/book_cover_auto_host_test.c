@@ -62,36 +62,28 @@ static void render_checked(const char *identity, const char *title, const char *
 int main(void) {
     uint8_t *a = malloc(N), *b = malloc(N);
     assert(a && b);
-    bool found[3] = {0};
-    char path[80];
-    for (int i = 0; i < 100; ++i) {
-        snprintf(path, sizeof(path), "/sdcard/books/book-%d.txt", i);
-        found[book_auto_cover_template(path, "夏天、烟火和我的尸体", "作者")] = true;
+    // 所有路径采用同一种平底模板，书名和作者之外没有装饰。/ Every path uses the same flat template without decorations outside title and author.
+    render_checked("/sdcard/books/a.txt","Title","Author",a);
+    render_checked("/sdcard/books/b.txt","Title","Author",b);
+    assert(!memcmp(a,b,N));
+    bool title_seen=false,author_seen=false;
+    for(int y=0;y<H;++y)for(int x=0;x<W;++x){
+        uint8_t value=a[y*W+x];
+        assert(value==68||value==255);
+        if(y<30||(y>=150&&y<196)||y>=211||x<16||x>=W-16)assert(value==68);
+        if(value==255){if(y<150)title_seen=true;if(y>=196)author_seen=true;}
     }
-    assert(found[0] && found[1] && found[2]);
-    bool checked_split_cover = false;
-    for (int i = 0; i < 100 && !checked_split_cover; ++i) {
-        snprintf(path, sizeof(path), "/sdcard/books/book-%d.txt", i);
-        if (book_auto_cover_template(path, "时间的褶皱", "作者") != 2) continue;
-        render_checked(path, "时间的褶皱", "作者", b);
-        for (int y = 120; y < H; ++y)
-            for (int x = 0; x < W; ++x)
-                assert(b[y * W + x] >= 238); /* Lower panel is intentionally text-free. */
-        assert(b[20 * W + 4] < 160);
-        checked_split_cover = true;
-    }
-    assert(checked_split_cover);
-    assert(book_auto_cover_template("/sdcard/books/long.epub", "书名", "作者") ==
-           book_auto_cover_template("/sdcard/books/long.epub", "A renamed book", "Another author"));
+    assert(title_seen&&author_seen);
     render_checked("/sdcard/books/long.epub", "夏天、烟火和我的尸体：一个很长很长的中文书名", "三天两觉", a);
     render_checked("/sdcard/books/long.epub", "夏天、烟火和我的尸体：一个很长很长的中文书名", "三天两觉", b);
     assert(!memcmp(a, b, N));
     render_checked("/sdcard/books/english.txt", "The Extremely Long English Title That Must Wrap Cleanly Without Escaping Its Frame", "An Author With a Very Long Name", b);
     assert(memcmp(a, b, N));
     render_checked("/sdcard/books/empty-author.txt", "没有作者的书", "", b);
+    for(int y=160;y<H;++y)for(int x=0;x<W;++x)assert(b[y*W+x]==68);
     assert(!book_auto_cover_render("x", "", "", W, H, b));
     assert(!book_auto_cover_render("x", "title", "", 8, H, b));
     free(a); free(b);
-    puts("automatic cover templates: OK");
+    puts("minimal automatic cover: flat dark background, white title/author, no decoration, deterministic rendering and guarded bounds OK");
     return 0;
 }

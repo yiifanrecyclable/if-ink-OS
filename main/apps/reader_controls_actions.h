@@ -45,7 +45,7 @@ static app_redraw_t reader_help_close(void){
 }
 static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
     if(s_reader_panel==READER_PANEL_HELP){
-        if(y>=80&&y<160){if(x>530)return reader_help_close();if(x<460){s_help_hide=!s_help_hide;return APP_REDRAW_PAGE;}}
+        if(y>=UI_STATUS_HEIGHT&&y<UI_PAGE_Y(160)){if(x>530)return reader_help_close();if(x<460){s_help_hide=!s_help_hide;return APP_REDRAW_PAGE;}}
         return APP_REDRAW_NONE;
     }
     if(s_bookmark_delete_confirm){
@@ -68,7 +68,7 @@ static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
         if(s_jump_back_valid&&ui_rect_hit(reader_jump_back_rect(),x,y)){size_t chapter=s_jump_back_chapter,offset=s_jump_back_offset;if(load_chapter(ctx,chapter,offset,false)){s_jump_back_valid=false;s_reader_panel=READER_PANEL_NONE;save_progress();}return APP_REDRAW_PAGE;}
         return APP_REDRAW_NONE;
     }
-    if(y<180){
+    if(y<UI_PAGE_Y(180)){
         if(x>570)return reader_show_panel(READER_PANEL_NONE);
         if(x<110){
             if(s_reader_panel==READER_PANEL_BINDING)return reader_show_panel(READER_PANEL_SHORTCUTS);
@@ -86,13 +86,13 @@ static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
         return APP_REDRAW_NONE;
     }
     if(reader_markdown_font_panel()){
-        if(ui_rect_hit((EpdRect){36,210,612,80},x,y)){ttf_font_scan();return reader_show_panel(READER_PANEL_FONT_PICKER);}
+        if(ui_rect_hit((EpdRect){36,UI_PAGE_Y(210),612,80},x,y)){ttf_font_scan();return reader_show_panel(READER_PANEL_FONT_PICKER);}
         return APP_REDRAW_NONE;
     }
     int count=reader_control_count(),rows=reader_control_rows();
     if(y>=1018&&y<1096&&count>rows){int next=s_control_page+(x<342?-1:1);if(next>=0&&next<1+(count-1)/rows)s_control_page=next;return APP_REDRAW_PAGE;}
-    if(y<220||y>=220+rows*reader_row_height())return APP_REDRAW_NONE;
-    int row=(y-220)/reader_row_height(),i=s_control_page*rows+row;
+    if(y<UI_PAGE_Y(220)||y>=UI_PAGE_Y(220)+rows*reader_row_height())return APP_REDRAW_NONE;
+    int row=(y-UI_PAGE_Y(220))/reader_row_height(),i=s_control_page*rows+row;
     if(s_reader_panel==READER_PANEL_FONT_SETTINGS){
         if(row==1){ttf_font_scan();return reader_show_panel(READER_PANEL_FONT_PICKER);}
         if(row==2&&book_kind()==BOOK_KIND_MARKDOWN)return reader_show_panel(READER_PANEL_MARKDOWN_SIZES);
@@ -209,7 +209,7 @@ static app_redraw_t reader_controls_gesture(app_ctx_t *ctx,const ui_gesture_even
         return APP_REDRAW_NONE;
     }
     if(ev->type==UI_GESTURE_TAP){
-        if(!s_reader_fullscreen&&ui_rect_hit((EpdRect){32,75,64,64},ev->x0,ev->y0))return reader_return(ctx,false);
+        if(!s_reader_fullscreen&&ui_rect_hit((EpdRect){32,UI_PAGE_Y(75),64,64},ev->x0,ev->y0))return reader_return(ctx,false);
         if(book_kind()==BOOK_KIND_MARKDOWN&&s_inline_gray&&book_layout_page_image(s_page)==s_inline_index){EpdRect body=body_rect(),image={body.x+(body.width-(int)s_inline_w)/2,body.y+(body.height-(int)s_inline_h)/2,(int)s_inline_w,(int)s_inline_h};if(ui_rect_hit(image,ev->x0,ev->y0)&&prepare_document_zoom(0)){s_document_zoom=true;s_zoom_moved=false;invalidate_prep();return APP_REDRAW_PAGE;}}
         if(!ui_rect_hit(reader_area(),ev->x0,ev->y0))return APP_REDRAW_NONE;
         for(unsigned zone=0;zone<3;++zone)if(ui_rect_hit(reader_tap_rect(reader_area(),reader_input_tap_layout(),zone),ev->x0,ev->y0))

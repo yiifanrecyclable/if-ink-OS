@@ -10,6 +10,7 @@
  * Scalloped paper edges sit over a grayscale wallpaper made from the latest EPUB cover.
  */
 #include "book_ticket.h"
+#include "reading_history_store.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -63,10 +64,13 @@ esp_err_t book_ticket_record(uint32_t seconds, uint32_t turns) {
     ticket_stats_t stats; stats_load(&stats);
     stats.magic = TICKET_MAGIC;
     uint32_t day = local_day();
+    static uint32_t archive_day;
+    if(day&&archive_day!=day){book_ticket_archive_days();archive_day=day;}
     if (day && stats.day != day) { stats.day = day; stats.today_seconds = 0; stats.today_turns = 0; }
     stats.total_seconds += seconds;
     stats.total_turns += turns;
     if (day) { stats.today_seconds += seconds; stats.today_turns += turns; }
+    uint32_t daily_total=0;
     nvs_handle_t h;
     esp_err_t err = nvs_open("rp_ticket", NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
@@ -81,13 +85,26 @@ esp_err_t book_ticket_record(uint32_t seconds, uint32_t turns) {
         }
         unsigned slot = day % 30;
         if (heat.day[slot] != day) { heat.day[slot] = day; heat.seconds[slot] = 0; }
-        uint32_t old = heat.seconds[slot];
+        uint32_t old = heat.seconds[slot], archived=reading_history_read(day);
+        if(archived>old)old=archived;
         heat.seconds[slot] = UINT32_MAX - old < seconds ? UINT32_MAX : old + seconds;
+        daily_total=heat.seconds[slot];
         err = nvs_set_blob(h, "heatmap", &heat, sizeof(heat));
     }
     if (err == ESP_OK) err = nvs_commit(h);
     nvs_close(h);
+    // NVS先提交，TF失败时保留30天恢复窗口，后续幂等补存。/ Commit NVS first; retain a 30-day recovery window when TF writes fail.
+    if(err==ESP_OK&&day&&daily_total)(void)reading_history_merge(day,daily_total);
     return err;
+}
+bool book_ticket_archive_days(void) {
+    nvs_handle_t h;if(nvs_open("rp_ticket",NVS_READONLY,&h)!=ESP_OK)return true;
+    ticket_heat_t heat={0};size_t len=sizeof(heat);
+    esp_err_t err=nvs_get_blob(h,"heatmap",&heat,&len);nvs_close(h);
+    if(err!=ESP_OK||len!=sizeof(heat)||heat.magic!=TICKET_HEAT_MAGIC)return true;
+    bool ok=true;
+    for(unsigned i=0;i<30;++i)if(heat.day[i]&&heat.seconds[i]&&!reading_history_merge(heat.day[i],heat.seconds[i]))ok=false;
+    return ok;
 }
 bool book_ticket_recent_days(uint32_t seconds[30], uint32_t *end_day) {
     if (end_day) *end_day = 0;
@@ -96,17 +113,18 @@ bool book_ticket_recent_days(uint32_t seconds[30], uint32_t *end_day) {
     uint32_t today = local_day();
     if (end_day) *end_day = today;
     if (!today) return false;
+    reading_history_range(today-29,30,seconds);
     nvs_handle_t h;
-    if (nvs_open("rp_ticket", NVS_READONLY, &h) != ESP_OK) return true;
     ticket_heat_t heat = {0};
     size_t len = sizeof(heat);
-    esp_err_t err = nvs_get_blob(h, "heatmap", &heat, &len);
-    nvs_close(h);
-    if (err != ESP_OK || len != sizeof(heat) || heat.magic != TICKET_HEAT_MAGIC) return true;
+    if(nvs_open("rp_ticket",NVS_READONLY,&h)==ESP_OK){
+        esp_err_t err=nvs_get_blob(h,"heatmap",&heat,&len);nvs_close(h);
+        if(err!=ESP_OK||len!=sizeof(heat)||heat.magic!=TICKET_HEAT_MAGIC)memset(&heat,0,sizeof(heat));
+    }
     for (unsigned i = 0; i < 30; ++i) {
         uint32_t day = today - (29 - i);
         unsigned slot = day % 30;
-        if (heat.day[slot] == day) seconds[i] = heat.seconds[slot];
+        if (heat.day[slot] == day && heat.seconds[slot]>seconds[i]) seconds[i] = heat.seconds[slot];
     }
     return true;
 }

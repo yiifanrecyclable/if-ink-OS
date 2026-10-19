@@ -21,3 +21,21 @@ int simulator_home_geometry(int item) {
  const int values[]={g.content_y,g.row_height,g.rows,g.grid_y,g.col_x,g.col_step,g.row_step,g.month_x,g.week_y,g.heat_title,g.recent_rule,g.recent_title};
  return item>=0 && item<(int)(sizeof(values)/sizeof(values[0]))?values[item]:0;
 }
+
+int simulator_home_cover_geometry(unsigned part) {
+ home_book_t *item=s_current.path[0]?&s_current:&s_recent[0];
+ if(!item->path[0])return 0;
+ home_geometry_t g=home_geometry();unsigned pct=item->has_progress?item->progress.pct:0;if(pct>100)pct=100;
+ recent_title_layout_t title=recent_title_layout(item->title,172);
+ char detail[48];snprintf(detail,sizeof(detail),"阅读进度%u%%",pct);
+ recent_title_layout_t caption=recent_title_layout_role(detail,172,UI_TEXT_CAPTION,2);
+ EpdRect image=home_cover_rect(item,home_cover_slot(g,title.count*title.line_height,caption.count*caption.line_height));
+ const int values[]={image.x,image.y,image.width,image.height,(int)item->cover_width,(int)item->cover_height};
+ return part<6?values[part]:0;
+}
+
+int simulator_history_state(unsigned part) {
+ const int values[]={s_history_open,s_history_weekly,s_history_page,history_pages(),s_history_count,(int)s_history_first,(int)s_history_today,history_rows(),history_row_height()};
+ return part<9?values[part]:0;
+}
+unsigned long long simulator_history_seconds(unsigned row){return row<HOME_HISTORY_MAX_ROWS?s_history_seconds[row]:0;}

@@ -34,10 +34,15 @@ extern bool app_device_settings_cloud_requested(void);
 extern bool app_device_settings_home_quote_requested(void);
 extern bool app_device_settings_quote_committed(void);
 extern int app_device_settings_quote_size(void);
+int simulator_banner_draft(unsigned part);
+const char *simulator_banner_text(void),*simulator_banner_font(void),*simulator_banner_image(void),*simulator_banner_item(unsigned i);
 void simulator_cloud(uint8_t *fb,const char *file,int page,const char *events);
 extern int simulator_cloud_command,simulator_cloud_index,simulator_cloud_page;
 void simulator_dashboard(uint8_t *fb,const uint32_t *days,const char *events);
 int simulator_home_geometry(int item);
+int simulator_history_state(unsigned part);
+unsigned long long simulator_history_seconds(unsigned row);
+int simulator_home_cover_geometry(unsigned part);
 int simulator_settings_geometry(int item);
 int simulator_settings_update_state(void);
 int simulator_settings_update_confirmation(void);
@@ -57,6 +62,7 @@ size_t simulator_document_count(void);
 bool simulator_document_starred_only(void),simulator_document_menu(void),simulator_document_delete_confirm(void);
 const char *simulator_document_first(void);
 const char *simulator_document_item(unsigned i),*simulator_shelf_item(unsigned i);
+int simulator_shelf_geometry(unsigned row,unsigned part);
 bool simulator_content_sort_open(void),simulator_document_batch_confirm(void);
 unsigned simulator_document_selected_count(void),simulator_content_sort_mode(bool documents);
 #include "book_source.h"
@@ -281,7 +287,7 @@ int main(int argc, char **argv) {
     else if(!strcmp(argv[1],"lock-default"))ui_draw_full_image(fb,simulator_lock);
     else if(!strcmp(argv[1],"loading"))ui_draw_full_image(fb,simulator_loading);
 
-    else if(!strcmp(argv[1],"lock-wallpaper")){if(!ui_wallpaper_draw(fb,app_settings_wallpaper_path(),(EpdRect){0,0,684,1216}))ui_draw_full_image(fb,simulator_lock);}
+    else if(!strcmp(argv[1],"lock-wallpaper")){if(!ui_wallpaper_draw_lock(fb))ui_draw_full_image(fb,simulator_lock);}
     else if(!strcmp(argv[1],"shutdown"))ui_power_final_draw(fb,false);
     else if(!strcmp(argv[1],"restart"))ui_power_final_draw(fb,true);
     else { header("设置"); text(36, 230, 28, "本地阅读测试", 0, EPD_DRAW_ALIGN_LEFT); nav(3); }
@@ -321,6 +327,8 @@ int main(int argc, char **argv) {
     printf(",\"update_state\":%d,\"update_confirmation\":%s",simulator_settings_update_state(),simulator_settings_update_confirmation()?"true":"false");
     printf(",\"settings_geometry\":[");for(int i=0;i<14;++i){if(i)printf(",");printf("%d",simulator_settings_geometry(i));}printf("]");
     printf(",\"document_page_first\":");json_string(simulator_document_page_first());
+    printf(",\"wallpaper_rotating\":%s,\"wallpaper_path\":",app_settings_wallpaper_rotating()?"true":"false");json_string(app_settings_wallpaper_path());
+    printf(",\"wallpaper_last\":");json_string(app_settings_wallpaper_last());
     printf(",\"system_size\":%u,\"lock_style\":%u",app_settings_system_font_size(),app_settings_lock_style());
     printf(",\"idle_sleep_minutes\":%u",app_settings_idle_sleep_minutes());
     printf(",\"status_show_date\":%s,\"status_date_format\":%d",app_settings_status_show_date()?"true":"false",app_settings_status_date_format());
@@ -333,6 +341,13 @@ int main(int argc, char **argv) {
     printf(",\"content_sort_open\":%s,\"book_sort_mode\":%u,\"document_sort_mode\":%u,\"document_selected_count\":%u,\"document_batch_confirm\":%s,\"document_items\":[",simulator_content_sort_open()?"true":"false",simulator_content_sort_mode(false),simulator_content_sort_mode(true),simulator_document_selected_count(),simulator_document_batch_confirm()?"true":"false");
     for(unsigned i=0;i<3;++i){if(i)printf(",");json_string(simulator_document_item(i));}printf("],\"book_items\":[");
     for(unsigned i=0;i<3;++i){if(i)printf(",");json_string(simulator_shelf_item(i));}printf("]");
+    printf(",\"banner_draft\":[");for(unsigned i=0;i<13;++i){if(i)printf(",");printf("%d",simulator_banner_draft(i));}printf("]");
+    printf(",\"banner_items\":[");for(unsigned i=0;i<10;++i){if(i)printf(",");json_string(simulator_banner_item(i));}printf("]");
+    printf(",\"banner_text\":");json_string(simulator_banner_text());printf(",\"banner_font\":");json_string(simulator_banner_font());printf(",\"banner_image\":");json_string(simulator_banner_image());
+    printf(",\"history_state\":[");for(unsigned p=0;p<9;++p){if(p)printf(",");printf("%d",simulator_history_state(p));}printf("]");
+    printf(",\"history_seconds\":[");for(unsigned p=0;p<10;++p){if(p)printf(",");printf("%llu",simulator_history_seconds(p));}printf("]");
+    printf(",\"home_cover_geometry\":[");for(unsigned part=0;part<6;++part){if(part)printf(",");printf("%d",simulator_home_cover_geometry(part));}printf("]");
+    printf(",\"shelf_geometry\":[");for(unsigned row=0;row<9;++row){if(row)printf(",");printf("[");for(unsigned part=0;part<14;++part){if(part)printf(",");printf("%d",simulator_shelf_geometry(row,part));}printf("]");}printf("]");
     printf(",\"cloud_backup_used\":%s",simulator_cloud_backup_used()?"true":"false");
     if(restored){printf(",\"cloud_restore\":{\"folder\":");json_string(restored->folder);printf(",\"account\":");json_string(restored->account);printf(",\"password\":");json_string(restored->password);printf("}");}
     puts("}");

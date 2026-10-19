@@ -4,7 +4,7 @@
  */
 const button = document.getElementById('flash-installer');
 const status = document.getElementById('flash-status');
-const expectedVersion = '0.1.2';
+const expectedVersion = '0.1.3';
 const expectedParts = new Map([
   ['bootloader.bin', 0], ['partition-table.bin', 0x8000],
   ['firmware.bin', 0x10000], ['ota-data-initial.bin', 0xd10000],
@@ -33,8 +33,8 @@ async function start() {
           seen.has(part.path) || !Number.isInteger(part.size) || part.size <= 0 ||
           !/^[a-f0-9]{64}$/.test(part.sha256) ||
           Math.ceil((part.offset + part.size) / 4096) * 4096 > regionEnds.get(part.path)) throw new Error('parts');
-      if (part.path === 'firmware.bin' && (part.size !== 3567472 ||
-          part.sha256 !== '861a597b21797bdb5f52f722d45dd0f0be565bb0b31ee03a07c4dcd115a966dd')) throw new Error('image');
+      if (part.path === 'firmware.bin' && (part.size !== 3584304 ||
+          part.sha256 !== '7a9d2991e9130ebf456bfabe8673a3773f5242997b7fb9d9ac50e33df7b0d53d')) throw new Error('image');
       seen.add(part.path);
     }
     await import('./vendor/esp-web-tools-if-v1/install-button.js');

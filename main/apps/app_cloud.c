@@ -19,7 +19,7 @@
 static unsigned s_cloud_page, s_cloud_seen;
 static int64_t s_cloud_last_draw;
 static int cloud_row_height(void) { return ui_list_row_height(true); }
-static unsigned cloud_rows(void) { return (unsigned)ui_list_visible_rows(244,948,cloud_row_height()); }
+static unsigned cloud_rows(void) { return (unsigned)ui_list_visible_rows(UI_PAGE_Y(244),948,cloud_row_height()); }
 static void cloud_fit(char *text, int px, int width) {
     while (*text && ui_text_fixed_width_px(ui_text_effective_px(px), text) > width) {
         size_t n = strlen(text) - 1;
@@ -34,33 +34,33 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     cloud_get_status(&status);
     ui_clear_page(fb);
     ui_nav_status(fb);
-    ui_nav_back(fb, 36, 79);
-    ui_text_vc(fb, 342, 113, 34, "坚果云同步", EPD_DRAW_ALIGN_CENTER, false);
+    ui_nav_back(fb, 36,UI_PAGE_Y(79));
+    ui_text_vc(fb, 342,UI_PAGE_Y(113), 34, "坚果云同步", EPD_DRAW_ALIGN_CENTER, false);
     char folder[241];
     snprintf(folder, sizeof(folder), "%s", status.folder[0] ? status.folder : CLOUD_DEFAULT_FOLDER);
     cloud_fit(folder, 22, 190);
-    ui_text_vc(fb, 36, 203, 22, folder, EPD_DRAW_ALIGN_LEFT, false);
+    ui_text_vc(fb, 36,UI_PAGE_Y(203), 22, folder, EPD_DRAW_ALIGN_LEFT, false);
     char info[96];
     snprintf(info, sizeof(info), "%s",
              status.indicator[0] ? status.indicator
              : status.configured ? "待读取目录"
                                  : "未配置账号");
     cloud_fit(info, 18, 280);
-    ui_text_vc(fb, 530, 203, 18, info, EPD_DRAW_ALIGN_RIGHT, false);
-    ui_draw_round_rect(fb, (EpdRect){550, 176, 98, 54}, 12, 0x70);
-    ui_text_vc(fb, 599, 203, 20, "刷新", EPD_DRAW_ALIGN_CENTER, false);
+    ui_text_vc(fb, 530,UI_PAGE_Y(203), 18, info, EPD_DRAW_ALIGN_RIGHT, false);
+    ui_draw_round_rect(fb, (EpdRect){550,UI_PAGE_Y(176), 98, 54}, 12, 0x70);
+    ui_text_vc(fb, 599,UI_PAGE_Y(203), 20, "刷新", EPD_DRAW_ALIGN_CENTER, false);
     if (status.busy) {
         char text[160];
         snprintf(text, sizeof(text), "%s", status.message);
         cloud_fit(text, 25, 572);
-        ui_text_vc(fb, 342, 390, 25, text, EPD_DRAW_ALIGN_CENTER, false);
+        ui_text_vc(fb, 342,UI_PAGE_Y(390), 25, text, EPD_DRAW_ALIGN_CENTER, false);
         char count[64];
         if (status.total)
             snprintf(count, sizeof(count), "已入库 %u / %u", status.done, status.total);
         else
             snprintf(count, sizeof(count), "读取完成后可勾选下载");
-        ui_text_vc(fb, 342, 454, 22, count, EPD_DRAW_ALIGN_CENTER, false);
-        EpdRect bar = {60, 513, 564, 12};
+        ui_text_vc(fb, 342,UI_PAGE_Y(454), 22, count, EPD_DRAW_ALIGN_CENTER, false);
+        EpdRect bar = {60,UI_PAGE_Y(513), 564, 12};
         ui_fill_round_rect(fb, bar, 6, 0xc0);
         if (status.bytes_total) {
             bar.width =
@@ -72,19 +72,19 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         if (status.bytes_total) {
             snprintf(count, sizeof(count), "%llu / %llu KB", (unsigned long long)(status.bytes_done / 1024),
                      (unsigned long long)(status.bytes_total / 1024));
-            ui_text_vc(fb, 342, 558, 20, count, EPD_DRAW_ALIGN_CENTER, false);
+            ui_text_vc(fb, 342,UI_PAGE_Y(558), 20, count, EPD_DRAW_ALIGN_CENTER, false);
         }
-        ui_draw_button(fb, (EpdRect){36, 985, 612, 78}, status.cancel_requested ? "正在停止…" : "取消同步",
+        ui_draw_button(fb, (EpdRect){36,UI_PAGE_Y(985), 612, 78}, status.cancel_requested ? "正在停止…" : "取消同步",
                        false);
     } else {
         if (!status.count) {
             char text[160];
             snprintf(text, sizeof(text), "%s", status.message[0] ? status.message : "目录中还没有可读内容");
             cloud_fit(text, 23, 572);
-            ui_text_vc(fb, 342, 378, 23, text, EPD_DRAW_ALIGN_CENTER, false);
+            ui_text_vc(fb, 342,UI_PAGE_Y(378), 23, text, EPD_DRAW_ALIGN_CENTER, false);
             if (!status.configured) {
-                ui_text_vc(fb, 342, 432, 21, "前往 设置 → 坚果云", EPD_DRAW_ALIGN_CENTER, false);
-                ui_draw_button(fb, (EpdRect){36, 505, 612, 78}, "打开坚果云设置", false);
+                ui_text_vc(fb, 342,UI_PAGE_Y(432), 21, "前往 设置 → 坚果云", EPD_DRAW_ALIGN_CENTER, false);
+                ui_draw_button(fb, (EpdRect){36,UI_PAGE_Y(505), 612, 78}, "打开坚果云设置", false);
             }
         }
         unsigned selected = 0;
@@ -98,7 +98,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             cloud_entry_t entry;
             if (!cloud_get_entry(i, &entry))
                 break;
-            int y = 244 + row * cloud_row_height();
+            int y = UI_PAGE_Y(244) + row * cloud_row_height();
             char name[241];
             snprintf(name, sizeof(name), "%s", entry.name);
             cloud_fit(name, 23, 510);
@@ -129,17 +129,17 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         }
         char action[64];
         snprintf(action, sizeof(action), "同步所选（%u）", selected);
-        ui_draw_button(fb, (EpdRect){36, 985, 612, 78}, action, selected > 0);
+        ui_draw_button(fb, (EpdRect){36,UI_PAGE_Y(985), 612, 78}, action, selected > 0);
         if (status.count && status.message[0]) {
             char result[160];
             snprintf(result,sizeof(result),"%s",status.message);
             cloud_fit(result,19,612);
-            ui_text_fixed_vc(fb,342,1096,ui_text_effective_px(UI_TEXT_CAPTION),result,EPD_DRAW_ALIGN_CENTER,false);
+            ui_text_fixed_vc(fb,342,UI_PAGE_Y(1096),ui_text_effective_px(UI_TEXT_CAPTION),result,EPD_DRAW_ALIGN_CENTER,false);
         }
         if (status.count) {
             char page[32];
             snprintf(page, sizeof(page), "%u / %u", s_cloud_page + 1, (status.count + cloud_rows()-1) / cloud_rows());
-            ui_text_vc(fb, 648, 964, 18, page, EPD_DRAW_ALIGN_RIGHT, false);
+            ui_text_vc(fb, 648,UI_PAGE_Y(964), 18, page, EPD_DRAW_ALIGN_RIGHT, false);
         }
     }
     ui_nav_draw(fb, 2);
@@ -194,31 +194,31 @@ static app_redraw_t gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         ui_nav_request(ctx, tab);
         return APP_REDRAW_NONE;
     }
-    if (ev->y0 < 170 && ev->x0 < 160) {
+    if (ev->y0 < UI_PAGE_Y(170) && ev->x0 < 160) {
         cloud_cancel();
         ui_nav_request(ctx, 2);
         return APP_REDRAW_NONE;
     }
     if (status.busy) {
-        if(ev->y0>=985&&ev->y0<1063&&!status.cancel_requested){cloud_cancel();return APP_REDRAW_PAGE;}
+        if(ev->y0>=UI_PAGE_Y(985)&&ev->y0<UI_PAGE_Y(1063)&&!status.cancel_requested){cloud_cancel();return APP_REDRAW_PAGE;}
         return APP_REDRAW_NONE;
     }
-    if (ev->y0 >= 176 && ev->y0 < 230 && ev->x0 >= 550) {
+    if (ev->y0 >= UI_PAGE_Y(176) && ev->y0 < UI_PAGE_Y(230) && ev->x0 >= 550) {
         s_cloud_page = 0;
         cloud_refresh();
         return APP_REDRAW_PAGE;
     }
-    if (!status.configured && ev->y0 >= 505 && ev->y0 < 583) {
+    if (!status.configured && ev->y0 >= UI_PAGE_Y(505) && ev->y0 < UI_PAGE_Y(583)) {
         extern const app_desc_t app_device_settings;
         app_device_settings_request_cloud_config();
         ctx->request_app = &app_device_settings;
         return APP_REDRAW_NONE;
     }
-    if (ev->y0 >= 244 && ev->y0 < 244+cloud_rows()*cloud_row_height()) {
-        cloud_toggle(s_cloud_page * cloud_rows() + (ev->y0 - 244) / cloud_row_height());
+    if (ev->y0 >= UI_PAGE_Y(244) && ev->y0 < UI_PAGE_Y(244)+cloud_rows()*cloud_row_height()) {
+        cloud_toggle(s_cloud_page * cloud_rows() + (ev->y0 - UI_PAGE_Y(244)) / cloud_row_height());
         return APP_REDRAW_PAGE;
     }
-    if (ev->y0 >= 985 && ev->y0 < 1063) {
+    if (ev->y0 >= UI_PAGE_Y(985) && ev->y0 < UI_PAGE_Y(1063)) {
         cloud_download_selected();
         return APP_REDRAW_PAGE;
     }

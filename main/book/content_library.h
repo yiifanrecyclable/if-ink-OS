@@ -6,6 +6,7 @@
 #include "esp_err.h"
 #include <stdbool.h>
 #include <stdint.h>
+#include <stddef.h>
 #define CONTENT_HOME_QUOTE_BYTES 192
 #define CONTENT_HOME_QUOTE_FONT_BYTES 160
 #define CONTENT_MARKDOWN_FONT_BYTES 192
@@ -14,6 +15,11 @@ typedef enum { CONTENT_QUOTE_LEFT, CONTENT_QUOTE_RIGHT, CONTENT_QUOTE_CENTER, CO
 content_quote_align_t content_home_quote_alignment(void);
 bool content_home_quote_alignment_valid(unsigned align);
 esp_err_t content_home_quote_alignment_set(unsigned align);
+// 格言仅在日期/品牌下方区域垂直排版；默认上对齐保持旧版位置。/ Vertically align only the quote below date/brand; top defaults to the previous position.
+typedef enum { CONTENT_QUOTE_VTOP, CONTENT_QUOTE_VCENTER, CONTENT_QUOTE_VBOTTOM } content_quote_valign_t;
+content_quote_valign_t content_home_quote_valign(void);
+bool content_home_quote_valign_valid(unsigned align);
+esp_err_t content_home_quote_valign_set(unsigned align);
 #define CONTENT_QUOTE_SIZE_MIN 48
 #define CONTENT_QUOTE_SIZE_MAX 120
 uint8_t content_home_quote_size(void);
@@ -27,6 +33,28 @@ esp_err_t content_home_quote_set(const char *text);
 const char *content_home_quote_font(void);
 bool content_home_quote_font_valid(const char *path);
 esp_err_t content_home_quote_font_set(const char *path);
+#define CONTENT_BANNER_IMAGE_BYTES 288
+#define CONTENT_BANNER_DEFAULT_IMAGE "/sdcard/banner pic/默认背景.png"
+#define CONTENT_BANNER_DATE_AUTO UINT16_MAX
+#define CONTENT_BANNER_DATE_MIN 4
+#define CONTENT_BANNER_DATE_MAX 260
+#define CONTENT_BANNER_TEXT_AUTO UINT16_MAX
+#define CONTENT_BANNER_TEXT_MAX 296
+// 单个带版本快照实现预览/取消/保存，避免多个键部分写入。/ A versioned snapshot supports preview/cancel/save without partially updating multiple keys.
+typedef struct {
+    uint32_t version;
+    uint16_t date_y;
+    uint8_t mode,show_date,quote_px,align,valign,show_text; // v2: mode是背景开关，文字独立。/ v2: mode enables background independently of text.
+    char text[CONTENT_HOME_QUOTE_BYTES],font[CONTENT_HOME_QUOTE_FONT_BYTES],image[CONTENT_BANNER_IMAGE_BYTES];
+    uint16_t text_y; ///< 相对Banner顶部的文字高度，AUTO沿用旧位置。/ Text offset from banner top; AUTO retains legacy placement.
+} content_banner_config_t;
+bool content_banner_image_valid(const char *path);
+bool content_banner_valid(const content_banner_config_t *config);
+/// 解码旧快照并迁移，不写存储。/ Decode/migrate legacy snapshots without storage writes.
+bool content_banner_decode(const void *data,size_t size,content_banner_config_t *config);
+void content_banner_load(content_banner_config_t *config);
+esp_err_t content_banner_save(const content_banner_config_t *config);
+
 typedef enum { CONTENT_NAME, CONTENT_PROGRESS, CONTENT_ADDED, CONTENT_RECENT } content_sort_t;
 // 旧标记字段只作备份兼容，读写强制为false。/ Legacy mark fields are compatibility-only and always load/save as false.
 typedef struct { uint8_t mode; bool ascending, marked_first, marked_only; } content_options_t;
