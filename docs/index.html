@@ -6,7 +6,7 @@
   <meta name="description" content="if-ink OS，为 Pico RDP-G01-W 带来 EPUB、TXT、Markdown 阅读、坚果云同步、自定义首页与长期阅读记录。了解功能，在线安装或下载 v0.1.3。">
   <meta name="theme-color" content="#ffffff">
   <title>if-ink OS — 化繁为简，即刻阅读</title>
-  <link rel="stylesheet" href="./site.css?v=0.1.3-1">
+  <link rel="stylesheet" href="./site.css?v=0.1.3-3">
   <script src="./site.js?v=0.1.3-1" defer></script>
 </head>
 <body>
@@ -24,8 +24,9 @@
       <a href="#guide"><span>06</span> 操作与文件整理</a>
       <a href="#install"><span>07</span> 安装与升级</a>
       <a href="#downloads"><span>08</span> 下载 v0.1.3</a>
-      <a href="#faq"><span>09</span> 常见问题</a>
-      <a href="#opensource"><span>10</span> 来源与开源</a>
+      <a href="#artwork"><span>09</span> Banner 背景与壁纸</a>
+      <a href="#faq"><span>10</span> 常见问题</a>
+      <a href="#opensource"><span>11</span> 来源与开源</a>
     </nav>
   </details>
   <div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span> 当前发布 v0.1.3<br><a href="https://github.com/yiifanrecyclable/if-ink-OS">GitHub ↗</a></div>
@@ -111,13 +112,22 @@ python3 -m esptool --chip esp32s3 --port PORT --baud 460800 --before default-res
     <details class="checksum"><summary>应用镜像 SHA256</summary><code>7a9d2991e9130ebf456bfabe8673a3773f5242997b7fb9d9ac50e33df7b0d53d</code><p class="fineprint">在下载包目录中，可用 <code>shasum -a 256 -c SHA256SUMS</code> 校验包内文件。</p></details>
   </section>
 
+  <section class="section" id="artwork" aria-labelledby="artwork-title">
+    <div class="section-heading"><div><span class="section-number">09 / A LITTLE MORE YOU</span><h2 id="artwork-title">Banner 背景与壁纸。</h2></div><p>为首页和锁屏，挑一张喜欢的图。<br>这里会陆续加入新的素材。</p></div>
+    <article class="artwork-card" aria-labelledby="gorilla-title">
+      <a class="artwork-preview" href="./images/artwork/thinking-gorilla-banner.png" target="_blank" rel="noopener" aria-label="查看思考大猩猩 Banner 原图"><img src="./images/artwork/thinking-gorilla-banner.png" width="684" height="300" alt="白色背景上的黑白大猩猩，手托下巴，望向右侧留白" loading="lazy" decoding="async"></a>
+      <div class="artwork-info"><span class="row-label">首页 BANNER 背景</span><h3 id="gorilla-title">思考大猩猩</h3><p>给思考留一点空白。黑白画面，右侧留白可搭配自己的日期与文字。</p><p class="artwork-spec">PNG · 684 × 300 像素 · 白色背景</p><a class="button" href="./images/artwork/thinking-gorilla-banner.png" download="思考大猩猩-Banner-684x300.png">下载原图 <span aria-hidden="true">↓</span></a></div>
+    </article>
+    <div class="artwork-guide"><div><h3>怎么用作首页背景？</h3><p>下载图片，复制到 TF 卡根目录的 <code>banner pic</code> 文件夹。安全弹出并插回设备后，长按首页 Banner，或进入“设置 → 显示与个性化 → 首页Banner”，在“背景”中选择图片，再点“保存”。</p></div><div><h3>锁屏壁纸</h3><p>壁纸素材将陆续上架。目前这张图按首页 Banner 的尺寸制作，适合用作横向背景。</p></div></div>
+  </section>
+
   <section class="section" id="faq" aria-labelledby="faq-title">
-    <div class="section-heading"><div><span class="section-number">09 / BEFORE YOU ASK</span><h2 id="faq-title">一些会遇到的问题。</h2></div></div>
+    <div class="section-heading"><div><span class="section-number">10 / BEFORE YOU ASK</span><h2 id="faq-title">一些会遇到的问题。</h2></div></div>
     <div class="faq-list"><details><summary>我的设备可以安装吗？<span aria-hidden="true">＋</span></summary><p>仅适用 Pico RDP-G01-W（ESP32-S3，16 MB Flash）。不要用于其他机型。if-ink OS 是独立衍生固件，首次从原系统迁移，请使用本页在线安装或对应 USB 四段包。</p></details><details><summary>为什么没有在线安装按钮，或找不到串口？<span aria-hidden="true">＋</span></summary><p>请用电脑端 Chrome / Edge 打开 HTTPS 页面。确认设备已唤醒、数据线支持传输，退出 USB 读卡模式并关闭串口监视器等程序。也可换数据线、拔插后重试；工具加载失败时刷新页面，或使用离线 USB 包。</p></details><details><summary>升级后找不到原来的书籍或字体？<span aria-hidden="true">＋</span></summary><p>当前标准目录固定为 <code>books</code>、<code>fonts</code>、<code>markdown</code>。旧自定义目录与文件会保留，但不会自动迁移，请用读卡器或 USB 读卡整理到标准目录。资源包只合并内部文件夹，不复制“TF卡资源”外层目录。</p></details><details><summary>坚果云连接时，该填哪种密码？<span aria-hidden="true">＋</span></summary><p>填写坚果云第三方应用密码，不是主账户密码；收件文件夹也需预先创建。设备通过文件页列出内容并按需下载。固件与插件发布包均不会预置你的账号。</p></details><details><summary>Markdown 能直接读取任意网页或复杂表格吗？<span aria-hidden="true">＋</span></summary><p>文档阅读使用支持的 Markdown 子集。标准管道表格可换行与分页；HTML、嵌套或合并单元格表格不在支持范围。文档图片需符合附件格式与路径要求，普通图片不会自动转为兼容附件；建议先用表格示例确认自己的内容。</p></details><details><summary>配置备份能带走所有资料吗？<span aria-hidden="true">＋</span></summary><p>配置备份不复制书籍、文档、字体、图片和 TF 卡长期阅读归档。完整备份请另外复制卡内文件，包含隐藏目录 <code>.readpico/reading</code>。配置内含连接密码，不宜公开分享。</p></details><details><summary>本页的展示能说明真机刷新与续航表现吗？<span aria-hidden="true">＋</span></summary><p>图片用于展示界面与功能，静态展示不能作为墨水屏刷新速度、残影、休眠或续航的测试依据。0.1.3 已完成构建与宿主检查，新增功能的最终显示及休眠效果仍需实体设备验证。</p></details></div>
   </section>
 
   <footer class="section footer" id="opensource" aria-labelledby="opensource-title">
-    <span class="section-number">10 / BUILT ON OPEN SOURCE</span><h2 id="opensource-title">向来处致谢。<br>让改进继续。</h2>
+    <span class="section-number">11 / BUILT ON OPEN SOURCE</span><h2 id="opensource-title">向来处致谢。<br>让改进继续。</h2>
     <div class="two-column"><div><p>if-ink OS 基于 <strong>Pico Reader 0.3.3-rc83</strong>，选择性采用后续 rc88 / rc95 的阅读、刷新与存储改进，保留自身界面与刷新策略。</p><p>感谢 Pico Reader 原作者及所有上游贡献者。这是独立衍生版本，不是原作者或 MindReset 官方发布。</p><div class="footer-links"><a href="https://kiikoread.com/">Pico Reader 原作者主页 ↗</a><a href="https://wegooo-cell.github.io/read-pico-reader/">原主页地址 ↗</a><a href="https://github.com/wegooo-cell/read-pico-reader">原作者源码仓库 ↗</a></div></div><div><p>保留上游版权及各组件许可。主体使用 <a href="LICENSE">Apache-2.0</a>，epdiy 使用 LGPL-3.0-or-later，其他组件与字体遵循各自许可。对应版本同时提供源码与构建材料。</p><div class="footer-links"><a href="NOTICE.txt">来源说明 ↗</a><a href="许可证.zip" download>完整许可包 ↓</a><a href="https://github.com/yiifanrecyclable/if-ink-OS">if-ink OS 项目仓库 ↗</a></div></div></div>
     <div class="footer-bottom"><span class="footer-wordmark">if-ink OS<span> / v0.1.3</span></span><span>为 Pico，也为想安静读一会儿的你。</span><a href="#intro">回到顶部 ↑</a></div>
   </footer>
