@@ -28,7 +28,9 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='home-resume-') as temp
     p.cloud=OfflineCloud();p.cloud_revision=0;p.cloud_pending_view=None;p.failed_signature=''
     p.replay_origin=None;p.storage_signature=None
     def tap(x,y):return p.action({'action':'gesture','type':'t','x':x,'y':y,'xx':x,'yy':y})
-    p.render();tap(400,264)
+    def dismiss_guide():
+        if p.state['screen']=='reader-guide':p.action({'action':'key','key':1})
+    p.render();tap(400,190);dismiss_guide()
     p.action({'action':'next'});p.action({'action':'next'})
     expected=p.state['page'];progress=p.state['reader_progress'];assert expected==2 and progress>0
     p.action({'action':'home'});tap(400,830)
@@ -37,11 +39,11 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='home-resume-') as temp
     # 连续两次从首页/内容进入，不能把保存记录重置为开头。
     # Repeated home/content entry must not overwrite the saved position with the start.
     p.action({'action':'home'});tap(400,830);assert p.state['page']==expected
-    p.action({'action':'view','view':'documents'});tap(400,264);assert p.state['page']==expected
+    p.action({'action':'view','view':'documents'});tap(400,190);dismiss_guide();assert p.state['page']==expected
     # 图书也使用相同的跨页面续读路由。
     # Books share the same cross-app resume route.
     p.state.update(screen='reader',firmware_path='/sdcard/books/Test.txt',page=0,events=[],root_view=None)
-    p.render();p.action({'action':'next'});p.action({'action':'next'})
+    p.render();dismiss_guide();p.action({'action':'next'});p.action({'action':'next'})
     expected=p.state['page'];progress=p.state['reader_progress'];assert expected>0 and progress>0
     p.action({'action':'home'});tap(100,900)
     assert p.state['firmware_path']=='/sdcard/books/Test.txt' and p.state['page']==expected and p.state['reader_progress']==progress

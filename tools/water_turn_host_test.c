@@ -29,6 +29,7 @@ static const int *staged_x0, *staged_x1;
 static const int8_t* staged_bands;
 static int staged_count;
 static int scans, fail_at, differences, powerons;
+static bool region_test;
 static int64_t now_us;
 int water_test_alloc_fail;
 
@@ -92,6 +93,13 @@ enum EpdDrawError epd_draw_base(EpdRect area, const uint8_t* data, EpdRect crop,
     assert(lines == dirty_lines && columns == dirty_columns && waveform == &E0470_APPLY_WAVEFORM);
     assert(staged_luts && (staged_lines != NULL) != (staged_bands != NULL));
     int tick = scans++;
+    if(region_test){
+        assert(staged_count==3&&staged_bands[0]==0&&staged_bands[1]==1&&staged_bands[2]==0);
+        assert(staged_x0[0]==0&&staged_x1[2]==1216&&staged_x0[1]==128&&staged_x1[1]==1056);
+        assert(staged_luts[0][0]==tick&&staged_luts[1][0]==tick);
+        for(int y=0;y<HEIGHT;++y)assert(lines[y]);
+        return fail_at==scans?EPD_DRAW_OTHER_ERROR:EPD_DRAW_SUCCESS;
+    }
     int active = 0;
     bool phase_seen[37] = {0};
     int px = -1, py = -1;
@@ -167,6 +175,14 @@ int main(void) {
         assert(scans == 13 && differences == 1);
         for (size_t i = 0; i < sizeof(back); ++i) assert(back[i] == 0xFF);
     }
+    region_test=true;rotation=EPD_ROT_INVERTED_PORTRAIT;
+    for(int fail=0;fail<2;++fail){
+        scans=differences=0;fail_at=fail?13:0;memset(back,0xff,sizeof(back));
+        assert(e0470_update_regions(&hl,(EpdRect){0,0,684,1216},(EpdRect){0,128,684,928},&E0470_WAVEFORM,&E0470_WAVEFORM,MODE_GL16)==(fail?EPD_DRAW_OTHER_ERROR:EPD_DRAW_SUCCESS));
+        assert(scans==(fail?13:37)&&differences==1);
+        if(fail){for(size_t i=0;i<sizeof(back);++i)assert(back[i]==0xff);}else assert(!memcmp(front,back,sizeof(back)));
+    }
+    region_test=false;
     e0470_page_turn_release();
     memset(back, 0xFF, sizeof(back));
     scans = differences = 0;

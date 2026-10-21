@@ -63,6 +63,22 @@ class CloudHostTests(unittest.TestCase):
                 self.assertEqual(self.command('progress-load',TARGET)['present'],point<5)
                 self.assertEqual((CARD/'markdown/.index/unittest-sync.md.pico').read_text().splitlines()[1],first)
                 self.assertEqual(self.command('recover')['error'],0)
+    def test_resource_transactions_recover_and_reject_wrong_directories(self):
+        fixtures=[('pictures','壁纸.png',(REPOSITORY/'assets/banner/default-banner.png').read_bytes()),
+                  ('fonts','字体.ttf',(REPOSITORY/'main/assets/builtin.ttf').read_bytes())]
+        for folder,name,old in fixtures:
+            for point in range(1,7):
+                with self.subTest(folder=folder,point=point):
+                    self.restore();self.assertEqual(self.command('prepare')['error'],0)
+                    plan=self.plan(old);target='/sdcard/'+folder+'/'+name
+                    self.assertEqual(self.command('commit',target,plan)['error'],0)
+                    new=old+b'padding';self.command('prepare');plan=self.plan(new)
+                    self.assertNotEqual(self.command('commit',target,plan,point)['error'],0)
+                    self.assertEqual(self.command('recover')['error'],0)
+                    self.assertEqual((CARD/folder/name).read_bytes(),old if point<5 else new)
+            self.command('prepare');plan=self.plan(old)
+            for wrong in ['/sdcard/books/'+name,'/sdcard/markdown/'+name,'/sdcard/'+folder+'/nested/'+name]:
+                self.assertNotEqual(self.command('commit',wrong,plan)['error'],0)
     def test_plugin_degraded_images_install_with_real_attachment(self):
         # 插件安全降级正文仍通过生产C安装；代码图片保持字面文字。
         # Plugin-degraded prose installs through production C while code images remain literal.

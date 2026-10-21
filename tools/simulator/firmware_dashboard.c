@@ -39,3 +39,7 @@ int simulator_history_state(unsigned part) {
  return part<9?values[part]:0;
 }
 unsigned long long simulator_history_seconds(unsigned row){return row<HOME_HISTORY_MAX_ROWS?s_history_seconds[row]:0;}
+
+bool simulator_home_has_documents(void){return s_has_documents;}
+const char *simulator_home_list_path(unsigned row){const char *path=recent_list_path(row);return path?path:"";}
+const char *simulator_home_featured_path(void){return s_current.path[0]?s_current.path:s_recent[0].path;}

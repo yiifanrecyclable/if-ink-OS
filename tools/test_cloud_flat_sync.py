@@ -3,11 +3,12 @@
 from pathlib import Path
 from unittest.mock import patch
 from xml.sax.saxutils import escape
-import hashlib, io, json, os, subprocess, sys, tempfile, unittest, urllib.parse, zipfile
+import base64, hashlib, io, json, os, subprocess, sys, tempfile, unittest, urllib.parse, zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / 'simulator'))
 import cloud_client as cloud
 REPO = Path(__file__).resolve().parents[1]
+JPEG=base64.b64decode('/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD6pooooA//2Q==')
 
 class Response(io.BytesIO):
     def __init__(self, data, status, etag):
@@ -57,12 +58,34 @@ class FlatSyncTests(unittest.TestCase):
         self.temp.cleanup()
     def item(self,name):
         return next(item for item in self.client.listing() if item['filename']==name)
-    def test_only_three_direct_types_and_no_manifest_gets(self):
-        self.remote.files={'手动.md':b'# A\n','Book.EPUB':b'PK\3\4x','note.TXT':b'text','ignore.pdf':b'pdf'}
+    def test_supported_direct_types_and_no_manifest_gets(self):
+        self.remote.files={'手动.md':b'# A\n','Book.EPUB':b'PK\3\4x','note.TXT':b'text',
+                           '壁纸.PNG':b'png','照片.jpg':b'jpg','图.JPEG':b'jpeg','字.TTF':b'ttf',
+                           'ignore.pdf':b'pdf','ignore.webp':b'webp','ignore.otf':b'otf','nested/a.ttf':b'ttf'}
         items=self.client.listing()
-        self.assertEqual({item['filename'] for item in items},{'手动.md','Book.EPUB','note.TXT'})
+        self.assertEqual({item['filename'] for item in items},{'手动.md','Book.EPUB','note.TXT','壁纸.PNG','照片.jpg','图.JPEG','字.TTF'})
         self.assertTrue(all(item['selectable'] and not item['manifest'] for item in items))
         self.assertEqual(self.remote.calls,[('PROPFIND','',None)])
+    def test_images_and_fonts_use_standard_folders_and_reject_bad_replacements(self):
+        picture=(REPO/'assets/banner/default-banner.png').read_bytes()
+        font=(REPO/'main/assets/builtin.ttf').read_bytes()
+        self.remote.files={'壁纸.PNG':picture,'思源.TTF':font,'相片.jpg':JPEG,'相片.JPEG':JPEG}
+        for item in self.client.listing():self.client.download_one(item)
+        for name,folder in [('壁纸.PNG','pictures'),('思源.TTF','fonts'),('相片.jpg','pictures'),('相片.JPEG','pictures')]:
+            target=self.card/folder/name
+            self.assertEqual(target.read_bytes(),self.remote.files[name])
+            self.assertFalse((self.card/'books'/name).exists())
+            self.assertFalse((self.card/'markdown/.index'/(name+'.pico')).exists())
+            original=target.read_bytes();self.remote.files[name]=b'not an image or font'*8
+            with self.assertRaises(cloud.CloudError):self.client.download_one(self.item(name))
+            self.assertEqual(target.read_bytes(),original)
+        # 图片上限与设备图片选择器一致；字体保留原单文件64MiB上限。
+        # Match the image picker limit and retain the existing 64 MiB file limit for fonts.
+        self.remote.files={'too-big.png':b'x'*(cloud.MAX_PICTURE+1)}
+        item=self.item('too-big.png');self.assertFalse(item['selectable'])
+        self.remote.calls=[]
+        with self.assertRaises(cloud.CloudError):self.client.download_one(item)
+        self.assertFalse(any(c[0]=='GET' for c in self.remote.calls))
     def test_plain_md_update_and_noop_preserve_date_progress(self):
         name='周记1.md';self.remote.files[name]='# 标题\n\n正文 **重点**。\n'.encode()
         self.client.download_one(self.item(name));target=self.card/'markdown'/name

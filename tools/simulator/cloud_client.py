@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Read-only Nutstore transport. Production C lists direct MD/EPUB/TXT and commits TF transactions.
+"""Read-only Nutstore transport. Production C lists reading/image/TTF files and commits TF transactions.
 Passwords live in macOS Keychain; only explicit settings backups contain plaintext credentials.
 日常密码保存在钥匙串；仅用户主动保存的设置备份包含明文凭据。
 """
@@ -13,6 +13,7 @@ PRIVATE=BUILD/'cloud'
 STAGE=CARD/'.pico-sync/current'
 MAX_MD=256*1024
 MAX_FILE=64*1024*1024
+MAX_PICTURE=2*1024*1024
 MAX_IMAGE=17*1024*1024
 MAX_ASSETS=32*1024*1024
 PROPFIND=b'<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/><d:getetag/><d:creationdate/><d:getlastmodified/></d:prop></d:propfind>'
@@ -120,6 +121,13 @@ def etag_version(etag):
 def strong(etag):return etag_version(etag) is not None and etag.startswith('"') and etag.endswith('"')
 def same_version(expected,actual):return etag_version(expected) is not None and etag_version(expected)==etag_version(actual)
 
+def file_policy(filename):
+    suffix=Path(filename).suffix.lower()
+    if suffix=='.md':return '/sdcard/markdown',MAX_MD
+    if suffix in ('.epub','.txt'):return '/sdcard/books',MAX_FILE
+    if suffix in ('.png','.jpg','.jpeg'):return '/sdcard/pictures',MAX_PICTURE
+    if suffix=='.ttf':return '/sdcard/fonts',MAX_FILE
+    raise CloudError('不支持此文件类型。')
 
 class DavClient:
     def __init__(self,config,secret,cancel=None,progress=None,bridge=None,*,test_base=None,storage_lock=None):
@@ -198,7 +206,7 @@ class DavClient:
             self.check();self.progress(message=f'正在检查内容 {number}/{len(rows)}')
             item={'href':row['href'],'etag':row['etag'],'manifest':row['manifest'],'selected':False,'selectable':True,'error':'','bytes':row['bytes']}
             date=row['created_at'] or row['modified'];item.update(name=row['href'],filename=row['href'],date=date,date_ms=stamp(date),date_fallback=not bool(row['created_at']))
-            limit=MAX_MD if row['href'].lower().endswith('.md') else MAX_FILE
+            _,limit=file_policy(row['href'])
             if row['bytes']>limit:item.update(selectable=False,error='超过本阶段单文件大小限制。')
             items.append(item)
         items.sort(key=lambda item:(-item['date_ms'],item['name']))
@@ -206,10 +214,12 @@ class DavClient:
     def download_one(self,item):
         self.check();assets=[]
         if item.get('manifest') or item['href']!=item['filename']:raise CloudError('旧版推送请使用新版插件重新发送。')
+        folder,limit=file_policy(item['filename'])
+        if item['bytes']>limit:raise CloudError('文件超过大小上限。')
         if shutil.disk_usage(CARD).free<item['bytes']*2+17*1024*1024:raise CloudError('TF卡剩余空间不足，请先清理空间。')
         with self.storage_lock:self.bridge.require('prepare')
         try:
-            body_result=self.request('GET',item['href'],STAGE/'body',MAX_MD if item['filename'].lower().endswith('.md') else MAX_FILE,expected=item['bytes'],headers={'If-Match':item['etag']} if strong(item['etag']) else {})
+            body_result=self.request('GET',item['href'],STAGE/'body',limit,expected=item['bytes'],headers={'If-Match':item['etag']} if strong(item['etag']) else {})
             if etag_version(item['etag']) and etag_version(body_result['etag']) and not same_version(item['etag'],body_result['etag']):raise CloudError('云端文件版本已变化，请刷新目录。')
             if item['filename'].lower().endswith('.md'):
                 links=self.bridge.require('links')['names'];total=0
@@ -218,14 +228,15 @@ class DavClient:
                     if total>MAX_ASSETS:raise CloudError('图片附件总量超过32MiB。')
                     assets.append({'name':name,'bytes':result['bytes'],'sha256':result['sha256']})
             if not strong(item['etag']):
-                self.progress(message='正在复核文章版本…');verification=self.cache/'verify-body.part'
+                self.progress(message='正在复核文件版本…');verification=self.cache/'verify-body.part'
                 try:
-                    checked=self.request('GET',item['href'],verification,MAX_MD if item['filename'].lower().endswith('.md') else MAX_FILE,expected=body_result['bytes'],sha=body_result['sha256'])
+                    checked=self.request('GET',item['href'],verification,limit,expected=body_result['bytes'],sha=body_result['sha256'])
                     if etag_version(item['etag']) and etag_version(checked['etag']) and not same_version(item['etag'],checked['etag']):raise CloudError('文章在下载期间更新，请刷新后重新选择。')
                 finally:verification.unlink(missing_ok=True)
             self.check();plan={'body':{'bytes':body_result['bytes'],'sha256':body_result['sha256']},'assets':assets}
-            plan_file=self.cache/'commit-plan.json';plan_file.write_text(json.dumps(plan));folder='/sdcard/markdown' if item['filename'].lower().endswith('.md') else self.bridge.require('bookdir')['path']
-            if not folder.startswith('/sdcard/'):raise CloudError('图书目录必须位于TF卡。')
+            plan_file=self.cache/'commit-plan.json';plan_file.write_text(json.dumps(plan))
+            if folder=='/sdcard/books':folder=self.bridge.require('bookdir')['path']
+            if not folder.startswith('/sdcard/'):raise CloudError('保存目录必须位于TF卡。')
             target=folder+'/'+item['filename'];self.progress(message='正在校验并入库…')
             with self.storage_lock:return self.bridge.require('commit',target,plan_file)
         except BaseException:

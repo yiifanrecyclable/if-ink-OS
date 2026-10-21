@@ -111,6 +111,7 @@
 #include "read_pico_transfer.h"
 #include "read_pico_search.h"
 #include "settings.h"
+#include "sleep_resume.h"
 #include "reader_input.h"
 #include "ttf_font.h"
 #include "ui_kit.h"
@@ -1671,7 +1672,8 @@ static bool present(app_ctx_t* ctx, app_redraw_t redraw) {
     }
     else err = s_view == READING
         ? update_display_mode_diff(ctx->hl, APP_PAGE_REFRESH_MODE)
-        : update_display_fast_page(ctx->hl);
+        : s_view==SHELF?update_display_natural_page(ctx->hl,(EpdRect){0,128,684,928}):
+          s_view==DOCUMENTS?update_display_natural_page(ctx->hl,(EpdRect){0}):update_display_fast_page(ctx->hl);
     int64_t displayed = esp_timer_get_time();
     reader_prefetch_end(prep);
     if (redraw == APP_REDRAW_AREA && s_mode == MODE_DU &&
@@ -2526,6 +2528,7 @@ static void manage_apply(app_ctx_t* ctx) {
 static app_redraw_t turn_page(app_ctx_t* ctx, int dir) {
     if (!s_text || s_clear_confirm) return APP_REDRAW_NONE;
     if(book_kind()==BOOK_KIND_MARKDOWN&&book_layout_page_count()==1&&dir>0&&!s_document_completed){s_document_completed=true;save_progress();return APP_REDRAW_PAGE;}
+    bool text_transition=app_settings_reader_hide_images()||reader_image_slots(s_page)==0;
     bool changed = true;
     if (dir > 0 && s_page + 1 < book_layout_page_count()) ++s_page;
     else if (dir < 0 && s_page) --s_page;
@@ -2550,7 +2553,7 @@ static app_redraw_t turn_page(app_ctx_t* ctx, int dir) {
     // 预渲染未命中时也使用 GL16；到达设定页数后在本次翻页整屏全刷。
     // A cache miss still uses GL16; the selected turn count triggers a full-screen refresh on this turn.
     app_redraw_t redraw = paint_reading(ctx, MODE_GL16);
-    s_water_turn_pending = redraw == APP_REDRAW_AREA && !s_reader_cleanup &&
+    s_water_turn_pending = text_transition && (app_settings_reader_hide_images()||reader_image_slots(s_page)==0) && redraw == APP_REDRAW_AREA && !s_reader_cleanup &&
                            app_settings_reader_turn_effect() == 1;
     s_water_turn_dir = dir > 0 ? E0470_TURN_RTL : E0470_TURN_LTR;
     return redraw;
@@ -3780,6 +3783,7 @@ static void before_lock(app_ctx_t* ctx) {
     s_reader_multi=(reader_multi_t){.blocked=true};
     track_ticket_stats(ctx);
     save_progress();
+    if(s_text&&s_path[0])sleep_resume_set_target(1,s_path);
     // 锁屏票根始终以当前正在阅读的书为准；不要依赖书架最近项是否已经同步。
     if (s_text && s_path[0]) book_progress_set_last_path(s_path);
     flush_ticket_stats();

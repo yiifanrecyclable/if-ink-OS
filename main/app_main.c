@@ -13,6 +13,13 @@
 #include <sys/time.h>
 
 #include "app_loop.h"
+#include "sleep_resume.h"
+#include "app_content_open.h"
+#include "esp_app_desc.h"
+#include "esp_system.h"
+#include "read_pico_sd.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #include "app_registry.h"
 #include "display.h"
 #include "epd_highlevel.h"
@@ -79,10 +86,11 @@ static bool images_match_panel(void) {
 }
 
 void app_main(void) {
+    app_settings_init();
+    sleep_resume_init(esp_app_get_description()->app_elf_sha256,esp_reset_reason()==ESP_RST_POWERON||esp_reset_reason()==ESP_RST_DEEPSLEEP);
     read_pico_handle_t hw;
     if (read_pico_init(&hw) != ESP_OK) return;
     if (hw.pmu_ready) restore_time_from_pmu();
-    app_settings_init();
     const bool vcom_ok = resolve_vcom_at_boot();
     pmu_selftest_bind(hw.sensor);
 
@@ -91,14 +99,26 @@ void app_main(void) {
     EpdiyHighlevelState hl = hw.hl;
     uint8_t* framebuffer = hw.framebuffer;
 
-    epd_poweron();
-    read_pico_i2c_census_take();
-    epd_clear();
-    epd_hl_set_all_white(&hl);
-    ui_draw_full_image(framebuffer, loading_4bpp_bin_start);
-    update_display_from_white(&hl);
-
-    app_font_activate_system();
+    sleep_resume_target_t resume={0};
+    bool restored=false;
+    if(vcom_ok&&sleep_resume_pending()){
+        read_pico_sd_info_t card={0};
+        for(unsigned wait=0;wait<150&&read_pico_sd_get_info(&card)==ESP_ERR_NOT_FINISHED;++wait)vTaskDelay(pdMS_TO_TICKS(20));
+        restored=card.present&&card.mounted&&sleep_resume_restore(framebuffer,hl.back_fb,(size_t)epd_width()*epd_height()/2,(unsigned)epd_get_rotation(),&resume);
+    }
+    if(!restored){
+        epd_poweron();read_pico_i2c_census_take();epd_clear();epd_hl_set_all_white(&hl);
+        ui_draw_full_image(framebuffer,loading_4bpp_bin_start);update_display_from_white(&hl);
+    }
+    const app_desc_t *first=app_home_page();
+    bool reader_resume=restored&&resume.path[0];
+    if(reader_resume){
+        (void)ttf_font_open_builtin();
+        if(app_book_request_open(resume.path))first=app_at(1);
+        else {reader_resume=false;app_font_activate_system();}
+    }else{
+        app_font_activate_system();if(restored)first=app_at(resume.tab);
+    }
 
     if (!hw.touch_ready) {
         ESP_LOGE(TAG, "No touch controller, UI cannot run");
@@ -121,6 +141,7 @@ void app_main(void) {
         .sensor_ready = hw.sensor_ready,
         // 正式固件始终进入产品首页；工厂自检不再进入用户导航。
         // Production firmware always enters the product home; factory diagnostics stay outside user navigation.
-        .first_app = app_home_page(),
+        .first_app = first,
+        .reader_resume = reader_resume,
     });
 }

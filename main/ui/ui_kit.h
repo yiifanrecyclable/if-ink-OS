@@ -326,6 +326,10 @@ void ui_draw_no_font_page(
 );
 int ui_no_font_hit_test(uint16_t x, uint16_t y);
 
+/// 单行标题截断前固定字体来源，按行底色混合灰边，不改变正文抗锯齿设置。
+/// Keep the full title's face through truncation and blend edges into the row, preserving reader AA.
+void ui_text_title_line(uint8_t *fb, EpdRect box, int px, const char *text, uint8_t background);
+
 #ifdef __cplusplus
 }
 #endif

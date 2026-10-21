@@ -2,8 +2,8 @@
  * 中文：坚果云只读拉取会话；UI只读取快照，离开/锁屏/拔卡取消并等待任务退出。
  * English: Read-only Nutstore session; UI reads snapshots and cancellation joins before exit, sleep or media
  * loss.
- * 用户修订：云端按原名直接管理MD/EPUB/TXT；旧清单只保留在云端，不进入列表。
- * User revision: manage original MD/EPUB/TXT names directly; leave legacy manifests in the cloud outside this list.
+ * 用户修订：云端原名管理阅读文件、PNG/JPEG图片和TTF字体，按类型落盘；旧清单不进入列表。
+ * User revision: retain original reading/image/TTF names and route by type; hide legacy manifests.
  */
 #pragma once
 #include "cloud_protocol.h"

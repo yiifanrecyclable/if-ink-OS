@@ -23,6 +23,8 @@ typedef struct {
     bool sensor_ready;
     /// 开机停在哪一页。断电续跑自检时是自检页，平时是概览页。/ First page: self-test when resuming a power-cut run, otherwise overview.
     const app_desc_t* first_app;
+    /// 深睡直接续读不重复装载系统字体。/ Direct reader resume skips redundant system-face loading.
+    bool reader_resume;
 } app_loop_config_t;
 
 /// 不返回。/ Does not return.

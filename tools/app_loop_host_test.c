@@ -3,6 +3,8 @@
  * English: Run the real loop with deterministic touch and task-delay exit.
  */
 #include "app_loop.h"
+#include "bundled_assets.h"
+esp_err_t bundled_assets_install(void){return ESP_OK;}
 #include "ui_gesture.h"
 #include "ui_menu.h"
 #include "ui_power_dialog.h"

@@ -9,6 +9,7 @@
  */
 
 #include "display.h"
+#include "display_profiles.h"
 
 #include <stdbool.h>
 #include <stdint.h>
@@ -314,7 +315,7 @@ enum EpdDrawError update_display_water_turn(EpdiyHighlevelState* hl, EpdRect are
     read_pico_epd_use_scan(READ_PICO_EPD_SCAN_FAST);
     epd_lcd_set_prefill_lines(s_bulk_io ? 127 : 64);
     epd_poweron();
-    enum EpdDrawError result = e0470_page_turn(hl, area, dir);
+    enum EpdDrawError result = e0470_page_turn_with_waveform(hl, area, dir, display_text_waveform());
     use_scan_for(&E0470_WAVEFORM, MODE_GL16);
     rails_keepalive();
     if (result == EPD_DRAW_SUCCESS) return result;
@@ -355,4 +356,27 @@ void guard_draw_result(EpdiyHighlevelState* hl, enum EpdDrawError result) {
     s_page_refreshes = 0;
     rails_keepalive();
     ESP_LOGW(TAG, "line queue underrun, pclk back to %d MHz", DISPLAY_PCLK_SAFE_MHZ);
+}
+
+enum EpdDrawError update_display_natural_page(EpdiyHighlevelState *hl,EpdRect art){
+    DISPLAY_GUARD;
+    if(APP_UI_FAST_GC16_EVERY>0 && ++s_page_refreshes>=APP_UI_FAST_GC16_EVERY)return update_display_full(hl);
+    if(art.height<=0)art=(EpdRect){0,0,684,1216};
+    use_scan_for(&E0470_WAVEFORM,MODE_GL16);
+    epd_poweron();
+    enum EpdDrawError err=e0470_update_regions(hl,(EpdRect){0,0,684,1216},art,
+        display_natural_waveform(),art.y==0&&art.height==1216?display_natural_waveform():display_art_waveform(),MODE_GL16);
+    if(err==EPD_DRAW_NO_PHASES_AVAILABLE){
+        epd_hl_waveform(hl,&E0470_WAVEFORM);err=epd_hl_update_screen_full(hl,MODE_GL16,25);
+    }else if(err!=EPD_DRAW_SUCCESS){
+        // 中途失败不可对未知物理状态继续差分，恢复完整目标，含灰底导航。/ An interrupted scan needs a known baseline and a complete target, including navigation.
+        epd_clear();epd_hl_waveform(hl,&E0470_FULL_WAVEFORM);
+        err=epd_hl_update_screen_from_white(hl,MODE_GC16,25);
+    }
+    epd_hl_waveform(hl,&E0470_WAVEFORM);rails_keepalive();return err;
+}
+
+enum EpdDrawError update_display_natural_area(EpdiyHighlevelState *hl,EpdRect area){
+    DISPLAY_GUARD;
+    return update_display_area_diff_with(hl,display_natural_waveform(),MODE_GL16,area);
 }

@@ -4,6 +4,21 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 2026-10-21 · Codex · if-ink OS v0.1.4
+
+- 内置思考大猩猩PNG，卡就绪时校验解压至banner pic/思考大猩猩.png，仅作为可选素材，不改当前Banner设置或覆盖同名文件。 / Bundle optional ape artwork, install a checked PNG when TF is ready, and preserve preferences and existing files.
+
+- 坚果云新增PNG/JPG/JPEG图片与TTF字体下载，自动存入pictures/fonts，保留原有书籍/文档分类、校验及失败回滚；正在使用的字体需先切换后才能覆盖更新。 / Add cloud PNG/JPEG and TTF downloads into pictures/fonts, retaining reading-file routing, verification and rollback; switch away from an active font before replacing it.
+
+- 移除首页长按Home打开旧“功能”菜单的入口，阅读中的长按返回首页保持不变。 / Remove the legacy function-menu shortcut from Home; retain long-press return to Home while reading.
+
+- 文档库为空时，首页右侧最近阅读列表自动显示第二本起的最近图书，保留标题、进度条和分割线；添加Markdown后恢复文档列表。 / When the document library is empty, Home lists recent books after the featured one, retaining titles/progress/dividers; adding Markdown restores the document list.
+
+- 网页刷机先校验全部镜像的实际长度、摘要与应用身份，固定同批快照后才打开串口。 / Verify all image bytes, hashes and app identity before opening the selected serial port.
+- 目录标题保持整行字体来源，选中灰底正确融合字形边缘；首行缩进以真实汉字宽度计算。 / Keep title-face selection stable through truncation, blend glyph edges into selected rows, and measure indentation with a real CJK glyph.
+- 书架与设置采用同步柔和分区刷新，保留导航栏和周期清理；纯文字水波纹减轻短暂加深。 / Use simultaneous soft/calibrated regions on shelves and settings, retain navigation/cleanup, and soften text-only ripple transients.
+- 深睡唤醒可复用校验后的锁屏参考并续读TXT、EPUB或Markdown；异常复位、缺卡、缓存损坏、文件或固件变化回退普通启动。 / Resume TXT/EPUB/Markdown from a validated retained-panel reference; faults, missing media and changed builds/files use normal boot.
+
 ## 2026-10-19 · Codex · if-ink OS v0.1.3
 
 - 修正书架翻页的局部刷新范围，覆盖上移后的封面顶部。 / Include the raised cover grid in shelf page refreshes.

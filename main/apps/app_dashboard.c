@@ -6,6 +6,8 @@
  *
  * 中文：首页分列显示最近阅读的图书、文档与四周阅读记录；封面跨页面缓存。
  * English: Home shows separate recent book/document columns and four weeks of history; covers survive tab changes.
+ * 用户修订：库中没有MD时，右列从第二本最近阅读图书开始显示，保留列表样式。
+ * User revision: when no Markdown exists, the right list starts with the second recent book, retaining its layout.
  */
 #include <dirent.h>
 #include <stdio.h>
@@ -65,6 +67,7 @@ static home_book_t s_current, s_recent[6];
 _Static_assert(HOME_RECENT_TOP+HOME_RECENT_HEIGHT==UI_NAV_TOP,"Home sections must fill the screen");
 static document_entry_t s_recent_documents[HOME_DOCUMENT_COUNT];
 static size_t s_recent_document_count;
+static bool s_has_documents;
 #define HOME_DOCUMENT_X 272
 #define HOME_DOCUMENT_WIDTH (648 - HOME_DOCUMENT_X)
 typedef struct {
@@ -225,7 +228,33 @@ static bool consider_document(const char *path, const book_progress_t *progress,
     return true;
 }
 
+// 只检查可见文档是否存在，不因未读或没有进度而误切换。/ Detect library presence, not whether a document has reading progress.
+static bool has_markdown_documents(void) {
+    DIR *dir=opendir(DOCUMENT_ROOT);if(!dir)return false;
+    bool found=false;struct dirent *entry;
+    while((entry=readdir(dir))){
+        const char *name=entry->d_name,*ext=strrchr(name,'.');
+        if(name[0]=='.'||!ext||strcasecmp(ext,".md"))continue;
+        char path[BOOK_STORE_PATH_MAX];struct stat st;
+        if(snprintf(path,sizeof(path),DOCUMENT_ROOT "/%s",name)>=(int)sizeof(path))continue;
+        if(!lstat(path,&st)&&S_ISREG(st.st_mode)&&st.st_size>=0&&(uint64_t)st.st_size<=UINT32_MAX){found=true;break;}
+    }
+    closedir(dir);return found;
+}
+
+// s_recent排除了s_current；没有s_current时，s_recent[0]已被左列使用。
+// s_recent excludes s_current; when current is absent, recent[0] is already featured on the left.
+static home_book_t *recent_book_row(size_t row) {
+    size_t index=row+(s_current.path[0]?0:1);
+    return index<6&&s_recent[index].path[0]?&s_recent[index]:NULL;
+}
+static const char *recent_list_path(size_t row) {
+    if(s_has_documents)return row<s_recent_document_count?s_recent_documents[row].path:NULL;
+    home_book_t *book=recent_book_row(row);return book?book->path:NULL;
+}
+
 static void refresh_recent_documents(void) {
+    s_has_documents=has_markdown_documents();
     s_recent_document_count = 0;
     memset(s_recent_documents, 0, sizeof(s_recent_documents));
     if (book_progress_list(consider_document, NULL) != ESP_OK) {
@@ -487,7 +516,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     home_geometry_t g=home_geometry();
     epd_fill_rect((EpdRect){36,g.recent_rule,612,2},0x68,fb);
     ui_text_vc(fb,36,g.recent_title,UI_TEXT_TITLE,"最近阅读",EPD_DRAW_ALIGN_LEFT,false);
-    ui_text_vc(fb,648,g.recent_title,UI_TEXT_CAPTION,"markdown文档",EPD_DRAW_ALIGN_RIGHT,false);
+    ui_text_vc(fb,648,g.recent_title,UI_TEXT_CAPTION,s_has_documents?"markdown文档":"图书",EPD_DRAW_ALIGN_RIGHT,false);
     home_book_t *featured=s_current.path[0]?&s_current:&s_recent[0];
     if(featured->path[0]) {
         unsigned pct=featured->has_progress?featured->progress.pct:0;if(pct>100)pct=100;
@@ -509,17 +538,21 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     int divider_top=g.recent_title+(title_above-title_below)/2-title_above;
     epd_fill_rect((EpdRect){240,divider_top,2,g.content_y+g.rows*g.row_height+1-divider_top},0x68,fb);
     for(int i=0;i<=g.rows;++i)epd_fill_rect((EpdRect){HOME_DOCUMENT_X,g.content_y+i*g.row_height,HOME_DOCUMENT_WIDTH,1},0x88,fb);
-    for(size_t i=0;i<s_recent_document_count && i<(size_t)g.rows;++i) {
-        int y=g.content_y+(int)i*g.row_height;char name[256];copy_title(name,sizeof(name),s_recent_documents[i].name);
-        size_t n=strlen(name);if(n>=3)name[n-3]=0;
+    for(size_t i=0;i<(size_t)g.rows;++i) {
+        if(!recent_list_path(i))break;
+        home_book_t *book=s_has_documents?NULL:recent_book_row(i);
+        unsigned pct=s_has_documents?s_recent_documents[i].pct:book->progress.pct;
+        int y=g.content_y+(int)i*g.row_height;char name[256];
+        copy_title(name,sizeof(name),s_has_documents?s_recent_documents[i].name:book->title);
+        if(s_has_documents){size_t n=strlen(name);if(n>=3)name[n-3]=0;}
         recent_title_layout_t layout=recent_title_layout_role(name,HOME_DOCUMENT_WIDTH-36,UI_TEXT_BODY,1);
         int title_h=layout.count*layout.line_height;
         int top=y+(g.row_height-title_h-10)/2;
         draw_recent_title_layout(fb,&layout,HOME_DOCUMENT_X,top+layout.line_height/2,false);
-        draw_recent_progress(fb,HOME_DOCUMENT_X,top+title_h+6,HOME_DOCUMENT_WIDTH-36,s_recent_documents[i].pct);
+        draw_recent_progress(fb,HOME_DOCUMENT_X,top+title_h+6,HOME_DOCUMENT_WIDTH-36,pct);
         ui_text_vc(fb,646,y+g.row_height/2,UI_TEXT_BODY,"›",EPD_DRAW_ALIGN_RIGHT,false);
     }
-    if(!s_recent_document_count)draw_recent_title(fb,"暂无阅读文档",HOME_DOCUMENT_X,g.content_y+g.row_height/2,HOME_DOCUMENT_WIDTH-36,false);
+    if(!recent_list_path(0))draw_recent_title(fb,s_has_documents?"暂无阅读文档":"暂无其他阅读图书",HOME_DOCUMENT_X,g.content_y+g.row_height/2,HOME_DOCUMENT_WIDTH-36,false);
     content_banner_config_t banner;content_banner_load(&banner);
     epd_fill_rect((EpdRect){banner.mode?0:36,UI_STATUS_HEIGHT+300,banner.mode?UI_LOCK_WIDTH:612,2},0x68,fb);
     ui_text_vc(fb,36,g.heat_title,UI_TEXT_TITLE,"阅读记录",EPD_DRAW_ALIGN_LEFT,false);
@@ -622,6 +655,7 @@ static void on_media_lost(app_ctx_t *ctx) {
     memset(s_recent, 0, sizeof(s_recent));
     s_books_cache_valid = false;
     s_recent_document_count = 0;
+    s_has_documents=false;
     memset(s_recent_documents, 0, sizeof(s_recent_documents));
 }
 static void on_media_ready(app_ctx_t *ctx) {
@@ -678,7 +712,8 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     if (ev->x0 >= HOME_DOCUMENT_X && ev->x0 < 648 && ev->y0 >= g.content_y &&
         ev->y0 < g.content_y + g.rows*g.row_height) {
         size_t i = (ev->y0-g.content_y)/g.row_height;
-        if (i < s_recent_document_count && app_book_request_open_from_home(s_recent_documents[i].path))
+        const char *path=recent_list_path(i);
+        if (path && app_book_request_open_from_home(path))
             ui_nav_request(ctx, 1);
         return APP_REDRAW_NONE;
     }
@@ -701,7 +736,7 @@ static app_redraw_t on_key(app_ctx_t *ctx, int key) {
     return APP_REDRAW_NONE;
 }
 static app_redraw_t on_key_long(app_ctx_t *ctx,int key) {
-    if(key==1){ctx->request_menu=true;return APP_REDRAW_NONE;}
+    (void)ctx;
     return key==2?APP_REDRAW_FULL:APP_REDRAW_NONE;
 }
 static bool no_menu_handle(app_ctx_t *ctx) { (void)ctx; return false; }

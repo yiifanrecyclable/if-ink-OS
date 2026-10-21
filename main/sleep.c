@@ -9,6 +9,7 @@
  */
 
 #include "sleep.h"
+#include "sleep_resume.h"
 #include "time_service.h"
 
 #include <stdio.h>
@@ -366,7 +367,7 @@ void enter_lock_and_sleep(
         epd_hl_set_all_white(hl);
         ui_draw_full_image(framebuffer, lock_4bpp_bin_start);
     }
-    epd_hl_update_screen_from_white(hl, MODE_GC16, 25);
+    bool lock_presented=epd_hl_update_screen_from_white(hl, MODE_GC16, 25)==EPD_DRAW_SUCCESS;
 
     app_lock_wait_key_idle(800);
     // 短按电源键只锁屏并浅睡；深度关机只由长按电源菜单触发。
@@ -377,6 +378,7 @@ void enter_lock_and_sleep(
     if (wake == APP_WAKE_TIMEOUT) {
         // PMU SOFT_SLEEP drops the ESP rail while keeping its RTC alive. A short
         // power-key press boots the host; the e-paper keeps this lock image.
+        if(lock_presented)(void)sleep_resume_save(framebuffer,(size_t)epd_width()*epd_height()/2,(unsigned)epd_get_rotation());
         app_enter_host_sleep(APP_SLEEP_DEEP);
     }
     read_pico_transfer_resume_after_sleep();

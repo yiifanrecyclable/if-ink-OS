@@ -1,10 +1,10 @@
-if-ink OS v0.1.3
-基于 Pico Reader 0.3.3-rc83 (9a1b85d13a6dd0fdce8531f82a63a6cbc8ef928f)，选择性采用 rc88/rc95 阅读、刷新与存储改进。
+if-ink OS v0.1.4
+基于 Pico Reader 0.3.3-rc83 (9a1b85d13a6dd0fdce8531f82a63a6cbc8ef928f)，选择性采用 rc88/rc95/rc97 阅读、刷新与存储改进。
 原作者主页 https://wegooo-cell.github.io/read-pico-reader/
 原作者源码 https://github.com/wegooo-cell/read-pico-reader
 本项目是独立衍生版本，不是原作者或 MindReset 官方发布，保留上游版权。
 主体 Apache-2.0；epdiy LGPL-3.0-or-later；其他组件、字体及词库依各自许可。
 完整声明见 LICENSE、THIRD_PARTY_NOTICES.md 和 licenses/。
-对应源码及构建/重新链接说明 https://github.com/yiifanrecyclable/if-ink-OS/tree/v0.1.3
-源码下载 https://github.com/yiifanrecyclable/if-ink-OS/releases/download/v0.1.3/if-ink-OS-v0.1.3-source.zip
-版本页面 https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.1.3
+对应源码及构建/重新链接说明 https://github.com/yiifanrecyclable/if-ink-OS/tree/v0.1.4
+源码下载 https://github.com/yiifanrecyclable/if-ink-OS/releases/download/v0.1.4/if-ink-OS-v0.1.4-source.zip
+版本页面 https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.1.4

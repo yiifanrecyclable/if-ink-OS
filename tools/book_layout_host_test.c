@@ -31,6 +31,8 @@ int test_guide_first_y;
 int test_guide_height;
 uint8_t test_guide_gray;
 int ttf_text_width_px(int px, const char* text) {
+    // 模拟全角空格比汉字窄的真实字体，缩进仍应以汉字宽度为准。/ Model a narrow ideographic space; indentation must still follow CJK glyph width.
+    if(!strcmp(text,"　"))return px/2;
     int n = 0, width = 0;
     for (; *text; text++) if (((unsigned char)*text & 0xc0) != 0x80) {
         n++;

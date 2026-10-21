@@ -45,8 +45,10 @@
 #include "read_pico_pmu.h"
 #include "read_pico_transfer.h"
 #include "read_pico_sd.h"
+#include "bundled_assets.h"
 #include "settings.h"
 #include "sleep.h"
+#include "sleep_resume.h"
 #include "ttf_font.h"
 #include "app_font_context.h"
 #include "ui_kit.h"
@@ -248,7 +250,11 @@ static bool poll_media(app_ctx_t* ctx, const app_desc_t* current,
     bool gained = !*mounted && ready;
     *mounted = ready;
     if (ready) { *invalidated = false; s_media_recovery_requested = false; }
-    if (gained && current->on_media_ready) current->on_media_ready(ctx);
+    if (gained) {
+        esp_err_t installed = bundled_assets_install();
+        if (installed != ESP_OK) ESP_LOGW(TAG,"Optional artwork install deferred: %s",esp_err_to_name(installed));
+        if (current->on_media_ready) current->on_media_ready(ctx);
+    }
     if (!lost) return false;
     *invalidated = true;
     s_media_recovery_requested = false;
@@ -257,6 +263,13 @@ static bool poll_media(app_ctx_t* ctx, const app_desc_t* current,
     ttf_font_open_builtin();
     ui_text_set_system_font(false);
     return true;
+}
+
+// 返回目标先清成当前主页面，阅读回调再补充文件路径。/ Start with the current root; the reader callback supplies its path.
+static void prepare_lock_resume(app_ctx_t *ctx,const app_desc_t *current){
+    unsigned tab=0;for(unsigned i=0;i<4;++i)if(app_at(i)==current)tab=i;
+    sleep_resume_set_target(tab,NULL);
+    if(current->on_before_lock)current->on_before_lock(ctx);
 }
 
 // 电源动作先保存当前页面，再定稿一张不带时钟的静态画面；避免关机后留下会误读的冻结时间。
@@ -314,12 +327,13 @@ void app_loop_run(const app_loop_config_t* config) {
     (void)read_pico_sd_get_info(&initial_media);
     bool media_mounted = initial_media.mounted || (ttf_font_ready() && !ttf_font_is_builtin());
     bool media_invalidated = false;
+    if (initial_media.mounted && !usb_storage_active()) (void)bundled_assets_install();
     s_media_recovery_requested = false;
     app_lock_ignore_for(APP_LOCK_IGNORE_BOOT_MS);
 
     // The SD probe starts during board setup and is usually ready by the first product frame.
     // Retry here so the very first bookshelf paint already has a full CJK system face.
-    try_load_saved_sd_font(false);
+    if(!config->reader_resume)try_load_saved_sd_font(false);
     if (current->on_enter != NULL) current->on_enter(&ctx);
     poll_media(&ctx, current, &media_mounted, &media_invalidated);
     // 首帧必须整屏 GC16：fb 里还是 app_main 画的开机图，DU 盖不掉。
@@ -387,7 +401,7 @@ void app_loop_run(const app_loop_config_t* config) {
                     } else {
                         power_dialog_open = false;
                         ui_gesture_reset(&power_gesture);
-                        if (current->on_before_lock) current->on_before_lock(&ctx);
+                        prepare_lock_resume(&ctx,current);
                         extern const app_desc_t app_book;
                         enter_lock_and_sleep(ctx.hl, &s_lock_ignore_until_ms, ctx.acc,
                                              current == &app_book && app_book_reader_body_visible());
@@ -534,7 +548,7 @@ void app_loop_run(const app_loop_config_t* config) {
                     bool reader_power_lock = !menu_open && current == &app_book &&
                         app_book_reader_body_visible() && app_settings_reader_power_turn();
                     if (reader_power_lock) {
-                        if (current->on_before_lock) current->on_before_lock(&ctx);
+                        prepare_lock_resume(&ctx,current);
                         enter_lock_and_sleep(ctx.hl, &s_lock_ignore_until_ms, ctx.acc, true);
                         ctx.now_ms = esp_timer_get_time() / 1000;
                         last_activity_ms=ctx.now_ms;
@@ -562,7 +576,7 @@ void app_loop_run(const app_loop_config_t* config) {
                         present_page(&ctx, current, &gesture, power_redraw);
                         ctx.consumed = true;
                     } else {
-                        if (current->on_before_lock) current->on_before_lock(&ctx);
+                        prepare_lock_resume(&ctx,current);
                         extern const app_desc_t app_book;
                         enter_lock_and_sleep(ctx.hl, &s_lock_ignore_until_ms, ctx.acc,
                                              !menu_open && current == &app_book && app_book_reader_body_visible());
@@ -699,7 +713,7 @@ void app_loop_run(const app_loop_config_t* config) {
                 held_key=-1;cancel_gesture(&ctx,current,&gesture);
                 if(menu_pressed>=0)menu_feedback(&ctx,current,menu_leaf,menu_pressed,false,&feedback);
                 menu_pressed=UI_MENU_HIT_NONE;
-                if(current->on_before_lock)current->on_before_lock(&ctx);
+                prepare_lock_resume(&ctx,current);
                 extern const app_desc_t app_book;
                 enter_lock_and_sleep(ctx.hl,&s_lock_ignore_until_ms,ctx.acc,!menu_open&&current==&app_book&&app_book_reader_body_visible());
                 ctx.now_ms=esp_timer_get_time()/1000;last_activity_ms=last_idle_poll_ms=ctx.now_ms;

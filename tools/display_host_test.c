@@ -31,6 +31,17 @@ enum EpdDrawError e0470_page_turn(EpdiyHighlevelState* hl, EpdRect area, e0470_t
     return water_result;
 }
 
+const EpdWaveform *display_text_waveform(void){return &E0470_WAVEFORM;}
+const EpdWaveform *display_natural_waveform(void){return &E0470_WAVEFORM;}
+const EpdWaveform *display_art_waveform(void){return &E0470_WAVEFORM;}
+enum EpdDrawError e0470_page_turn_with_waveform(EpdiyHighlevelState *hl,EpdRect area,e0470_turn_dir_t dir,const EpdWaveform *wave){assert(wave==display_text_waveform());return e0470_page_turn(hl,area,dir);}
+static enum EpdDrawError region_result;
+static int region_calls;
+enum EpdDrawError e0470_update_regions(EpdiyHighlevelState *hl,EpdRect area,EpdRect art,const EpdWaveform *soft,const EpdWaveform *strong,enum EpdDrawMode mode){
+    assert(hl&&area.x==0&&area.y==0&&area.width==684&&area.height==1216);
+    assert(art.width==684&&soft&&strong&&mode==MODE_GL16);++region_calls;return region_result;
+}
+
 void read_pico_epd_set_pclk(int mhz) { ++clocks; safe_clock = mhz; }
 void read_pico_epd_use_scan(read_pico_epd_scan_t scan) { last_scan = scan; }
 void epd_lcd_set_prefill_lines(int lines) { prefill = lines; }
@@ -177,5 +188,12 @@ int main(void) {
     assert(update_display_water_turn(&hl, (EpdRect){0, 0, 16, 16}, E0470_TURN_RTL) == EPD_DRAW_SUCCESS);
     assert(water_calls == 2 && clears == 1 && white_baseline && correct_target_at_draw);
     assert(last_mode == MODE_GC16 && !memcmp(back, target, FB_BYTES));
+    // 全区域包含导航；缺资源回退灰阶，中途失败重建完整目标。/ Include navigation; missing resources fall back and interrupted scans recover the target.
+    for(int failure=0;failure<3;++failure){
+        update_display_full(&hl);region_calls=0;clears=draws=0;
+        region_result=failure==0?EPD_DRAW_SUCCESS:failure==1?EPD_DRAW_NO_PHASES_AVAILABLE:EPD_DRAW_OTHER_ERROR;
+        assert(update_display_natural_page(&hl,(EpdRect){0,128,684,928})==EPD_DRAW_SUCCESS);
+        assert(region_calls==1);assert(draws==(failure!=0));assert(clears==(failure==2));
+    }
     puts("display underrun: front retained, white back baseline, full GC16 recovery and bulk prefill passed");
 }

@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0
  * 中文：固件坚果云HTTPS只读客户端，后台串行处理网络/存储，UI线程管理WiFi生命周期。
- * 用户修订：只列出指定目录直属MD/EPUB/TXT，不读取旧清单或编号目录。
- * User revision: list direct MD/EPUB/TXT only, without legacy manifests or numbered directories.
+ * 用户修订：直属阅读文件、图片和字体按类型下载到标准目录，不读取旧清单或编号目录。
+ * User revision: route direct reading files, images and fonts by type; ignore legacy manifests/directories.
  * English: Firmware read-only HTTPS client;
  one worker owns requests/storage and the UI owner controls WiFi lifecycle.
  */
@@ -20,6 +20,8 @@
 #include "read_pico_transfer.h"
 #include "time_service.h"
 #include "settings.h"
+#include "sync_file_policy.h"
+#include "content_library.h"
 #include <errno.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -517,10 +519,7 @@ static esp_err_t list_cloud(void) {
         struct tm tm;
         if (entry.date_ms && gmtime_r(&t, &tm))
             strftime(entry.date, sizeof(entry.date), "%Y-%m-%dT%H:%M:%SZ", &tm);
-        if (entry.bytes >
-                (strrchr(entry.filename, '.') && !strcasecmp(strrchr(entry.filename, '.'), ".md")
-                     ? 256 * 1024
-                     : 64 * 1024 * 1024)) {
+        if (entry.bytes > sync_file_limit(sync_file_kind(entry.filename))) {
             entry.selectable = false;
             snprintf(entry.error, sizeof(entry.error), "文件超过大小上限");
         }
@@ -539,10 +538,27 @@ static esp_err_t list_cloud(void) {
     return cancelled() ? ESP_ERR_INVALID_STATE : ESP_OK;
 }
 
+// 使用中的字体可能仍有流式读取句柄；仅允许内容相同的原位重复下载。
+// Active fonts can retain streaming handles; allow only identical-content re-downloads in place.
+static bool active_font_replace(const char *path, const char *incoming_hash) {
+    const char *configured[] = {app_settings_system_font_path(), app_settings_font_path(),
+                                content_markdown_font(), content_home_quote_font()};
+    for (size_t i = 0; i < sizeof(configured) / sizeof(configured[0]); ++i) {
+        if (!configured[i] || strcasecmp(configured[i], path)) continue;
+        struct stat st;
+        if (stat(path, &st)) return errno != ENOENT;
+        char hash[65];
+        return document_store_hash_file(path, hash, NULL) != ESP_OK || strcmp(hash, incoming_hash);
+    }
+    return false;
+}
 static esp_err_t download_one(const cloud_entry_t *entry) {
+    sync_file_kind_t kind = sync_file_kind(entry->filename);
     if (entry->manifest || strcmp(entry->href, entry->filename) ||
-        !document_store_safe_filename(entry->filename)) return ESP_ERR_NOT_SUPPORTED;
-    bool md = strrchr(entry->filename, '.') && !strcasecmp(strrchr(entry->filename, '.'), ".md");
+        !document_store_safe_filename(entry->filename) || kind == SYNC_FILE_UNSUPPORTED)
+        return ESP_ERR_NOT_SUPPORTED;
+    if (entry->bytes > sync_file_limit(kind)) return ESP_ERR_INVALID_SIZE;
+    bool md = kind == SYNC_FILE_MARKDOWN;
     esp_err_t e = document_store_sync_prepare();
     if (e != ESP_OK) {
         char detail[160];
@@ -550,7 +566,7 @@ static esp_err_t download_one(const cloud_entry_t *entry) {
         fail_notice(detail,"TF卡准备失败");
         return e;
     }
-    const char *phase = "读取文章";
+    const char *phase = "读取文件";
     document_sync_asset_t *assets =
         md ? heap_caps_calloc(64, sizeof(*assets), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) : NULL;
     if (md && !assets) {
@@ -561,8 +577,8 @@ static esp_err_t download_one(const cloud_entry_t *entry) {
     size_t count = 0;
     char body_sha[65];
     uint64_t body_bytes = 0;
-    phase = "下载正文";
-    e = fetch(entry->href, false, DOCUMENT_SYNC_STAGE "/body", md ? 256 * 1024 : 64 * 1024 * 1024,
+    phase = "下载文件";
+    e = fetch(entry->href, false, DOCUMENT_SYNC_STAGE "/body", sync_file_limit(kind),
               entry->bytes, NULL, entry->etag, body_sha, &body_bytes);
     if (e == ESP_OK && md) {
         phase = "解析图片链接";
@@ -587,23 +603,28 @@ static esp_err_t download_one(const cloud_entry_t *entry) {
         }
     }
     if (e == ESP_OK && !strong_etag(entry->etag)) {
-        phase = "复核文章版本";
-        message("正在复核文章版本…");
+        phase = "复核文件版本";
+        message("正在复核文件版本…");
         const char *verification = CLOUD_CACHE "/verify-body.part";
-        e = fetch(entry->href, false, verification, 64 * 1024 * 1024, body_bytes, body_sha, entry->etag, NULL,
+        e = fetch(entry->href, false, verification, sync_file_limit(kind), body_bytes, body_sha, entry->etag, NULL,
                   NULL);
         (void)unlink(verification);
     }
     if (e == ESP_OK && cancelled())
         e = ESP_ERR_INVALID_STATE;
     if (e == ESP_OK) {
-        phase = "保存文档";
+        phase = "保存文件";
         char path[288];
-        int n = snprintf(path, sizeof(path), "%s/%s", md ? DOCUMENT_ROOT : app_settings_books_dir(),
+        const char *directory = kind == SYNC_FILE_BOOK ? app_settings_books_dir() : sync_file_directory(kind);
+        int n = snprintf(path, sizeof(path), "%s/%s", directory,
                          entry->filename);
         bool unchanged;
         if (n >= (int)sizeof(path))
             e = ESP_ERR_INVALID_SIZE;
+        else if (kind == SYNC_FILE_FONT && active_font_replace(path, body_sha)) {
+            fail_notice("此字体正在使用，请切换其他字体后再更新", "字体正在使用");
+            e = ESP_ERR_INVALID_STATE;
+        }
         else
             e = document_store_sync_commit(path, body_sha, body_bytes, assets, count, &unchanged);
     }

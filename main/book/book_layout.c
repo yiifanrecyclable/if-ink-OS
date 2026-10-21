@@ -379,8 +379,7 @@ static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bo
     if (first_line && !*heading && !*align && !(block && block->literal)) {
         // 缩进按当前字体真实全角字宽和字间距计算，不把行高当字宽。
         // Indent by actual full-width advances plus tracking, not by the font's line height.
-        int advance = ttf_text_width_px(*px, "　");
-        if (advance <= 0) advance = ttf_text_width_px(*px, "一");
+        int advance = ttf_text_width_px(*px, "一");
         if (advance <= 0) advance = *px;
         advance += s_tracking_px;
         if (advance < 1) advance = 1;

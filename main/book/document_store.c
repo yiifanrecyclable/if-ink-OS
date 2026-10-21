@@ -13,6 +13,7 @@
 #include "book_progress.h"
 #include "document_image.h"
 #include "markdown_text.h"
+#include "sync_file_policy.h"
 #include "nvs.h"
 #include <dirent.h>
 #include <errno.h>
@@ -619,7 +620,13 @@ static bool sync_destination(const char *path) {
         return false;
     if (!strcasecmp(ext, ".md"))
         return allowed(path);
-    if (strcasecmp(ext, ".txt") && strcasecmp(ext, ".epub"))
+    sync_file_kind_t kind = sync_file_kind(base + 1);
+    if (kind == SYNC_FILE_IMAGE || kind == SYNC_FILE_FONT) {
+        const char *directory = sync_file_directory(kind);
+        return (size_t)(base - path) == strlen(directory) &&
+               !strncmp(path, directory, strlen(directory));
+    }
+    if (kind != SYNC_FILE_BOOK)
         return false;
     for (const char *p = path + 8; p < base;) {
         const char *end = strchr(p, '/');
@@ -819,16 +826,14 @@ static esp_err_t sync_finish_metadata(sync_journal_t *j) {
     esp_err_t verified = sync_installed_valid(j);
     if (verified != ESP_OK)
         return verified;
-    verified = clear_reader(j->destination);
-    if (verified != ESP_OK)
-        return verified;
+    sync_file_kind_t kind = sync_file_kind(j->destination);
+    if (kind == SYNC_FILE_MARKDOWN || kind == SYNC_FILE_BOOK) {
+        verified = clear_reader(j->destination);
+        if (verified != ESP_OK) return verified;
+    }
     if (allowed(j->destination)) {
         bool changed;
         esp_err_t e = refresh_at(j->destination, &changed, j->first_date[0] ? j->first_date : NULL);
-        if (e != ESP_OK)
-            return e;
-    } else {
-        esp_err_t e = clear_reader(j->destination);
         if (e != ESP_OK)
             return e;
     }
@@ -942,6 +947,42 @@ static esp_err_t sync_prepare_locked(void) {
     (void)mkdir(DOCUMENT_SYNC_STAGE "/attachments", 0700);
     return sync_clear_stage();
 }
+static uint32_t sync_be32(const uint8_t *p) {
+    return (uint32_t)p[0] << 24 | (uint32_t)p[1] << 16 | (uint32_t)p[2] << 8 | p[3];
+}
+// 只读有界文件头，不在同步线程载入字体或改变显示上下文。/ Inspect bounded headers without loading fonts or changing rendering contexts.
+static bool sync_resource_header(FILE *f, const char *ext, uint64_t bytes) {
+    uint8_t head[32];
+    if (fread(head, 1, sizeof(head), f) != sizeof(head)) return false;
+    if (!strcasecmp(ext, ".png")) {
+        const uint8_t signature[] = {137,80,78,71,13,10,26,10};
+        uint32_t w = sync_be32(head + 16), h = sync_be32(head + 20);
+        return bytes >= 57 && !memcmp(head, signature, 8) && sync_be32(head + 8) == 13 &&
+               !memcmp(head + 12, "IHDR", 4) && w && h && w <= 8192 && h <= 8192;
+    }
+    if (strcasecmp(ext, ".ttf")) {
+        if (head[0] != 0xff || head[1] != 0xd8 || fseek(f, -2, SEEK_END)) return false;
+        return fgetc(f) == 0xff && fgetc(f) == 0xd9;
+    }
+    if (sync_be32(head) != 0x00010000 && memcmp(head, "true", 4)) return false;
+    unsigned count = (unsigned)head[4] << 8 | head[5], found = 0;
+    // 阅读器的字体表头窗口最多32项；拒绝截断/越界表及CFF字体。
+    // The reader's table window holds 32 entries; reject truncated/out-of-range tables and CFF fonts.
+    if (!count || count > 32 || bytes < 12 + 32 * 16 || fseek(f, 12, SEEK_SET)) return false;
+    const char *required[] = {"cmap", "glyf", "head", "hhea", "hmtx", "loca", "maxp"};
+    for (unsigned i = 0; i < count; ++i) {
+        uint8_t table[16];
+        if (fread(table, 1, sizeof(table), f) != sizeof(table)) return false;
+        uint32_t offset = sync_be32(table + 8), length = sync_be32(table + 12);
+        if (offset < 12 + count * 16 || offset > bytes || length > bytes - offset) return false;
+        for (unsigned k = 0; k < sizeof(required) / sizeof(required[0]); ++k) {
+            if (memcmp(table, required[k], 4)) continue;
+            if (!length || (found & (1u << k))) return false;
+            found |= 1u << k;
+        }
+    }
+    return found == 127;
+}
 esp_err_t document_store_sync_validate(const char *filename, const document_sync_asset_t *assets,
                                        size_t count) {
     if (!document_store_safe_filename(filename) || count > DOCUMENT_SYNC_ASSETS_MAX || (count && !assets))
@@ -949,8 +990,9 @@ esp_err_t document_store_sync_validate(const char *filename, const document_sync
     const char *ext = strrchr(filename, '.');
     if (!ext)
         return ESP_ERR_INVALID_ARG;
-    bool md = !strcasecmp(ext, ".md");
-    if (!md && (count || (strcasecmp(ext, ".txt") && strcasecmp(ext, ".epub"))))
+    sync_file_kind_t kind = sync_file_kind(filename);
+    bool md = kind == SYNC_FILE_MARKDOWN;
+    if (kind == SYNC_FILE_UNSUPPORTED || (!md && count))
         return ESP_ERR_INVALID_ARG;
     uint64_t total = 0;
     for (size_t i = 0; i < count; ++i) {
@@ -1024,8 +1066,15 @@ esp_err_t document_store_sync_validate(const char *filename, const document_sync
         return e;
     }
     struct stat st;
-    if (stat(SYNC_BODY, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 || st.st_size > 64 * 1024 * 1024)
+    if (stat(SYNC_BODY, &st) || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+        (uint64_t)st.st_size > sync_file_limit(kind))
         return ESP_ERR_INVALID_SIZE;
+    if (kind == SYNC_FILE_IMAGE || kind == SYNC_FILE_FONT) {
+        FILE *f = fopen(SYNC_BODY, "rb");
+        bool ok = f && sync_resource_header(f, ext, (uint64_t)st.st_size);
+        if (f) fclose(f);
+        return ok ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
+    }
     if (!strcasecmp(ext, ".epub")) {
         FILE *f = fopen(SYNC_BODY, "rb");
         unsigned char head[4];
@@ -1052,6 +1101,13 @@ static esp_err_t sync_commit_locked(const char *destination, const char *body_sh
     e = document_store_sync_validate(strrchr(destination, '/') + 1, assets, count);
     if (e != ESP_OK)
         return e;
+    sync_file_kind_t kind = sync_file_kind(destination);
+    if (kind == SYNC_FILE_IMAGE || kind == SYNC_FILE_FONT) {
+        const char *directory = sync_file_directory(kind);
+        struct stat folder;
+        if (mkdir(directory, 0700) && errno != EEXIST) return ESP_FAIL;
+        if (lstat(directory, &folder) || !S_ISDIR(folder.st_mode)) return ESP_ERR_INVALID_STATE;
+    }
     sync_journal_t *j = calloc(1, sizeof(*j));
     if (!j)
         return ESP_ERR_NO_MEM;

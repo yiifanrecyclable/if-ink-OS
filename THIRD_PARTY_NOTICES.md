@@ -3,6 +3,10 @@
 Modified 2026-10-05 for the independent Pico reader: added the pinned md4c parser attribution; existing notices are retained.
 2026-10-05 修改：补充独立 Pico 阅读固件使用的固定版本 md4c 解析器署名；保留原有声明。
 
+2026-10-20：`main/display_profiles.c`、`main/display_waveform_smooth.h` 和 `e0470_update_regions` 适配 kiikoread（wegooo-cell/read-pico-reader）提交 `2087afda444b17fb320562fc31ab9424b661e946` 中标记 Apache-2.0 的刷新代码；保留原厂波形表，未引入透明书封模块。
+2026-10-20: The derived display profiles, pulse interleaving helper and simultaneous-region scan adapt Apache-2.0-marked code from kiikoread commit `2087afda444b17fb320562fc31ab9424b661e946`. Vendor tables remain unchanged; the transparent lock-cover module is not included.
+
+
 IF Edition is based on Pico Reader rc83 (wegooo-cell/read-pico-reader); upstream copyright and component notices are retained.
 IF Edition 基于 Pico Reader rc83，保留上游版权及各组件许可。
 

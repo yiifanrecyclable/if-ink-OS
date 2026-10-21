@@ -31,3 +31,9 @@ The four text settings share equal-height rows and fine dividers. Edit Content s
 显示背景图时，Banner与阅读记录之间的分割线拉通屏幕两侧。Banner文字输入框支持四行显示，光标可跨行移动和删除；账号、密码等其他输入仍为单行。最终保存同时校验自动折行后的四行上限与实际可用高度，字号过大时需缩小字号或缩短内容。
 
 With artwork enabled, the banner divider spans the full screen width. The Banner input displays four lines and supports caret navigation/deletion across breaks; other inputs remain single-line. Save checks both wrapped line count and available height, so oversized text requires a smaller font or shorter content.
+
+## 内置可选底图 / Bundled optional artwork
+
+从0.1.4起，固件携带思考大猩猩原图（684×300 PNG），开机或插卡挂载成功时释放到 `banner pic/思考大猩猩.png`。释放采用临时文件、长度及CRC校验；缺卡暂缓，同名已有文件不覆盖。只提供可选文件，不修改Banner的开启状态、背景选择、文字、字体或位置。
+
+The 0.1.4 image is installed after media becomes ready, verified before renaming, and never overwrites existing artwork or alters Banner preferences.

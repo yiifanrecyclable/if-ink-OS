@@ -42,6 +42,11 @@ enum EpdDrawError e0470_page_turn(
     EpdiyHighlevelState* hl, EpdRect area, e0470_turn_dir_t dir
 );
 
+/// 纯文字可选择独立柔化序列，保持现有16带与节拍。/ Select a text-specific sequence with the existing 16 bands and timing.
+enum EpdDrawError e0470_page_turn_with_waveform(EpdiyHighlevelState *hl,EpdRect area,e0470_turn_dir_t dir,const EpdWaveform *waveform);
+/// 同一扫描相位内同步输出柔和文字和校准插图，成功后才提交参考帧。/ Scan soft text and calibrated art in shared phases; commit the baseline only on success.
+enum EpdDrawError e0470_update_regions(EpdiyHighlevelState *hl,EpdRect area,EpdRect art,const EpdWaveform *soft,const EpdWaveform *strong,enum EpdDrawMode mode);
+
 #ifdef __cplusplus
 }
 #endif

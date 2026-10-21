@@ -4,7 +4,7 @@
  */
 const button = document.getElementById('flash-installer');
 const status = document.getElementById('flash-status');
-const expectedVersion = '0.1.3';
+const expectedVersion = '0.1.4';
 const expectedParts = new Map([
   ['bootloader.bin', 0], ['partition-table.bin', 0x8000],
   ['firmware.bin', 0x10000], ['ota-data-initial.bin', 0xd10000],
@@ -14,6 +14,43 @@ const regionEnds = new Map([
   ['firmware.bin', 0x410000], ['ota-data-initial.bin', 0xd12000],
 ]);
 const unavailable = message => { button.hidden = true; status.textContent = message; };
+
+// 校验实际文件后只向安装器提供不可变快照，失败不打开串口或擦除。
+// Give the installer immutable verified bytes; failures never open or erase the device.
+async function prepareBundleSnapshot(manifest, manifestURL) {
+  const snapshot = JSON.parse(JSON.stringify(manifest));
+  const urls = [];
+  const dispose = () => { while (urls.length) URL.revokeObjectURL(urls.pop()); };
+  try {
+    const results = await Promise.allSettled(snapshot.builds[0].parts.map(async part => {
+      const target = new URL(part.path, manifestURL);
+      if (target.origin !== new URL(manifestURL).origin) throw Error('刷机文件来源不匹配');
+      target.searchParams.set('sha256', part.sha256);
+      const response = await fetch(target.href, { cache: 'no-store' });
+      if (!response.ok) throw Error('刷机文件下载失败，尚未写入设备');
+      const data = await response.arrayBuffer();
+      const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', data)))
+        .map(value => value.toString(16).padStart(2, '0')).join('');
+      if (data.byteLength !== part.size || hash !== part.sha256)
+        throw Error('刷机文件校验失败，请刷新重试；尚未写入设备');
+      if (part.path === 'firmware.bin') {
+        const bytes = new Uint8Array(data);
+        const field = offset => new TextDecoder().decode(bytes.slice(offset, offset + 32)).split('\0')[0];
+        if (bytes.length < 112 || bytes[0] !== 0xe9 ||
+            new DataView(data).getUint32(32, true) !== 0xabcd5432 ||
+            field(48) !== snapshot.version || field(80) !== 'Read_Pico_IF')
+          throw Error('固件型号或版本不匹配，尚未写入设备');
+      }
+      const url = URL.createObjectURL(new Blob([data], { type: 'application/octet-stream' }));
+      urls.push(url); part.path = url;
+    }));
+    const failed = results.find(result => result.status === 'rejected');
+    if (failed) throw failed.reason;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(snapshot)], { type: 'application/json' }));
+    urls.push(url);
+    return { url, dispose };
+  } catch (error) { dispose(); throw error; }
+}
 
 async function start() {
   if (!window.isSecureContext) return unavailable('请打开 HTTPS 正式刷机页。');
@@ -33,10 +70,11 @@ async function start() {
           seen.has(part.path) || !Number.isInteger(part.size) || part.size <= 0 ||
           !/^[a-f0-9]{64}$/.test(part.sha256) ||
           Math.ceil((part.offset + part.size) / 4096) * 4096 > regionEnds.get(part.path)) throw new Error('parts');
-      if (part.path === 'firmware.bin' && (part.size !== 3584304 ||
-          part.sha256 !== '7a9d2991e9130ebf456bfabe8673a3773f5242997b7fb9d9ac50e33df7b0d53d')) throw new Error('image');
+      if (part.path === 'firmware.bin' && (part.size !== 3638848 ||
+          part.sha256 !== 'd06815cb74718afe07d4f12465b4b82e52676b4992dbdca0990c2e11c88fa869')) throw new Error('image');
       seen.add(part.path);
     }
+    button.prepareManifest = () => prepareBundleSnapshot(manifest, new URL(button.getAttribute('manifest'), document.baseURI).href);
     await import('./vendor/esp-web-tools-if-v1/install-button.js');
     await customElements.whenDefined('esp-web-install-button');
     button.hidden = false;

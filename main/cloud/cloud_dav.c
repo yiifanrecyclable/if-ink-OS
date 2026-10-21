@@ -1,11 +1,12 @@
 /* SPDX-License-Identifier: Apache-2.0
  * 中文：Expat按4KiB分块解析，禁DTD/实体，限制深度、字段、响应数与目录大小。
- * 只列MD/EPUB/TXT，旧清单和版本目录原样保留但不显示。
- * List MD/EPUB/TXT only; leave legacy manifests/version directories untouched and hidden from this list.
+ * 列出可读内容、PNG/JPEG图片及TTF字体，旧清单和版本目录不显示。
+ * List reading files, PNG/JPEG images and TTF fonts; hide legacy manifests/version directories.
  * English: Expat parses 4KiB chunks with DTD/entities disabled and bounded depth, fields, responses and
  * listing size.
  */
 #include "cloud_dav.h"
+#include "sync_file_policy.h"
 #include <ctype.h>
 #include <expat.h>
 #include <stdlib.h>
@@ -177,9 +178,8 @@ static void XMLCALL end(void *data, const char *name) {
     }
     if (!strcmp(tag, "response") && p->response_depth == p->depth) {
         if (!p->collection && child_href(p->href, p->folder, p->item.href)) {
-            const char *ext = strrchr(p->item.href, '.');
             bool readable =
-                ext && (!strcasecmp(ext, ".md") || !strcasecmp(ext, ".epub") || !strcasecmp(ext, ".txt")) &&
+                sync_file_kind(p->item.href) != SYNC_FILE_UNSUPPORTED &&
                 document_store_safe_filename(p->item.href);
             if (readable) {
                 p->item.date_fallback = !p->item.created_ms;

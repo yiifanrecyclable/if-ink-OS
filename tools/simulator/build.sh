@@ -51,7 +51,7 @@ cc "${flags[@]}" "-DPICO_SIM_CARD_PATH=\"$card\"" -std=gnu11 -D_DEFAULT_SOURCE -
     tools/simulator/firmware_book.c tools/simulator/firmware_files.c tools/simulator/firmware_transfer.c \
     tools/simulator/firmware_image.c main/apps/book_toc.c main/ui/ui_menu.c main/ui/ui_gesture.c main/ui/ui_power_dialog.c \
     main/ui/ui_wifi_qr.c tools/simulator/vendor/qrcodegen.c \
-    main/settings.c main/power/battery_history.c main/font/app_font_context.c main/font/ui_font.c main/ui/ui_kit.c main/ui/ui_text_input.c main/ui/ui_pinyin.c main/ui/ui_nav.c main/ui/ui_lunar.c main/ui/ui_banner.c main/ui/ui_nav_icons.c main/ui/datamatrix.c \
+    main/settings.c main/sleep_resume.c main/power/battery_history.c main/font/app_font_context.c main/font/ui_font.c main/ui/ui_kit.c main/ui/ui_text_input.c main/ui/ui_pinyin.c main/ui/ui_nav.c main/ui/ui_lunar.c main/ui/ui_banner.c main/ui/ui_nav_icons.c main/ui/datamatrix.c \
     main/ui/ui_image_dither.c main/ui/ui_wallpaper.c main/ui/ui_wallpaper_rotation.c \
     main/book/book_layout.c main/book/reader_input.c main/book/markdown_table.c main/book/html_text.c main/book/markdown_text.c components/md4c/md4c.c main/cloud/cloud_protocol.c \
     build/simulator/font.S -lm -lz -lexpat -framework CoreFoundation -framework CoreGraphics -framework ImageIO -Wl,-dead_strip -o "$output"

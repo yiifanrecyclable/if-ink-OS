@@ -346,6 +346,10 @@ int main(int argc, char **argv) {
     printf(",\"banner_text\":");json_string(simulator_banner_text());printf(",\"banner_font\":");json_string(simulator_banner_font());printf(",\"banner_image\":");json_string(simulator_banner_image());
     printf(",\"history_state\":[");for(unsigned p=0;p<9;++p){if(p)printf(",");printf("%d",simulator_history_state(p));}printf("]");
     printf(",\"history_seconds\":[");for(unsigned p=0;p<10;++p){if(p)printf(",");printf("%llu",simulator_history_seconds(p));}printf("]");
+    extern bool simulator_home_has_documents(void);
+    extern const char *simulator_home_list_path(unsigned),*simulator_home_featured_path(void);
+    printf(",\"home_has_documents\":%s,\"home_featured_path\":",simulator_home_has_documents()?"true":"false");json_string(simulator_home_featured_path());
+    printf(",\"home_list_paths\":[");for(unsigned row=0;row<4;++row){if(row)printf(",");json_string(simulator_home_list_path(row));}printf("]");
     printf(",\"home_cover_geometry\":[");for(unsigned part=0;part<6;++part){if(part)printf(",");printf("%d",simulator_home_cover_geometry(part));}printf("]");
     printf(",\"shelf_geometry\":[");for(unsigned row=0;row<9;++row){if(row)printf(",");printf("[");for(unsigned part=0;part<14;++part){if(part)printf(",");printf("%d",simulator_shelf_geometry(row,part));}printf("]");}printf("]");
     printf(",\"cloud_backup_used\":%s",simulator_cloud_backup_used()?"true":"false");

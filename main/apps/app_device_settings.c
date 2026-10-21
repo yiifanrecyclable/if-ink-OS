@@ -106,7 +106,7 @@ static const char *const cloud_guide[]={
             "同步文件夹填写坚果云根目录下已存在的文件夹",
             "账号为坚果云账号",
             "应用密码不是账户密码，在 设置-第三方应用管理 中添加生成",
-            "联网状态下文件夹中的md、txt、epub文件会被Pico识别",
+            "支持md/txt/epub、PNG/JPEG图片及TTF字体，自动分类保存",
             "建议使用Agent管理电脑端的该文件夹",
             "obsidian端一键推送插件可联系作者获取",
             "设置页「保存与恢复」功能会将本页设置一并备份"
@@ -955,9 +955,9 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         int title_px=ui_text_fit_px(UI_TEXT_TITLE,"if-ink OS",196,48);
         ui_text_fixed_vc(fb,36,center,title_px,"if-ink OS",EPD_DRAW_ALIGN_LEFT,false);
         int version_x=36+ui_text_fixed_width_px(title_px,"if-ink OS")+12;
-        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.1.3",92,48);
-        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.1.3",EPD_DRAW_ALIGN_LEFT,false);
-        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.1.3")-24;
+        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.1.4",92,48);
+        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.1.4",EPD_DRAW_ALIGN_LEFT,false);
+        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.1.4")-24;
         const char *slogan="支持md文档的Pico固件";
         int slogan_px=ui_text_fit_px(UI_TEXT_CAPTION,slogan,width,48);
         ui_text_fixed_vc_gray(fb,648,center,slogan_px,slogan,EPD_DRAW_ALIGN_RIGHT,8,15);
@@ -992,7 +992,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
                   reading_icons, reading_labels, reading_values, SETTINGS_DISPLAY_ROWS);
     const char *device_labels[] = {"日期与时间", "关机与休眠", "电池管理", "保存与恢复", "固件信息", "BOOT 刷机"};
     const char *device_values[] = {"设置  ›", app_settings_staged_shutdown() ? "先浅后深  ›" : "彻底断电  ›",
-                                   "查看  ›", "配置  ›", "v0.1.3  ›", "电脑刷机  ›"};
+                                   "查看  ›", "配置  ›", "v0.1.4  ›", "电脑刷机  ›"};
     static const int device_icons[] = {6, 9, 13, 8, 14, 11};
     setting_group(fb, SETTINGS_DEVICE_Y - 34, "系统与设备", SETTINGS_DEVICE_Y,
                   device_icons, device_labels, device_values, SETTINGS_DEVICE_ROWS);
@@ -1562,9 +1562,10 @@ static bool settings_present(app_ctx_t *ctx, app_redraw_t redraw) {
         EpdRect area = {0, top, UI_LOCK_WIDTH, UI_NAV_TOP - top};
         // 只驱动变化像素，滚动次数不触发黑白清屏；题头与底栏保持稳定。
         // Drive changed pixels only; scroll counts never trigger a wipe, and header/nav stay stable.
-        guard_draw_result(ctx->hl, update_display_area_diff_with(ctx->hl, &E0470_WAVEFORM, MODE_GL16, area));
+        guard_draw_result(ctx->hl, update_display_natural_area(ctx->hl, area));
         return true;
     }
+    if(redraw==APP_REDRAW_PAGE){render(ctx,ctx->fb);guard_draw_result(ctx->hl,update_display_natural_page(ctx->hl,(EpdRect){0}));return true;}
     return false;
 }
 

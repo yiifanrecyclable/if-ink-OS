@@ -4,7 +4,7 @@
 """
 from pathlib import Path
 from unittest.mock import patch
-import io,json,subprocess,sys,tempfile,unittest,urllib.error
+import io,json,re,subprocess,sys,tempfile,unittest,urllib.error
 sys.path.insert(0,str(Path(__file__).resolve().parent/'simulator'))
 import cloud_client as cloud
 class Keychain:
@@ -53,10 +53,12 @@ class StatusTests(unittest.TestCase):
         return frame.read_bytes()
     def test_header_status_changes_only_left_of_refresh_not_under_article(self):
         before=self.draw('目录已读取，共1项内容');after=self.draw('未连接WiFi')
+        header=(cloud.ROOT/'main/ui/ui_kit.h').read_text()
+        shift=80-int(re.search(r'#define UI_STATUS_HEIGHT (\d+)',header)[1])
         changed=[]
-        for y in range(170,950):
+        for y in range(170-shift,950):
             for x in range(684):
                 i=y*684+x;a=before[i//2]>>(4*(i%2))&15;b=after[i//2]>>(4*(i%2))&15
                 if a!=b:changed.append((x,y))
-        self.assertTrue(changed);self.assertTrue(all(240<=x<540 and 175<=y<230 for x,y in changed))
+        self.assertTrue(changed);self.assertTrue(all(240<=x<540 and 175-shift<=y<230-shift for x,y in changed))
 if __name__=='__main__':unittest.main()

@@ -132,8 +132,7 @@ void book_toc_render(uint8_t *fb, const char *book_title, size_t chapters,
     char title[160];
     one_line(title, sizeof(title), book_title ? book_title : "");
     if (!title[0]) strcpy(title, "当前书籍");
-    fit_line(title, ui_text_effective_px(UI_TEXT_CAPTION), 445);
-    ui_text_fixed(fb, TOC_LEFT, UI_PAGE_Y(169), ui_text_effective_px(UI_TEXT_CAPTION), title, EPD_DRAW_ALIGN_LEFT, false);
+    ui_text_title_line(fb,(EpdRect){TOC_LEFT,UI_PAGE_Y(160),445,48},ui_text_effective_px(UI_TEXT_CAPTION),title,UI_GRAY_WHITE);
     char total[48];
     snprintf(total, sizeof(total), "%u 节", (unsigned)chapters);
     ui_text_fixed(fb, TOC_RIGHT, UI_PAGE_Y(169), ui_text_effective_px(UI_TEXT_CAPTION), total, EPD_DRAW_ALIGN_RIGHT, false);
@@ -168,8 +167,7 @@ void book_toc_render(uint8_t *fb, const char *book_title, size_t chapters,
                 snprintf(raw, sizeof(raw), "第 %u 节", (unsigned)index + 1);
             one_line(label, sizeof(label), raw);
             if (!label[0]) snprintf(label, sizeof(label), "第 %u 节", (unsigned)index + 1);
-            fit_line(label, ui_text_effective_px(UI_TEXT_BODY), (selected ? 410 : 495)-indent);
-            ui_text_fixed(fb, r.x + 79 + indent, r.y+(r.height-ui_text_effective_px(UI_TEXT_BODY))/2, ui_text_effective_px(UI_TEXT_BODY), label, EPD_DRAW_ALIGN_LEFT, false);
+            ui_text_title_line(fb,(EpdRect){r.x+79+indent,r.y,(selected?410:495)-indent,r.height},ui_text_effective_px(UI_TEXT_BODY),label,selected?0xee:UI_GRAY_WHITE);
             if (selected)
                 ui_text_fixed(fb, r.x + r.width - 22, r.y+(r.height-ui_text_effective_px(UI_TEXT_CAPTION))/2, ui_text_effective_px(UI_TEXT_CAPTION), "当前",
                               EPD_DRAW_ALIGN_RIGHT, false);

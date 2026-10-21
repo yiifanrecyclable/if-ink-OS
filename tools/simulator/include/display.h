@@ -14,3 +14,7 @@ static inline int update_display_area_diff_with(void *a,const void *b,int c,EpdR
 static inline int update_display_area_full_with(void *a,const void *b,int c,EpdRect d){(void)a;(void)b;(void)c;(void)d;return 0;}
 static inline int update_display_mode_diff(void *a,int mode){(void)a;(void)mode;return 0;}
 static inline void guard_draw_result(void *a,int b){(void)a;(void)b;}
+
+static inline int update_display_natural_page(void *hl,EpdRect art){(void)hl;(void)art;return 0;}
+
+static inline int update_display_natural_area(void *hl,EpdRect area){(void)hl;(void)area;return 0;}

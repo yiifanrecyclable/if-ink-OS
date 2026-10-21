@@ -9,6 +9,7 @@
  */
 
 #include "ui_kit.h"
+#include <stdio.h>
 
 #include <string.h>
 #include <stdlib.h>
@@ -1421,4 +1422,24 @@ const ui_sample_line_t ui_sample_lines[] = {
 
 int ui_sample_line_count(void) {
     return (int)(sizeof(ui_sample_lines) / sizeof(ui_sample_lines[0]));
+}
+
+void ui_text_title_line(uint8_t *fb, EpdRect box, int px, const char *text, uint8_t background) {
+    if (!fb || !text || px <= 0 || box.width <= 0) return;
+    char shown[160];
+    size_t length=strnlen(text,sizeof(shown)-1);
+    while(length&&((unsigned char)text[length]&0xc0)==0x80)--length;
+    memcpy(shown,text,length);shown[length]=0;
+    bool builtin = !s_system_ttf && ui_font_has_text(text);
+    while (*shown && (builtin ? ui_font_text_width_px(px, shown) : ttf_text_width_px(px, shown)) > box.width) {
+        size_t end = strlen(shown)-1;
+        while (end && ((unsigned char)shown[end]&0xc0)==0x80) --end;
+        shown[end]=0;
+    }
+    int above=0, below=0;
+    if (builtin) ui_font_measure_line_px(px, shown, &above, &below);
+    else ttf_measure_line_px(px, shown, &above, &below);
+    int baseline=box.y+(box.height+above-below)/2;
+    if (builtin) ui_font_draw_text_px(fb,box.x,baseline,px,shown,EPD_DRAW_ALIGN_LEFT,UI_INK_BLACK,background>>4,false);
+    else ttf_draw_text_px(fb,box.x,baseline,px,shown,EPD_DRAW_ALIGN_LEFT,UI_INK_BLACK,background>>4);
 }
