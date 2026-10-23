@@ -4,6 +4,15 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 2026-10-23 · Codex · if-ink OS v0.1.5
+
+- 四个主页面统一同轮分区刷新，底部80像素使用原校准灰阶；底栏未变化时保持，不增加串行补刷，现有阅读水波纹与手动/周期清理保留。 / Unify root-page scan phases with calibrated80px navigation; hold unchanged navigation without serial replay and retain reader ripple/full cleanup.
+
+- 统一设置页图标：系统文字使用Aa、签名使用钢笔，区分壁纸与Banner，并为电池和BOOT采用同系列图标。 / Unify Settings icons with Aa, a pen nib, distinct wallpaper/banner symbols, and matching battery/BOOT icons.
+
+- 插件Send to E-ink Reader 0.1.8已发布，图片默认关闭；固件0.1.5提供对应Markdown图文支持。接通插件扁平图文导出：可设置设备分辨率及灰阶（默认684×1216/16），图片采用不可变内容命名，附件核验后发布正文，并支持本地文件夹导出；纯文本路径保留。 / Connect flat image exports with configurable device dimensions/levels, immutable asset names, verified asset-first publication, local export and text-only compatibility.
+- Markdown图片缓存按内容及CRC校验复用、损坏重建和有界淘汰；调整长图预览及PSRAM视口，图片进出清理灰阶，保持纯文字水波纹。 / Reuse validated bounded image caches, rebuild corruption, improve tall-image previews and PSRAM viewports, and clean image transitions while preserving text-only ripple turns.
+
 ## 2026-10-21 · Codex · if-ink OS v0.1.4
 
 - 内置思考大猩猩PNG，卡就绪时校验解压至banner pic/思考大猩猩.png，仅作为可选素材，不改当前Banner设置或覆盖同名文件。 / Bundle optional ape artwork, install a checked PNG when TF is ready, and preserve preferences and existing files.

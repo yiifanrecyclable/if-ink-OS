@@ -104,6 +104,10 @@ void guard_draw_result(EpdiyHighlevelState* hl, enum EpdDrawError result);
 /// 同步自然分区刷新，覆盖完整导航；周期全刷保持。/ Synchronous natural regions include navigation and preserve periodic cleanup.
 enum EpdDrawError update_display_natural_page(EpdiyHighlevelState *hl,EpdRect art);
 
+/// 四主页面底栏按原校准GL16同轮输出；不改变阅读出口或增加一次补刷。
+/// Present root navigation with calibrated GL16 in the shared scan, without changing reader paths or adding a pass.
+enum EpdDrawError update_display_navigation_page(EpdiyHighlevelState *hl,EpdRect art,EpdRect navigation);
+
 /// 列表滑动仅以柔和序列输出实际变化区域。/ Scrolling uses soft sequences for real differences only.
 enum EpdDrawError update_display_natural_area(EpdiyHighlevelState *hl,EpdRect area);
 

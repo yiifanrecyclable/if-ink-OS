@@ -86,6 +86,12 @@ ICONS = (
     "chevron-right",     # 书架下一页 / next shelf page
     "settings",          # 阅读工具栏·更多 / reader toolbar, more
     "router",            # 热点创建 / create hotspot
+    "case-sensitive",    # 系统文字 Aa / system text Aa
+    "pen-tool",          # 状态栏签名·钢笔尖 / signature, fountain pen nib
+    "image",             # 锁屏壁纸 / lock-screen wallpaper
+    "panel-top",         # 首页横幅 / home banner
+    "cpu",               # BOOT刷机 / BOOT flashing
+    "battery-medium",    # 电池管理 / battery management
 )
 
 _NUMBER = re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")

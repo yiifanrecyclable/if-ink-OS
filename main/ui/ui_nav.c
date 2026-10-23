@@ -26,6 +26,8 @@
 #define UI_STATUS_PERCENT_PX 28
 #define UI_STATUS_SIGNATURE_PX UI_STATUS_PERCENT_PX
 
+EpdRect ui_nav_rect(void) { return (EpdRect){0,UI_NAV_TOP,UI_LOCK_WIDTH,UI_NAV_HEIGHT}; }
+
 void ui_nav_back(uint8_t *fb, int x, int y) {
     // 参考系统题头缩小返回键，中心仍保持在 y=113。/ Match the smaller reference back control while retaining the title centerline.
     ui_fill_round_rect(fb, (EpdRect){x, y + 13, 44, 44}, 22, UI_GRAY_WHITE);

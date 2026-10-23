@@ -415,38 +415,24 @@ static void back_header(uint8_t *fb, const char *title) {
 static void setting_icon(uint8_t *fb, int index, int cx, int cy) {
     // 每个设置项对应一个 Lucide 图标；索引顺序由各分组传入的 icons[] 数组决定。
     // One Lucide icon per setting row; the index order comes from each group's icons[] array.
-    if (index == 5) {
-        ui_draw_round_rect(fb,(EpdRect){cx-15,cy-13,30,26},4,SETTINGS_ICON_INK);
-        epd_draw_line(cx-13,cy-10,cx+13,cy-10,SETTINGS_ICON_INK,fb);
-        epd_fill_circle(cx+7,cy-5,3,SETTINGS_ICON_INK,fb);
-        epd_draw_line(cx-11,cy+8,cx-3,cy-1,SETTINGS_ICON_INK,fb);
-        epd_draw_line(cx-3,cy-1,cx+5,cy+8,SETTINGS_ICON_INK,fb);
-        epd_draw_line(cx+2,cy+4,cx+8,cy,SETTINGS_ICON_INK,fb);
-        epd_draw_line(cx+8,cy,cx+12,cy+8,SETTINGS_ICON_INK,fb);
-        return;
-    }
-    if (index == 13) {
-        ui_draw_round_rect(fb,(EpdRect){cx-15,cy-9,28,18},3,SETTINGS_ICON_INK);
-        epd_fill_rect((EpdRect){cx+14,cy-4,3,8},SETTINGS_ICON_INK,fb);
-        epd_fill_rect((EpdRect){cx-11,cy-5,11,10},SETTINGS_ICON_INK,fb);
-        return;
-    }
     static const ui_icon_t icons[] = {
         UI_ICON_WIFI,              // 0 无线连接
         UI_ICON_WIFI,              // 1 保留图标索引 / Reserved icon index
-        UI_ICON_TYPE,              // 2 系统字体、阅读操作
+        UI_ICON_CASE_SENSITIVE,    // 2 系统文字 Aa / System text Aa
         UI_ICON_A_LARGE_SMALL,     // 3 系统字号
         UI_ICON_LIBRARY_BIG,       // 4 保留图标索引 / Reserved icon index
-        UI_ICON_TICKET,            // 5 锁屏样式
+        UI_ICON_IMAGE,             // 5 锁屏壁纸 / Lock-screen wallpaper
         UI_ICON_CLOCK,             // 6 日期与时间
         UI_ICON_CONTRAST,          // 7 系统对比度
         UI_ICON_COPY,              // 8 保存与恢复
         UI_ICON_POWER,             // 9 关机睡眠
-        UI_ICON_TEXT_ALIGN_START,  // 10 状态栏签名
+        UI_ICON_PEN_TOOL,          // 10 状态栏签名 / Status signature
         UI_ICON_REFRESH_CW,        // 11 首页强刷
         UI_ICON_NUTSTORE,          // 12 坚果云同步 / Nutstore sync
-        UI_ICON_SETTINGS,          // 13 电池另绘 / Battery drawn separately
+        UI_ICON_BATTERY_MEDIUM,    // 13 电池管理 / Battery management
         UI_ICON_SETTINGS,          // 14 固件信息 / Firmware information
+        UI_ICON_PANEL_TOP,         // 15 首页Banner / Home banner
+        UI_ICON_CPU,               // 16 BOOT刷机 / BOOT flashing
     };
     if (index < 0 || index >= (int)(sizeof(icons) / sizeof(icons[0]))) return;
     ui_draw_icon(fb, cx, cy, SETTINGS_ICON_PX, icons[index], SETTINGS_ICON_INK);
@@ -955,9 +941,9 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         int title_px=ui_text_fit_px(UI_TEXT_TITLE,"if-ink OS",196,48);
         ui_text_fixed_vc(fb,36,center,title_px,"if-ink OS",EPD_DRAW_ALIGN_LEFT,false);
         int version_x=36+ui_text_fixed_width_px(title_px,"if-ink OS")+12;
-        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.1.4",92,48);
-        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.1.4",EPD_DRAW_ALIGN_LEFT,false);
-        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.1.4")-24;
+        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.1.5",92,48);
+        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.1.5",EPD_DRAW_ALIGN_LEFT,false);
+        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.1.5")-24;
         const char *slogan="支持md文档的Pico固件";
         int slogan_px=ui_text_fit_px(UI_TEXT_CAPTION,slogan,width,48);
         ui_text_fixed_vc_gray(fb,648,center,slogan_px,slogan,EPD_DRAW_ALIGN_RIGHT,8,15);
@@ -987,13 +973,13 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     fit_value(signature_value, 235);
     const char *reading_values[] = {font,
                                     signature_value, app_settings_home_full_refresh() ? "开启  ›" : "关闭  ›", "选择  ›", "编辑  ›"};
-    static const int reading_icons[] = {2, 10, 11, 5, 5};
+    static const int reading_icons[] = {2, 10, 11, 5, 15};
     setting_group(fb, SETTINGS_DISPLAY_Y - 34, "显示与个性化", SETTINGS_DISPLAY_Y,
                   reading_icons, reading_labels, reading_values, SETTINGS_DISPLAY_ROWS);
     const char *device_labels[] = {"日期与时间", "关机与休眠", "电池管理", "保存与恢复", "固件信息", "BOOT 刷机"};
     const char *device_values[] = {"设置  ›", app_settings_staged_shutdown() ? "先浅后深  ›" : "彻底断电  ›",
-                                   "查看  ›", "配置  ›", "v0.1.4  ›", "电脑刷机  ›"};
-    static const int device_icons[] = {6, 9, 13, 8, 14, 11};
+                                   "查看  ›", "配置  ›", "v0.1.5  ›", "电脑刷机  ›"};
+    static const int device_icons[] = {6, 9, 13, 8, 14, 16};
     setting_group(fb, SETTINGS_DEVICE_Y - 34, "系统与设备", SETTINGS_DEVICE_Y,
                   device_icons, device_labels, device_values, SETTINGS_DEVICE_ROWS);
     epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_STATUS_HEIGHT}, UI_GRAY_WHITE, fb);
@@ -1565,7 +1551,9 @@ static bool settings_present(app_ctx_t *ctx, app_redraw_t redraw) {
         guard_draw_result(ctx->hl, update_display_natural_area(ctx->hl, area));
         return true;
     }
-    if(redraw==APP_REDRAW_PAGE){render(ctx,ctx->fb);guard_draw_result(ctx->hl,update_display_natural_page(ctx->hl,(EpdRect){0}));return true;}
+    if(redraw==APP_REDRAW_PAGE){render(ctx,ctx->fb);guard_draw_result(ctx->hl,
+        s_page==SETTINGS_MAIN?update_display_navigation_page(ctx->hl,(EpdRect){0},ui_nav_rect()):
+        update_display_natural_page(ctx->hl,(EpdRect){0}));return true;}
     return false;
 }
 

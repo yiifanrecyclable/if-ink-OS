@@ -18,3 +18,5 @@ static inline void guard_draw_result(void *a,int b){(void)a;(void)b;}
 static inline int update_display_natural_page(void *hl,EpdRect art){(void)hl;(void)art;return 0;}
 
 static inline int update_display_natural_area(void *hl,EpdRect area){(void)hl;(void)area;return 0;}
+
+static inline int update_display_navigation_page(void *hl,EpdRect art,EpdRect nav){(void)hl;(void)art;(void)nav;return 0;}

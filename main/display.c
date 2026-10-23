@@ -376,6 +376,29 @@ enum EpdDrawError update_display_natural_page(EpdiyHighlevelState *hl,EpdRect ar
     epd_hl_waveform(hl,&E0470_WAVEFORM);rails_keepalive();return err;
 }
 
+enum EpdDrawError update_display_navigation_page(EpdiyHighlevelState *hl,EpdRect art,EpdRect navigation){
+    DISPLAY_GUARD;
+    if(APP_UI_FAST_GC16_EVERY>0 && ++s_page_refreshes>=APP_UI_FAST_GC16_EVERY)return update_display_full(hl);
+    bool no_art=art.height<=0;
+    if(no_art)art=(EpdRect){0,0,684,1216};
+    use_scan_for(&E0470_WAVEFORM,MODE_GL16);
+    epd_poweron();
+    enum EpdDrawError err=e0470_update_navigation_regions(hl,(EpdRect){0,0,684,1216},art,navigation,
+        display_natural_waveform(),no_art?display_natural_waveform():display_art_waveform());
+    if(err==EPD_DRAW_NO_PHASES_AVAILABLE){
+        epd_hl_waveform(hl,&E0470_WAVEFORM);err=epd_hl_update_screen_full(hl,MODE_GL16,25);
+    }else if(err!=EPD_DRAW_SUCCESS){
+        // 不把半途光学状态当作参考帧；失败统一重建完整目标。/ Never treat an interrupted optical state as the baseline; rebuild the complete target after failure.
+        if(err & EPD_DRAW_EMPTY_LINE_QUEUE){
+            s_pclk_mhz=DISPLAY_PCLK_SAFE_MHZ;read_pico_epd_set_pclk(DISPLAY_PCLK_SAFE_MHZ);
+        }
+        epd_clear();epd_hl_waveform(hl,&E0470_FULL_WAVEFORM);
+        err=epd_hl_update_screen_from_white(hl,MODE_GC16,25);
+        s_page_refreshes=0;
+    }
+    epd_hl_waveform(hl,&E0470_WAVEFORM);rails_keepalive();return err;
+}
+
 enum EpdDrawError update_display_natural_area(EpdiyHighlevelState *hl,EpdRect area){
     DISPLAY_GUARD;
     return update_display_area_diff_with(hl,display_natural_waveform(),MODE_GL16,area);

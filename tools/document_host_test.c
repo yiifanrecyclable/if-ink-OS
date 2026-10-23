@@ -56,6 +56,20 @@ int main(void){
     document_image_t image;assert(document_image_open(DOCUMENT_ROOT"/attachments/长图示例-test.png",&image));assert(image.width==684&&image.height==5000);
     uint8_t *a=malloc(684*1216),*b=malloc(684*1216);assert(a&&b);assert(document_image_sample(&image,0,1216,684,1216,a));assert(document_image_sample(&image,1000,1216,684,1216,b));assert(memcmp(a,b,684*1216));free(a);free(b);
     for(unsigned filter=0;filter<5;filter++){char p[288];snprintf(p,sizeof(p),DOCUMENT_ROOT"/attachments/unittest-filter%u.png",filter);assert(document_image_open(p,&image));uint8_t out[17*25];assert(document_image_sample(&image,0,25,17,25,out));for(unsigned y=0;y<25;y++)for(unsigned x=0;x<17;x++)assert(out[y*17+x]==((x*3+y*5)%16)*17);}
+    // 真实FatFS拒绝覆盖语义：再次打开应命中缓存；坏缓存可重建且不能影响正文。
+    // Under FAT rename semantics, reopen must hit cache; corrupt cache is rebuilt without touching text.
+    const char *cached_source=DOCUMENT_ROOT"/attachments/unittest-filter0.png";
+    assert(document_image_open(cached_source,&image));unsigned decodes=document_image_decode_count();
+    char cache_path[512];snprintf(cache_path,sizeof(cache_path),"%s",image.cache);
+    assert(document_image_open(cached_source,&image));assert(document_image_decode_count()==decodes);
+    FILE *broken=fopen(cache_path,"r+b");assert(broken);assert(!fseek(broken,-1,SEEK_END));int last=fgetc(broken);assert(last!=EOF);assert(!fseek(broken,-1,SEEK_END));fputc(last^1,broken);fclose(broken);
+    assert(document_image_open(cached_source,&image));assert(document_image_decode_count()==decodes+1);
+    uint8_t restored[17*25];assert(document_image_sample(&image,0,25,17,25,restored));
+    for(unsigned y=0;y<25;y++)for(unsigned x=0;x<17;x++)assert(restored[y*17+x]==((x*3+y*5)%16)*17);
+    // 同路径不同内容不能错误复用旧缓存，即使原图大小或日期相同。
+    // Changing bytes at the same path must never reuse a prior content cache.
+    copy("plugins/obsidian-pico/tests/fixtures/sample-image.png",cached_source);
+    assert(document_image_open(cached_source,&image));assert(strcmp(image.cache,cache_path));
     copy("plugins/obsidian-pico/tests/fixtures/sample-image.png",old);FILE *f=fopen(old,"r+b");assert(f);assert(!fseek(f,29,SEEK_SET));int v=fgetc(f);assert(v!=EOF);assert(!fseek(f,29,SEEK_SET));fputc(v^1,f);fclose(f);assert(!document_image_open(old,&image));unlink(old);
     // 网页 MD 入库保留日期/置顶，无变化保留进度，错误不覆盖旧正文。
     // Web imports preserve date/pin and no-op web_progress; rejected input leaves the old body intact.

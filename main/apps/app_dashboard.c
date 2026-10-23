@@ -611,7 +611,8 @@ static bool present(app_ctx_t *ctx, app_redraw_t redraw) {
         s_home_force_full_once = false;
         guard_draw_result(ctx->hl, update_display_home_clean(ctx->hl));
     }
-    else guard_draw_result(ctx->hl, update_display_fast_page(ctx->hl));
+    else guard_draw_result(ctx->hl, update_display_navigation_page(ctx->hl,
+        (EpdRect){0,UI_STATUS_HEIGHT & ~31,UI_LOCK_WIDTH,(UI_NAV_TOP & ~31)-(UI_STATUS_HEIGHT & ~31)},ui_nav_rect()));
     return true;
 }
 

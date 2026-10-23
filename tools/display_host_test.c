@@ -42,6 +42,11 @@ enum EpdDrawError e0470_update_regions(EpdiyHighlevelState *hl,EpdRect area,EpdR
     assert(art.width==684&&soft&&strong&&mode==MODE_GL16);++region_calls;return region_result;
 }
 
+enum EpdDrawError e0470_update_navigation_regions(EpdiyHighlevelState *hl,EpdRect area,EpdRect art,EpdRect nav,const EpdWaveform *soft,const EpdWaveform *strong){
+    assert(nav.x==0&&nav.y==1136&&nav.width==684&&nav.height==80);
+    return e0470_update_regions(hl,area,art,soft,strong,MODE_GL16);
+}
+
 void read_pico_epd_set_pclk(int mhz) { ++clocks; safe_clock = mhz; }
 void read_pico_epd_use_scan(read_pico_epd_scan_t scan) { last_scan = scan; }
 void epd_lcd_set_prefill_lines(int lines) { prefill = lines; }
@@ -195,5 +200,19 @@ int main(void) {
         assert(update_display_natural_page(&hl,(EpdRect){0,128,684,928})==EPD_DRAW_SUCCESS);
         assert(region_calls==1);assert(draws==(failure!=0));assert(clears==(failure==2));
     }
+    // 底栏分区无第二轮输出；分配失败回退、欠载先降频后重建，周期清理不新增。/ No serial footer pass; allocation fallback and underrun recovery retain the existing cleanup cadence.
+    for(int failure=0;failure<4;++failure){
+        update_display_full(&hl);region_calls=0;clears=draws=0;
+        int before_clock=clocks;
+        region_result=failure==0?EPD_DRAW_SUCCESS:failure==1?EPD_DRAW_NO_PHASES_AVAILABLE:failure==2?EPD_DRAW_OTHER_ERROR:EPD_DRAW_EMPTY_LINE_QUEUE;
+        assert(update_display_navigation_page(&hl,(EpdRect){0},(EpdRect){0,1136,684,80})==EPD_DRAW_SUCCESS);
+        assert(region_calls==1&&draws==(failure!=0)&&clears==(failure>=2));
+        assert(clocks==before_clock+(failure==3));
+        assert(hl.waveform==&E0470_WAVEFORM);
+    }
+    update_display_full(&hl);region_calls=0;draws=clears=0;region_result=EPD_DRAW_SUCCESS;
+    for(int i=0;i<APP_UI_FAST_GC16_EVERY;++i)
+        assert(update_display_navigation_page(&hl,(EpdRect){0,128,684,928},(EpdRect){0,1136,684,80})==EPD_DRAW_SUCCESS);
+    assert(region_calls==APP_UI_FAST_GC16_EVERY-1&&draws==1&&!clears&&last_mode==MODE_GC16);
     puts("display underrun: front retained, white back baseline, full GC16 recovery and bulk prefill passed");
 }

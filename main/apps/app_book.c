@@ -344,7 +344,7 @@ static bool prepare_document_zoom(uint32_t top){
     if(top>maximum)top=maximum;
     s_zoom_top=top;
     uint64_t scaled_height=(uint64_t)s_document_image.height*684/s_document_image.width;s_zoom_height=scaled_height>1216?1216:(unsigned)scaled_height;if(!s_zoom_height)s_zoom_height=1;
-    if(!s_zoom_gray)s_zoom_gray=malloc((size_t)684*1216);
+    if(!s_zoom_gray)s_zoom_gray=heap_caps_malloc((size_t)684*1216,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
     return s_zoom_gray&&document_image_sample(&s_document_image,top,span,684,s_zoom_height,s_zoom_gray);
 }
 static void draw_document_zoom(uint8_t *fb){
@@ -1461,6 +1461,10 @@ static void draw_reader_outer(uint8_t *fb,size_t page) {
                 epd_draw_pixel(left + x, top + y,
                     ui_image_dither_gray(inline_ink_gray(s_inline_gray[y * s_inline_w + x]),
                                          left + (int)x, top + (int)y), fb);
+        if (book_kind()==BOOK_KIND_MARKDOWN && s_document_image.height &&
+            (uint64_t)s_document_image.height*body.width > (uint64_t)s_document_image.width*body.height)
+            ui_text_vc(fb,body.x+body.width/2,body.y+body.height-UI_PX_CAPTION/2,
+                       UI_PX_CAPTION,"长图 · 点击查看",EPD_DRAW_ALIGN_CENTER,false);
     } else if (!app_settings_reader_hide_images() && book_layout_page_image(page) >= 0) {
         ui_text_vc(fb, body.x + body.width / 2, body.y + body.height / 2,
                    UI_PX_CAPTION, "此插图暂无法显示", EPD_DRAW_ALIGN_CENTER, false);
@@ -1635,7 +1639,8 @@ static bool present(app_ctx_t* ctx, app_redraw_t redraw) {
     enum EpdDrawError err;
     bool image_gray_refresh = s_reader_image_refresh_pending && s_view == READING &&
         s_reader_panel == READER_PANEL_NONE && !s_toolbar && !s_clear_confirm;
-    if (image_gray_refresh && !s_reader_cleanup && s_presented_view == (int)READING) {
+    if (image_gray_refresh && s_document_zoom) err = update_display_with(ctx->hl, &E0470_FULL_WAVEFORM, MODE_GC16);
+    else if (image_gray_refresh && !s_reader_cleanup && s_presented_view == (int)READING) {
         // 灰阶只驱动正文，避免每张插图都把整屏先清白再闪回。
         // Drive the grayscale body from the current frame instead of clearing the whole screen to white.
         err = update_display_area_with(ctx->hl, &E0470_FULL_WAVEFORM, MODE_GC16, reader_area());
@@ -1672,8 +1677,8 @@ static bool present(app_ctx_t* ctx, app_redraw_t redraw) {
     }
     else err = s_view == READING
         ? update_display_mode_diff(ctx->hl, APP_PAGE_REFRESH_MODE)
-        : s_view==SHELF?update_display_natural_page(ctx->hl,(EpdRect){0,128,684,928}):
-          s_view==DOCUMENTS?update_display_natural_page(ctx->hl,(EpdRect){0}):update_display_fast_page(ctx->hl);
+        : s_view==SHELF?update_display_navigation_page(ctx->hl,(EpdRect){0,128,684,928},ui_nav_rect()):
+          s_view==DOCUMENTS?update_display_navigation_page(ctx->hl,(EpdRect){0},ui_nav_rect()):update_display_fast_page(ctx->hl);
     int64_t displayed = esp_timer_get_time();
     reader_prefetch_end(prep);
     if (redraw == APP_REDRAW_AREA && s_mode == MODE_DU &&
@@ -1849,18 +1854,19 @@ static void prepare_inline_image(void) {
     release_page_images();
     if (app_settings_reader_hide_images()) return;
     int index = book_layout_page_image(s_page);
-    if (index < 0 || index == s_inline_index || (size_t)index >= s_image_count) return;
+    if (index < 0) { free(s_inline_gray); s_inline_gray=NULL; s_inline_index=-1; return; }
+    if ((index == s_inline_index && s_inline_gray) || (size_t)index >= s_image_count) return;
     invalidate_prep();
     free(s_inline_gray); s_inline_gray = NULL;
     s_inline_index = index;
     memset(&s_document_image,0,sizeof(s_document_image));
     if(book_kind()==BOOK_KIND_MARKDOWN){
         char path[512];if(!book_markdown_attachment(s_images[index],path,sizeof(path))||!document_image_open(path,&s_document_image))return;
-        EpdRect body=body_rect();bool tall=(uint64_t)s_document_image.height*684>(uint64_t)s_document_image.width*1216;
-        double scale_x=(double)(tall?64:body.width)/s_document_image.width,scale_y=(double)body.height/s_document_image.height;
+        EpdRect body=body_rect();bool tall=(uint64_t)s_document_image.height*body.width>(uint64_t)s_document_image.width*body.height;
+        double scale_x=(double)body.width/s_document_image.width,scale_y=(double)(body.height-(tall?2*UI_PX_CAPTION:0))/s_document_image.height;
         double scale=scale_x<scale_y?scale_x:scale_y;if(scale>1)scale=1;
         s_inline_w=(unsigned)(s_document_image.width*scale);s_inline_h=(unsigned)(s_document_image.height*scale);if(!s_inline_w)s_inline_w=1;if(!s_inline_h)s_inline_h=1;
-        s_inline_gray=malloc((size_t)s_inline_w*s_inline_h);
+        s_inline_gray=heap_caps_malloc((size_t)s_inline_w*s_inline_h,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
         if(s_inline_gray&&!document_image_sample(&s_document_image,0,s_document_image.height,s_inline_w,s_inline_h,s_inline_gray)){free(s_inline_gray);s_inline_gray=NULL;}
         return;
     }
@@ -2553,6 +2559,9 @@ static app_redraw_t turn_page(app_ctx_t* ctx, int dir) {
     // 预渲染未命中时也使用 GL16；到达设定页数后在本次翻页整屏全刷。
     // A cache miss still uses GL16; the selected turn count triggers a full-screen refresh on this turn.
     app_redraw_t redraw = paint_reading(ctx, MODE_GL16);
+    // 离开插图也清理正文灰阶；纯文字间的水波纹路径不变。
+    // Clean body grayscale when leaving an image; preserve text-to-text water turns.
+    if (!text_transition && book_kind()==BOOK_KIND_MARKDOWN) s_reader_image_refresh_pending = true;
     s_water_turn_pending = text_transition && (app_settings_reader_hide_images()||reader_image_slots(s_page)==0) && redraw == APP_REDRAW_AREA && !s_reader_cleanup &&
                            app_settings_reader_turn_effect() == 1;
     s_water_turn_dir = dir > 0 ? E0470_TURN_RTL : E0470_TURN_LTR;
@@ -3503,9 +3512,10 @@ static app_redraw_t gesture_event(app_ctx_t* ctx, const ui_gesture_event_t* ev) 
             if(next<0)next=0;
             if(next>UINT32_MAX)next=UINT32_MAX;
             if(!prepare_document_zoom((uint32_t)next))return APP_REDRAW_NONE;
+            s_reader_image_refresh_pending=true;
             return APP_REDRAW_PAGE;
         }
-        if(ev->type==UI_GESTURE_TAP&&!s_zoom_moved){s_document_zoom=false;free(s_zoom_gray);s_zoom_gray=NULL;return APP_REDRAW_PAGE;}
+        if(ev->type==UI_GESTURE_TAP&&!s_zoom_moved){s_document_zoom=false;free(s_zoom_gray);s_zoom_gray=NULL;prepare_inline_image();s_reader_image_refresh_pending=s_reader_cleanup=true;return APP_REDRAW_PAGE;}
         return APP_REDRAW_NONE;
     }
     if(s_view==READING&&!s_clear_confirm){s_stats_activity_ms=ctx->now_ms;return reader_controls_gesture(ctx,ev);}
@@ -3622,7 +3632,7 @@ static app_redraw_t on_key(app_ctx_t* ctx, int key) {
         if(key==UI_KEY_2){ui_nav_request(ctx,0);return APP_REDRAW_NONE;}
         s_view=DOCUMENTS;ctx->leaf=0;return APP_REDRAW_PAGE;
     }
-    if(s_document_zoom){if(key==UI_KEY_2){s_document_zoom=false;free(s_zoom_gray);s_zoom_gray=NULL;}else {uint32_t span=(uint32_t)((uint64_t)1216*s_document_image.width/684);uint32_t next=key==UI_KEY_1?(s_zoom_top>span?s_zoom_top-span:0):s_zoom_top+span;(void)prepare_document_zoom(next);}return APP_REDRAW_PAGE;}
+    if(s_document_zoom){if(key==UI_KEY_2){s_document_zoom=false;free(s_zoom_gray);s_zoom_gray=NULL;prepare_inline_image();s_reader_cleanup=true;}else {uint32_t span=(uint32_t)((uint64_t)1216*s_document_image.width/684);if(!span)span=1;uint32_t next=key==UI_KEY_1?(s_zoom_top>span?s_zoom_top-span:0):s_zoom_top+span;(void)prepare_document_zoom(next);}s_reader_image_refresh_pending=true;return APP_REDRAW_PAGE;}
     if(s_view==DOCUMENTS){if(s_document_menu){if(s_document_delete_confirm||s_document_clear_confirm)s_document_delete_confirm=s_document_clear_confirm=false;else s_document_menu=false;return APP_REDRAW_PAGE;}if(key==UI_KEY_2){ui_nav_request(ctx,0);return APP_REDRAW_NONE;}int next=ctx->leaf+(key==UI_KEY_1?-1:1);if(next>=0&&next<leaves()){ctx->leaf=next;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;}
 
     if(s_view==READING&&s_toolbar){

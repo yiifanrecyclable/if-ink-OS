@@ -135,5 +135,24 @@ class FlatSyncTests(unittest.TestCase):
         self.client.download_one(self.item('文章.md'))
         self.assertEqual((self.card/'markdown/文章.md').read_bytes(),self.remote.files['文章.md'])
         self.assertFalse(any(c[1].startswith('attachments/') for c in self.remote.calls))
+    def test_plugin_flat_images_download_as_one_document_and_preserve_previous_on_bad_update(self):
+        # 生产插件导出器→真实Python客户端→生产C事务，不访问账号或真实TF。
+        # Production exporter -> Python client -> production C transaction, with isolated storage/network.
+        code = """import {exportImages} from './src/export-images.ts';
+import {encodeGrayPng} from './src/image.ts';
+const result=await exportImages('# 图文文章\\n\\n正文 **重点**\\n\\n![插图](picture.png)\\n','文章',{
+resolve:()=>({key:'picture.png',mime:'image/png',read:async()=>new Uint8Array([1,2,3]).buffer}),
+convert:async()=>encodeGrayPng(new Uint8ClampedArray([0,0,0,255,127,127,127,255,255,255,255,255]),3,1)});
+console.log(JSON.stringify({body:result.body,assets:result.assets.map(a=>({name:a.name,data:Buffer.from(a.data).toString('base64')}))}));"""
+        result=subprocess.run(['/usr/local/bin/node','--import','tsx','--input-type=module','-e',code],cwd=REPO/'plugins/obsidian-pico',capture_output=True,text=True,check=True)
+        exported=json.loads(result.stdout);body=exported['body'].encode();asset=exported['assets'][0]
+        name='attachments/'+asset['name'];image=base64.b64decode(asset['data'])
+        self.remote.files={'文章.md':body,name:image};self.client.download_one(self.item('文章.md'))
+        self.assertEqual((self.card/'markdown/文章.md').read_bytes(),body)
+        self.assertEqual((self.card/'markdown'/name).read_bytes(),image)
+        self.remote.files['文章.md']=body+b'\nchanged';self.remote.files[name]=b'broken'
+        with self.assertRaises(cloud.CloudError):self.client.download_one(self.item('文章.md'))
+        self.assertEqual((self.card/'markdown/文章.md').read_bytes(),body)
+        self.assertEqual((self.card/'markdown'/name).read_bytes(),image)
 
 if __name__=='__main__': unittest.main()

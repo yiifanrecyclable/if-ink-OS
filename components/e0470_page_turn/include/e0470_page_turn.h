@@ -47,6 +47,10 @@ enum EpdDrawError e0470_page_turn_with_waveform(EpdiyHighlevelState *hl,EpdRect 
 /// 同一扫描相位内同步输出柔和文字和校准插图，成功后才提交参考帧。/ Scan soft text and calibrated art in shared phases; commit the baseline only on success.
 enum EpdDrawError e0470_update_regions(EpdiyHighlevelState *hl,EpdRect area,EpdRect art,const EpdWaveform *soft,const EpdWaveform *strong,enum EpdDrawMode mode);
 
+/// 同轮校准真实变化的底栏，其他区域保留柔和/图片序列；底栏须16像素对齐并结束于area底边。
+/// Calibrate changed navigation in the shared scan; keep soft/art sequences elsewhere. Navigation is16-pixel aligned and ends at the area bottom.
+enum EpdDrawError e0470_update_navigation_regions(EpdiyHighlevelState *hl,EpdRect area,EpdRect art,EpdRect navigation,const EpdWaveform *soft,const EpdWaveform *strong);
+
 #ifdef __cplusplus
 }
 #endif

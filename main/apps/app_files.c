@@ -926,6 +926,11 @@ static app_redraw_t on_key(app_ctx_t *ctx, int key) {
     return APP_REDRAW_NONE;
 }
 static bool files_present(app_ctx_t *ctx,app_redraw_t redraw){
+    if(redraw==APP_REDRAW_PAGE && s_view!=FILE_VIEW_RENAME){
+        render(ctx,ctx->fb);
+        guard_draw_result(ctx->hl,update_display_navigation_page(ctx->hl,(EpdRect){0},ui_nav_rect()));
+        return true;
+    }
     if(redraw!=APP_REDRAW_AREA||s_view!=FILE_VIEW_RENAME)return false;
     guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,ui_text_input_area()));
     return true;

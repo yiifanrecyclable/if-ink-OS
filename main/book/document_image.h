@@ -11,3 +11,7 @@ void document_image_remove_cache(const char *source_path);
 bool document_image_open(const char *path, document_image_t *image);
 bool document_image_sample(const document_image_t *image, uint32_t top, uint32_t span,
                             unsigned width, unsigned height, uint8_t *gray);
+#ifdef PICO_HOST_SIMULATOR
+// 宿主观察缓存是否命中，不影响设备接口。/ Host-only observation of actual cache decoding.
+unsigned document_image_decode_count(void);
+#endif

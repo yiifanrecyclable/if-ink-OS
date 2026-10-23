@@ -18,6 +18,9 @@
 #define UI_NAV_INACTIVE_GRAY 0x88
 #define UI_NAV_BACK_BORDER_GRAY 0x58
 
+/// 导航绘制和刷新共用同一实际边界。/ Share exact geometry between navigation paint and refresh.
+EpdRect ui_nav_rect(void);
+
 void ui_nav_draw(uint8_t *fb, int active);
 void ui_nav_status(uint8_t *fb);
 /// 内容和文件共用底部分页。/ Shared content/file pagination above the navigation.

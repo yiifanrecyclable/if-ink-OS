@@ -389,8 +389,8 @@ enum EpdDrawError e0470_page_turn(EpdiyHighlevelState *hl,EpdRect area,e0470_tur
     return e0470_page_turn_with_waveform(hl,area,dir,&E0470_WAVEFORM);
 }
 
-enum EpdDrawError e0470_update_regions(EpdiyHighlevelState* hl, EpdRect area,
-    EpdRect strong_area, const EpdWaveform* soft_waveform,
+static enum EpdDrawError update_regions(EpdiyHighlevelState* hl, EpdRect area,
+    EpdRect strong_area, EpdRect navigation, const EpdWaveform* soft_waveform,
     const EpdWaveform* strong_waveform, enum EpdDrawMode strong_mode) {
     const int w = epd_width(), h = epd_height();
     if (!hl || !hl->front_fb || !hl->back_fb || !hl->difference_fb ||
@@ -401,6 +401,12 @@ enum EpdDrawError e0470_update_regions(EpdiyHighlevelState* hl, EpdRect area,
         strong_area.y < area.y || strong_area.height <= 0 || strong_area.y > area.y + area.height ||
         strong_area.height > area.y + area.height - strong_area.y ||
         (strong_area.y & 31) || (strong_area.height & 31)) return EPD_DRAW_INVALID_CROP;
+    const bool has_navigation = navigation.height > 0;
+    // 底栏只需16像素列对齐，正好覆盖1136..1216，不扩大到正文。/ A 16-pixel column boundary covers1136..1216 exactly without touching body pixels.
+    if (has_navigation && (navigation.x || navigation.width != h ||
+        navigation.y < area.y || navigation.y > area.y + area.height ||
+        navigation.height != area.y + area.height - navigation.y ||
+        (navigation.y & 15) || (navigation.height & 15))) return EPD_DRAW_INVALID_CROP;
     if (strong_mode != MODE_GL16 && strong_mode != MODE_GC16) return EPD_DRAW_NO_PHASES_AVAILABLE;
     const EpdWaveformPhases* soft = e0470_waveform_phases(soft_waveform, MODE_GL16);
     const EpdWaveformPhases* strong = e0470_waveform_phases(strong_waveform, strong_mode);
@@ -408,13 +414,38 @@ enum EpdDrawError e0470_update_regions(EpdiyHighlevelState* hl, EpdRect area,
         soft->phases <= 0 || strong->phases <= 0 || soft->phases > TURN_PHASE_CAP ||
         strong->phases > TURN_PHASE_CAP || soft->phase_times || strong->phase_times)
         return EPD_DRAW_NO_PHASES_AVAILABLE;
-    // 只保留当前相位的两张1K表，下一相开始前上一帧的生产者/扫描均已结束。
-    // Keep only two current 1 KiB LUTs; producers/scanning finish before the next phase overwrites them.
-    uint8_t (*luts)[1024] = heap_caps_aligned_alloc(16, 2048, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    const EpdWaveformPhases* nav = has_navigation ? e0470_waveform_phases(&E0470_WAVEFORM, MODE_GL16) : NULL;
+    if (has_navigation && (!nav || !nav->luts || nav->phases <= 0 ||
+        nav->phases > TURN_PHASE_CAP || nav->phase_times)) return EPD_DRAW_NO_PHASES_AVAILABLE;
+    // 仅底栏发生真实变化时重建灰底；同页重绘/滚动不重复驱动它。/ Recalibrate navigation only when its actual pixels change; same-page repaint/scroll leaves it undriven.
+    bool nav_changed = false;
+    if (has_navigation) {
+        EpdRect crop = rotate_to_fb(navigation);
+        for (int y = crop.y; y < crop.y + crop.height && !nav_changed; ++y) {
+            size_t offset = ((size_t)y * w + crop.x) / 2;
+            nav_changed = memcmp(hl->front_fb + offset, hl->back_fb + offset, (size_t)crop.width / 2) != 0;
+        }
+    }
+    // 每相最多三张1K表，正文、插图、底栏同一轮扫描；不缓存整屏或追加补刷。/ At most three1KiB LUTs share each scan phase; no full-frame cache or serial footer pass.
+    uint8_t (*luts)[1024] = heap_caps_aligned_alloc(16, has_navigation ? 3072 : 2048, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!luts) return EPD_DRAW_NO_PHASES_AVAILABLE;
-    const uint8_t* lut_ptrs[] = {luts[0], luts[1]};
-    const int starts[] = {area.y, strong_area.y, strong_area.y + strong_area.height};
-    const int ends[] = {strong_area.y, strong_area.y + strong_area.height, area.y + area.height};
+    const uint8_t* lut_ptrs[] = {luts[0], luts[1], has_navigation ? luts[2] : NULL};
+    int bounds[] = {area.y, strong_area.y, strong_area.y + strong_area.height, area.y + area.height,
+                    navigation.y, navigation.y + navigation.height};
+    int count = has_navigation ? 6 : 4;
+    for (int i = 1; i < count; ++i) {
+        int edge = bounds[i], j = i;
+        while (j > 0 && bounds[j - 1] > edge) { bounds[j] = bounds[j - 1]; --j; }
+        bounds[j] = edge;
+    }
+    int starts[5], ends[5]; int8_t selected[5]; int bands = 0;
+    for (int i = 0; i < count - 1; ++i) {
+        if (bounds[i] == bounds[i + 1]) continue;
+        starts[bands] = bounds[i]; ends[bands] = bounds[i + 1];
+        selected[bands] = has_navigation && bounds[i] >= navigation.y ? (nav_changed ? 2 : -1) :
+            bounds[i] >= strong_area.y && bounds[i] < strong_area.y + strong_area.height ? 1 : 0;
+        ++bands;
+    }
     const EpdRect phys = rotate_to_fb(area);
     epd_difference_image_cropped(hl->front_fb, hl->back_fb, phys, hl->difference_fb,
                                   hl->dirty_lines, hl->dirty_columns);
@@ -423,7 +454,8 @@ enum EpdDrawError e0470_update_regions(EpdiyHighlevelState* hl, EpdRect area,
     memset(hl->dirty_lines, 1, (size_t)h * sizeof(bool));
     memset(hl->dirty_columns, 0, (size_t)w / 2);
     memset(hl->dirty_columns + area.y / 2, 0xff, (size_t)area.height / 2);
-    const int phases = soft->phases > strong->phases ? soft->phases : strong->phases;
+    int phases = soft->phases > strong->phases ? soft->phases : strong->phases;
+    if (nav && nav->phases > phases) phases = nav->phases;
     epd_poweron();
     enum EpdDrawError error = EPD_DRAW_SUCCESS;
     for (int phase = 0; phase < phases; ++phase) {
@@ -431,8 +463,11 @@ enum EpdDrawError e0470_update_regions(EpdiyHighlevelState* hl, EpdRect area,
         else memset(luts[0], 0, 1024);
         if (phase < strong->phases) epd_build_1ppB_lut_1k(luts[1], strong, phase);
         else memset(luts[1], 0, 1024);
-        const int8_t selected[] = {0, 1, 0};
-        epd_set_col_phase_luts(lut_ptrs, starts, ends, selected, 3);
+        if (has_navigation) {
+            if (nav_changed && phase < nav->phases) epd_build_1ppB_lut_1k(luts[2], nav, phase);
+            else memset(luts[2], 0, 1024);
+        }
+        epd_set_col_phase_luts(lut_ptrs, starts, ends, selected, bands);
         error = epd_draw_base(epd_full_screen(), hl->difference_fb, epd_full_screen(),
             MODE_PACKING_1PPB_DIFFERENCE | MODE_DU, 25,
             hl->dirty_lines, hl->dirty_columns, &E0470_APPLY_WAVEFORM);
@@ -442,4 +477,16 @@ enum EpdDrawError e0470_update_regions(EpdiyHighlevelState* hl, EpdRect area,
     heap_caps_free(luts);
     if (error == EPD_DRAW_SUCCESS) copy_front_to_back(hl, phys);
     return error;
+}
+
+// 保持既有分区调用与阅读水波纹路径独立。/ Keep existing region callers independent of reader ripple.
+enum EpdDrawError e0470_update_regions(EpdiyHighlevelState* hl, EpdRect area, EpdRect art,
+    const EpdWaveform* soft, const EpdWaveform* strong, enum EpdDrawMode mode) {
+    return update_regions(hl, area, art, (EpdRect){0}, soft, strong, mode);
+}
+
+enum EpdDrawError e0470_update_navigation_regions(EpdiyHighlevelState* hl, EpdRect area,
+    EpdRect art, EpdRect navigation, const EpdWaveform* soft, const EpdWaveform* strong) {
+    if (navigation.height <= 0) return EPD_DRAW_INVALID_CROP;
+    return update_regions(hl, area, art, navigation, soft, strong, MODE_GL16);
 }

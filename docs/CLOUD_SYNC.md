@@ -14,9 +14,11 @@
 
 备份包含明文WiFi密码及坚果云应用密码，请妥善保管TF卡及备份文件。设备NVS目前未启用加密。模拟器日常密码仍保存在Mac钥匙串，本地配置和界面快照不含密码；手动点击保存配置才将密码写入设置备份，恢复时写回钥匙串。预览配置与设备配置相互独立。
 
-## 扁平目录与第一阶段纯文本
+## 扁平目录与图文导出
 
-云端收件目录（默认PicoBox）直接放MD、EPUB、TXT、PNG/JPG/JPEG图片及TTF字体。Ob插件0.1.4将`周记1.md`直接写为`PicoBox/周记1.md`；同名以后一次实际写入覆盖，不按Vault区分，不自动同步修改。插件本阶段只发正文，图片/嵌入经确认转可读说明，不读取或上传附件，不创建attachments目录、清单或编号版本目录；代码中的图片示例仍是文字。PUT发出后即使取消或连接异常也回读准确字节及SHA256，结果不明不报告成功。并发发送以最后实际写入为准，不提供防丢更新承诺。 发送窗口仅显示发送中及成功/失败结论，失败附简短原因；关闭窗口继续发送，完成后通知，不提供取消后续发送按钮。
+云端收件目录（默认PicoBox）直接放MD、EPUB、TXT、PNG/JPG/JPEG图片及TTF字体。插件将`周记1.md`直接写为`PicoBox/周记1.md`；同名以后一次实际写入覆盖，不按Vault区分，不自动同步修改。插件Send to E-ink Reader 0.1.8已发布，图片发送默认关闭以保持纯文本兼容；开启后支持本地PNG/JPEG，先优化并核验单层attachments中的不可变图片，最后发布正文，不创建清单或编号版本目录。图片名采用文章可读前缀与转换后内容指纹，相同导出复用，改图使用新名；远程图、缺图或不支持内容需确认后转说明，不修改原笔记/原图。关闭图片发送时保持原纯文本路径，不读取附件、不增加目录请求。PUT发出后仍回读准确字节及SHA256，结果不明不报告成功；同时发送以最后实际写入为准。发送窗口仍仅显示进度及成功/失败结论，关闭窗口继续发送，完成后通知。
+
+插件“阅读设备”支持自定义128–4096像素的宽/高及2–256灰阶，默认Pico的684×1216/16灰阶。这些参数仅决定导出图片；其他阅读器须自行支持相应PNG及Markdown路径，Pico仍只支持16灰阶、宽≤684的附件。新导出限制单图≤2MiB、≤4Mi像素、高≤8192；每篇附件≤16MiB、≤64个引用。旧设备兼容上限保持，避免阻断已有图文。命令“导出至本地文件夹”输出库内`E-ink Reader导出/`，其中MD与attachments可直接拷到TF的markdown，无需云账号。
 
 ```text
 PicoBox/
@@ -25,7 +27,7 @@ PicoBox/
   随笔.txt
   壁纸.png
   思源黑体.ttf
-  attachments/       # 手动兼容图片或后续插件图文阶段使用，可暂时没有
+  attachments/       # 正文实际引用的兼容插图；纯文本时无需此目录
 ```
 
 手动放入和插件推送使用相同下载路径。Pico及预览显示指定目录直属的MD/EPUB/TXT、PNG/JPG/JPEG和TTF，读取列表只需一次PROPFIND，不逐篇下载清单。旧`.pico.json`、`_pico`及其子目录原样保留，不显示、不迁移、不删除；旧插件文章需用0.1.3重新发送才进入新列表。已在TF入库的旧文档仍可阅读。
@@ -33,7 +35,7 @@ PicoBox/
 - 按原文件名自动分类：MD → `markdown/`；EPUB/TXT → `books/`；PNG/JPG/JPEG → `pictures/`；TTF → `fonts/`。扩展名不区分大小写，目录不存在时自动创建图片/字体目录。MD≤256KiB，图片≤2MiB，TXT/EPUB/TTF≤64MiB。目录最多96项受支持文件，不能把截断目录当完整目录。
 - 图片下载后可从文件页查看，并在壁纸或Banner中手动选择，不自动改变设置。字体下载后重新进入字体选择页即可找到；当前不接收OTF、TTC、WOFF或WebP。图片做类型/尺寸头校验，TTF做TrueType签名与必要字体表边界校验；这不等于验证每个字形。系统、阅读、Markdown或Banner正在使用的同名字体若内容改变，真机提示先切换其他字体后再下载更新，避免替换流式读取中的文件；相同内容可重复下载。
 - 标准强ETag采用条件GET；没有可用强标记、弱标记或坚果云裸标记时，二次读取正文核对字节数/SHA256，内容在下载期间变化就不替换本地旧文件。可比较版本标记不一致仍拒绝；GET省略ETag不再单独造成普通文件无法下载。长度、哈希、TLS证书和主机名校验保留。
-- 本地Markdown图片阅读保留。手动MD已有本地图片引用时，云图片须在该目录的`attachments/`，采用设备兼容的16灰阶、非交错4-bit PNG、宽≤684，长图保留高度。只下载正文实际引用的图片，不扫描同名前缀或取旧图；每图≤17MiB、每篇≤32MiB、≤64张、每图≤32Mi像素。其他格式或缺图拒绝图文入库。插件重新接入优化图片留待下一阶段，0.1.3不做转换。
+- 本地Markdown图片采用设备兼容的16灰阶、非交错4-bit PNG、宽≤684；云图片须在同目录的`attachments/`。只下载正文实际引用的图片，不扫描文件名前缀；旧兼容上限每图≤17MiB、每篇≤32MiB、≤64张、每图≤32Mi像素，本地手工图片也检查单图字节及像素上限。普通RGB PNG/JPEG即使能从pictures查看，也不能直接作为Markdown附件。其他格式或缺图拒绝图文入库，更新失败保留完整旧版。第一阶段明确的纯文本降级由插件确认后导出，不静默跳过设备校验。
 - 下载至暂存后统一验证并提交，失败保留旧文件。图书或MD同名真正更新清阅读进度和书签，保持首次入库日期及置顶；同文同图保持进度。EPUB下载先检查ZIP文件头，实际阅读由原书源解析。
 - 一次选择存在同名文件（包括ASCII大小写区别）时提示只选一篇，分次同步以后一次下载覆盖。本地删除不删除云端文件。
 
@@ -42,6 +44,14 @@ PicoBox/
 同步状态和进度最多每秒更新一次，只用GL16差分更新发生变化的像素，不计入普通页面周期性清残影次数。手动强刷、锁屏和显示异常恢复仍可能需要GC16全刷；减少同步黑白闪烁不代表停用所有清残影刷新。
 
 English: Cloud status and progress use GL16 pixel differences at most once per second and do not advance ordinary page-cleanup counters. Explicit refreshes, locking and display-error recovery may still require full GC16 updates.
+
+## 图片阅读与本地生命周期
+
+普通插图先采用独立图片页，保持原比例；长图预览带点击提示，点开可用实体键分段阅读并返回。图片预览与放大视口不会同时保留整页位图，按需使用PSRAM。纯文字页之间保持现有水波纹；含图页进入和返回文字页清理正文灰阶，图片全屏查看进出单独处理，不把整篇文档改成每页强刷。光学效果仍需真机验收。
+
+解码缓存位于`markdown/.cache`，依据源图片SHA256、格式版本和尺寸识别，并验证缓存CRC。有效缓存不重复解压或写卡；坏缓存可重建，使用FatFS兼容替换，不改正文/进度。缓存上限64MiB/32份，清理旧格式与中断临时文件，不删除原图。首次解码及缓存命中仍需读取文件校验，不能等同零I/O或保证固定毫秒耗时。
+
+通过设备删除文档时，只清理其归属记录中的本地附件和缓存；仍被其他正文引用或无法确认引用的图片保留，不联动删除云端或Obsidian文件。现有设备端Markdown重命名保护保持，仍在Obsidian改名后重新发送；图片关联依据正文引用而非文件名前缀，不要求文章与图片同步改名。WiFi图文整组导入、远程抓图、通用设备解码器和云端自动附件清理不属于本阶段。
 
 ## 中断恢复与访问边界
 
@@ -69,7 +79,7 @@ python3 tools/test_if_simulator.py
 
 固件按ESP-IDF v6.1及 `sdkconfig.defaults` 编译；cJSON和Expat版本/hash固定在 `dependencies.lock`。新增解析及网络/存储逻辑按体积优化，rc83 IF采用上游双4MiB程序槽及VCOM_EN扫描门控/2ms稳定等待；保留VCOM数值、PMU写保护和板上120MHz时序。内建字库保留横向字形、度量和kerning，移除渲染器不支持的竖排与替代字形数据；卡上完整字体字节不变。
 
-当前默认固件编译和宿主测试通过。首次真机验收发现Banner物理旋转缓存、输入基线和云端连接/版本复核失败；前两项有明确代码修复，云端与插件的新诊断仍需真实账户复测，不能以离线测试代替链路验收。Pico无线/TLS内存、SD断电恢复和灰阶显示仍需验收；程序分区余量较小，新增功能必须继续检查体积。本开发版尚未发布。
+当前默认固件编译和宿主测试通过。首次真机验收发现Banner物理旋转缓存、输入基线和云端连接/版本复核失败；前两项有明确代码修复，云端与插件的新诊断仍需真实账户复测，不能以离线测试代替链路验收。Pico无线/TLS内存、SD断电恢复和灰阶显示仍需验收；程序分区余量较小，新增功能必须继续检查体积。Markdown图文支持随if-ink OS0.1.5发布，插件0.1.8可开启本地图片发送；实际灰阶与移动端行为仍需用户设备验证。
 
 English: Configure a dedicated Nutstore application password and an editable folder (default PicoBox). The desktop preview uses real read-only HTTPS and macOS Keychain; firmware uses its own WiFi/NVS configuration. Plugin 0.1.4 writes text-only original MD names directly with last-writer replacement and exact readback. Production C lists direct MD/EPUB/TXT, ignores legacy manifests without deleting them, and validates images/recoverable TF commits. Missing/weak validators require two matching body hashes. Host regressions and an ESP-IDF v6.1 defaults build are available; account and physical-device acceptance remain pending. Preserve matching dependency notices when distributing binaries.
 

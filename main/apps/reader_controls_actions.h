@@ -210,7 +210,13 @@ static app_redraw_t reader_controls_gesture(app_ctx_t *ctx,const ui_gesture_even
     }
     if(ev->type==UI_GESTURE_TAP){
         if(!s_reader_fullscreen&&ui_rect_hit((EpdRect){32,UI_PAGE_Y(75),64,64},ev->x0,ev->y0))return reader_return(ctx,false);
-        if(book_kind()==BOOK_KIND_MARKDOWN&&s_inline_gray&&book_layout_page_image(s_page)==s_inline_index){EpdRect body=body_rect(),image={body.x+(body.width-(int)s_inline_w)/2,body.y+(body.height-(int)s_inline_h)/2,(int)s_inline_w,(int)s_inline_h};if(ui_rect_hit(image,ev->x0,ev->y0)&&prepare_document_zoom(0)){s_document_zoom=true;s_zoom_moved=false;invalidate_prep();return APP_REDRAW_PAGE;}}
+        if(book_kind()==BOOK_KIND_MARKDOWN&&s_inline_gray&&book_layout_page_image(s_page)==s_inline_index){EpdRect body=body_rect(),image={body.x+(body.width-(int)s_inline_w)/2,body.y+(body.height-(int)s_inline_h)/2,(int)s_inline_w,(int)s_inline_h};if(ui_rect_hit(image,ev->x0,ev->y0)){
+            // 查看器与预览不同时保留整页位图，返回时从缓存重建预览。
+            // Avoid retaining preview and full viewport together; rebuild preview from cache on return.
+            free(s_inline_gray);s_inline_gray=NULL;
+            if(prepare_document_zoom(0)){s_document_zoom=true;s_zoom_moved=false;s_reader_image_refresh_pending=true;invalidate_prep();return APP_REDRAW_PAGE;}
+            free(s_zoom_gray);s_zoom_gray=NULL;prepare_inline_image();return APP_REDRAW_PAGE;
+        }}
         if(!ui_rect_hit(reader_area(),ev->x0,ev->y0))return APP_REDRAW_NONE;
         for(unsigned zone=0;zone<3;++zone)if(ui_rect_hit(reader_tap_rect(reader_area(),reader_input_tap_layout(),zone),ev->x0,ev->y0))
             return zone==1?reader_show_panel(READER_PANEL_TOOLS):turn_page(ctx,zone==0?-1:1);
