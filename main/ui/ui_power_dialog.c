@@ -29,15 +29,15 @@ static void draw_restart_mark(uint8_t *fb, int cx, int cy, uint8_t color) {
 void ui_power_dialog_draw(uint8_t *fb) {
     ui_fill_round_rect(fb, k_dialog, 38, 0xd0);
     ui_draw_round_rect(fb, k_dialog, 38, 0x70);
-    ui_text(fb, UI_LOCK_WIDTH / 2, 412, 40, "电源选项", EPD_DRAW_ALIGN_CENTER, false);
-    ui_text(fb, UI_LOCK_WIDTH / 2, 462, 21, "选择操作，轻触弹窗外取消", EPD_DRAW_ALIGN_CENTER, false);
+    ui_text(fb, UI_LOCK_WIDTH / 2, 412, 40, UI_MSG("电源选项"), EPD_DRAW_ALIGN_CENTER, false);
+    ui_text(fb, UI_LOCK_WIDTH / 2, 462, 21, UI_MSG("选择操作，轻触弹窗外取消"), EPD_DRAW_ALIGN_CENTER, false);
 
     epd_fill_circle(224, 566, 66, 0x60, fb);
     epd_fill_circle(460, 566, 66, 0x60, fb);
     draw_restart_mark(fb, 224, 566, UI_GRAY_WHITE);
     draw_power_mark(fb, 460, 566, UI_GRAY_WHITE);
-    ui_text(fb, 224, 665, 29, "重启", EPD_DRAW_ALIGN_CENTER, false);
-    ui_text(fb, 460, 665, 29, "关机", EPD_DRAW_ALIGN_CENTER, false);
+    ui_text(fb, 224, 665, 29, UI_MSG("重启"), EPD_DRAW_ALIGN_CENTER, false);
+    ui_text(fb, 460, 665, 29, UI_MSG("关机"), EPD_DRAW_ALIGN_CENTER, false);
 }
 
 ui_power_action_t ui_power_dialog_handle(const ui_gesture_event_t *event) {
@@ -54,8 +54,8 @@ void ui_power_final_draw(uint8_t *fb, bool restarting) {
     const int cx = UI_LOCK_WIDTH / 2;
     if (restarting) draw_restart_mark(fb, cx, 486, UI_GRAY_BLACK);
     else draw_power_mark(fb, cx, 486, UI_GRAY_BLACK);
-    ui_text(fb, cx, 548, 48, restarting ? "正在重启" : "Pico 已关机",
+    ui_text(fb, cx, 548, 48, restarting ? UI_MSG("正在重启") : UI_MSG("Pico 已关机"),
             EPD_DRAW_ALIGN_CENTER, false);
     if (!restarting)
-        ui_text(fb, cx, 624, 26, "长按电源键开机", EPD_DRAW_ALIGN_CENTER, false);
+        ui_text(fb, cx, 624, 26, UI_MSG("长按电源键开机"), EPD_DRAW_ALIGN_CENTER, false);
 }

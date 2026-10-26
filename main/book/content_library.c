@@ -12,6 +12,19 @@
 #include <stddef.h>
 _Static_assert(offsetof(content_banner_config_t,text_y)==652&&sizeof(content_banner_config_t)==656,"Stable banner v3 snapshot layout");
 static bool banner_read(content_banner_config_t *config);
+bool content_reading_target_valid(unsigned minutes){return minutes>=30&&minutes<=180&&minutes%30==0;}
+uint8_t content_reading_target_minutes(void){
+    uint8_t minutes=90;nvs_handle_t h;
+    if(nvs_open("if_content",NVS_READONLY,&h)==ESP_OK){uint8_t value;
+        if(nvs_get_u8(h,"read_target",&value)==ESP_OK&&content_reading_target_valid(value))minutes=value;
+        nvs_close(h);}
+    return minutes;
+}
+esp_err_t content_reading_target_set(unsigned minutes){
+    if(!content_reading_target_valid(minutes))return ESP_ERR_INVALID_ARG;
+    nvs_handle_t h;esp_err_t e=nvs_open("if_content",NVS_READWRITE,&h);if(e!=ESP_OK)return e;
+    e=nvs_set_u8(h,"read_target",(uint8_t)minutes);if(e==ESP_OK)e=nvs_commit(h);nvs_close(h);return e;
+}
 bool content_home_quote_alignment_valid(unsigned align){return align<=CONTENT_QUOTE_JUSTIFY;}
 content_quote_align_t content_home_quote_alignment(void){
     content_banner_config_t cfg;if(banner_read(&cfg))return cfg.align;

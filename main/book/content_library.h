@@ -10,6 +10,10 @@
 #define CONTENT_HOME_QUOTE_BYTES 192
 #define CONTENT_HOME_QUOTE_FONT_BYTES 160
 #define CONTENT_MARKDOWN_FONT_BYTES 192
+/// 每日打卡目标，单位分钟；仅30的倍数30..180，默认90，随配置备份。/ Daily target in minutes:30..180 in30-minute steps, default90, included in configuration backups.
+bool content_reading_target_valid(unsigned minutes);
+uint8_t content_reading_target_minutes(void);
+esp_err_t content_reading_target_set(unsigned minutes);
 typedef enum { CONTENT_QUOTE_LEFT, CONTENT_QUOTE_RIGHT, CONTENT_QUOTE_CENTER, CONTENT_QUOTE_JUSTIFY } content_quote_align_t;
 /// 格言水平排版，默认居中；与文字和字号一起备份。/ Quote alignment defaults to center and is backed up with text and size.
 content_quote_align_t content_home_quote_alignment(void);

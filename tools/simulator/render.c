@@ -41,6 +41,8 @@ extern int simulator_cloud_command,simulator_cloud_index,simulator_cloud_page;
 void simulator_dashboard(uint8_t *fb,const uint32_t *days,const char *events);
 int simulator_home_geometry(int item);
 int simulator_history_state(unsigned part);
+unsigned simulator_reading_target(void);
+unsigned simulator_history_bar_width(unsigned row);
 unsigned long long simulator_history_seconds(unsigned row);
 int simulator_home_cover_geometry(unsigned part);
 int simulator_settings_geometry(int item);
@@ -330,6 +332,7 @@ int main(int argc, char **argv) {
     printf(",\"wallpaper_rotating\":%s,\"wallpaper_path\":",app_settings_wallpaper_rotating()?"true":"false");json_string(app_settings_wallpaper_path());
     printf(",\"wallpaper_last\":");json_string(app_settings_wallpaper_last());
     printf(",\"system_size\":%u,\"lock_style\":%u",app_settings_system_font_size(),app_settings_lock_style());
+    printf(",\"system_language\":%u",(unsigned)app_settings_language());
     printf(",\"idle_sleep_minutes\":%u",app_settings_idle_sleep_minutes());
     printf(",\"status_show_date\":%s,\"status_date_format\":%d",app_settings_status_show_date()?"true":"false",app_settings_status_date_format());
     printf(",\"system_font_path\":");json_string(app_settings_system_font_path());
@@ -344,7 +347,8 @@ int main(int argc, char **argv) {
     printf(",\"banner_draft\":[");for(unsigned i=0;i<13;++i){if(i)printf(",");printf("%d",simulator_banner_draft(i));}printf("]");
     printf(",\"banner_items\":[");for(unsigned i=0;i<10;++i){if(i)printf(",");json_string(simulator_banner_item(i));}printf("]");
     printf(",\"banner_text\":");json_string(simulator_banner_text());printf(",\"banner_font\":");json_string(simulator_banner_font());printf(",\"banner_image\":");json_string(simulator_banner_image());
-    printf(",\"history_state\":[");for(unsigned p=0;p<9;++p){if(p)printf(",");printf("%d",simulator_history_state(p));}printf("]");
+    printf(",\"history_state\":[");for(unsigned p=0;p<11;++p){if(p)printf(",");printf("%d",simulator_history_state(p));}printf("]");
+    printf(",\"reading_target\":%u,\"history_bar_widths\":[",simulator_reading_target());for(unsigned p=0;p<10;++p){if(p)printf(",");printf("%u",simulator_history_bar_width(p));}printf("]");
     printf(",\"history_seconds\":[");for(unsigned p=0;p<10;++p){if(p)printf(",");printf("%llu",simulator_history_seconds(p));}printf("]");
     extern bool simulator_home_has_documents(void);
     extern const char *simulator_home_list_path(unsigned),*simulator_home_featured_path(void);

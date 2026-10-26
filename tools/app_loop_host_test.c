@@ -29,11 +29,14 @@ static int long_keys;
 static app_redraw_t long_key(app_ctx_t* c, int k) { assert(k==UI_KEY_2); ++long_keys; c->request_menu=true; return APP_REDRAW_NONE; }
 static app_redraw_t response;
 static bool request_on_touch, request_on_tick, menu_on_tick, menu_on_touch, cancel_clobber;
+static int navigation_presents;
 static bool home_on_touch, home_on_tick, home_on_key, start_second;
 static int home_enters, home_renders, last_menu_leaf, rendered_leaf;
 static const app_desc_t* menu_background;
 static app_desc_t first, second;
 static bool full_tick, lock_due, font_due;
+static bool resume_pending;
+bool display_resume_clean_pending(void){return resume_pending;}
 static uint8_t idle_minutes;
 static int idle_locks,before_locks;
 static bool background_busy;
@@ -63,7 +66,7 @@ void vTaskDelay(int ms) {(void)ms;if (++step>=sample_count) longjmp(done,1);}
 bool continuous_du_init(void) {return true;}
 void guard_draw_result(EpdiyHighlevelState* h,enum EpdDrawError e) {(void)h;assert(e==0);}
 enum EpdDrawError update_display_area_with(EpdiyHighlevelState*h,const void*w,int m,EpdRect a) {(void)h;(void)w;(void)a;if(m==MODE_DU)du_areas++;else if(m==MODE_GL16)gl_areas++;return 0;}
-enum EpdDrawError update_display_full(EpdiyHighlevelState*h) {(void)h;fulls++;return 0;}
+enum EpdDrawError update_display_full(EpdiyHighlevelState*h) {(void)h;fulls++;resume_pending=false;return 0;}
 enum EpdDrawError update_display_mode(EpdiyHighlevelState*h,int m) {(void)h;(void)m;mode++;return 0;}
 enum EpdDrawError update_display_mode_diff(EpdiyHighlevelState*h,int m) {(void)h;(void)m;mode++;return 0;}
 enum EpdDrawError update_display_fast_page(EpdiyHighlevelState*h) {(void)h;mode++;return 0;}
@@ -106,11 +109,12 @@ void ui_draw_menu_row_pressed(uint8_t*f,const app_desc_t*a,int l,int r,bool p) {
 static void enter(app_ctx_t*c) {(void)c;enters++;}
 static void leave(app_ctx_t*c) {(void)c;exits++;}
 static void render(app_ctx_t*c,uint8_t*f) {(void)c;(void)f;}
+static bool navigation_present(app_ctx_t*c,app_redraw_t redraw) {(void)c;if(redraw==APP_REDRAW_PAGE||redraw==APP_REDRAW_FULL)++navigation_presents;return false;}
 static void home_enter(app_ctx_t*c) {c->leaf=0;enters++;home_enters++;}
 static void home_render(app_ctx_t*c,uint8_t*f) {(void)f;rendered_leaf=c->leaf;home_renders++;}
 static app_redraw_t touch(app_ctx_t*c,const cst836u_touch_t*t) {
     (void)t;touch_calls++;assert(c->pressed&&c->consumed);
-    if(request_on_touch)c->request_app=&second;
+    if(request_on_touch){c->request_app=&second;}
     if(menu_on_touch)c->request_menu=true;
     if(home_on_touch)c->request_return=true;
     return response;
@@ -118,7 +122,7 @@ static app_redraw_t touch(app_ctx_t*c,const cst836u_touch_t*t) {
 static app_redraw_t gesture(app_ctx_t*c,const ui_gesture_event_t*e) {
     events[e->type]++;
     if(e->type==UI_GESTURE_CANCEL&&cancel_clobber) {c->request_app=NULL;c->request_menu=true;c->request_return=false;}
-    if(e->type==UI_GESTURE_PRESS&&request_on_touch)c->request_app=&second;
+    if(e->type==UI_GESTURE_PRESS&&request_on_touch){c->request_app=&second;}
     if(e->type==UI_GESTURE_PRESS&&home_on_touch)c->request_return=true;
     return response;
 }
@@ -131,6 +135,7 @@ static app_redraw_t tick(app_ctx_t*c) {
     return full_tick ? APP_REDRAW_FULL : APP_REDRAW_NONE;
 }
 static void reset(void) {
+    navigation_presents=0;
     media_test=sd_font=saved_sd_font=false;media_lost=media_ready=builtin_opens=font_opens=probes=remounts=0;loss_step=-1;
     memset(mounted_steps,0,sizeof(mounted_steps));memset(present_steps,0,sizeof(present_steps));
     long_keys=0;
@@ -155,6 +160,20 @@ static void home_case(void) {
     first.on_enter=home_enter;first.render=home_render;first.on_tick=NULL;first.on_touch=NULL;
 }
 int main(void) {
+    {
+        app_ctx_t wake_ctx={0};app_desc_t wake_page={0};fulls=mode=0;resume_pending=true;
+        app_present(&wake_ctx,&wake_page,APP_REDRAW_NONE);assert(resume_pending&&!fulls&&!mode);
+        app_present(&wake_ctx,&wake_page,APP_REDRAW_PAGE);assert(!resume_pending&&fulls==1&&!mode);
+        app_present(&wake_ctx,&wake_page,APP_REDRAW_PAGE);assert(fulls==1&&mode==1);
+    }
+
+    // 切页只输出一次，取消回调不吞掉请求，重复点当前页不额外绘制。/ Present a transition once, retain its request across cancellation and avoid extra same-page rendering.
+    reset();request_on_touch=true;second.present=navigation_present;
+    add(100,400,1,0);add(0,0,0,0);run();assert(navigation_presents==1);
+    reset();request_on_touch=cancel_clobber=true;first.on_touch=NULL;first.on_gesture=gesture;second.present=navigation_present;
+    add(100,400,1,0);add(0,0,0,0);run();assert(navigation_presents==1);
+    reset();start_second=request_on_touch=true;second.on_touch=touch;second.present=navigation_present;
+    add(100,400,1,0);add(0,0,0,0);run();assert(navigation_presents==1);
     // 真实调度：闲置达到阈值、触摸/保持重置、后台阻塞和关闭；保存先于锁屏。
     // Real scheduler: timeout, input/hold reset, busy suspension, disabled mode and pre-lock saving.
     reset();idle_minutes=1;time_step=60000000;first.on_before_lock=before_lock;

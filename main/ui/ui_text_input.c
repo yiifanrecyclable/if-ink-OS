@@ -36,7 +36,7 @@ void ui_text_input_open(ui_text_input_t *in, char *text, size_t cap,
     memset(in, 0, sizeof(*in));
     in->text = text; in->capacity = cap; in->cursor = strlen(text);in->max_lines=1;
     in->chinese_allowed = chinese; in->secret = secret;
-    in->mode = in->letters_mode = chinese ? initial : UI_INPUT_ENGLISH;
+    in->mode = in->letters_mode = chinese && !ui_i18n_english() ? initial : UI_INPUT_ENGLISH;
 }
 void ui_text_input_clear(ui_text_input_t *in) {
     // 密码退出时清除完整缓冲及候选状态。/ Clear the entire secret buffer and composition on exit.
@@ -66,16 +66,16 @@ bool ui_text_input_insert(ui_text_input_t *in, const char *text) {
     }
     if(in->max_lines>1){
         unsigned lines=1;for(const char *p=in->text;*p;++p)lines+=*p=='\n';for(const char *p=text;*p;++p)lines+=*p=='\n';
-        if(lines>in->max_lines){snprintf(in->notice,sizeof(in->notice),"最多输入%u行",(unsigned)in->max_lines);return false;}
+        if(lines>in->max_lines){ui_snprintf(in->notice,sizeof(in->notice),UI_MSG("最多输入%u行"),(unsigned)in->max_lines);return false;}
     }
     if (used + added >= in->capacity) {
-        snprintf(in->notice, sizeof(in->notice), "内容已达到长度上限"); return false;
+        ui_snprintf(in->notice, sizeof(in->notice), UI_MSG("内容已达到长度上限")); return false;
     }
     memmove(in->text + in->cursor + added, in->text + in->cursor, used - in->cursor + 1);
     memcpy(in->text + in->cursor, text, added); in->cursor += added; in->notice[0] = 0;
     return true;
 invalid:
-    snprintf(in->notice,sizeof(in->notice),"输入内容无效");return false;
+    ui_snprintf(in->notice,sizeof(in->notice),UI_MSG("输入内容无效"));return false;
 }
 static bool commit_candidate(ui_text_input_t *in, size_t index) {
     if (index >= in->candidate_count || index >= 5) return false;
@@ -96,7 +96,7 @@ static const char *symbol(unsigned page, int index) {
     return rows[(page % 2) * 40 + index];
 }
 static void key_label(const ui_text_input_t *in, int index, char text[8]) {
-    if (in->mode == UI_INPUT_SYMBOLS) snprintf(text, 8, "%s",
+    if (in->mode == UI_INPUT_SYMBOLS) ui_snprintf(text, 8, "%s",
         symbol(!in->chinese_allowed && index>=12 ? 0 : in->symbol_page, index));
     else {
         const char *keys = "1234567890qwertyuiopasdfghjkl'zxcvbnm,./";
@@ -191,23 +191,23 @@ void ui_text_input_draw(uint8_t *fb, const ui_text_input_t *in, const char *titl
     }else input_draw_line(fb,in,UI_PAGE_Y(286),width,px,true);
     if (suffix && *suffix) ui_text_fixed_vc(fb,626,UI_PAGE_Y(286),ui_text_effective_px(UI_TEXT_CAPTION),suffix,EPD_DRAW_ALIGN_RIGHT,false);
     button(fb,in,LEFT,"‹",false); button(fb,in,RIGHT,"›",false);
-    button(fb,in,SHIFT,in->uppercase?"小写":"大写",in->uppercase); button(fb,in,CLEAR,"清空",false);
-    if(in->max_lines>1&&!in->secret)button(fb,in,NEWLINE,"换行",false);
-    if (in->secret) button(fb,in,REVEAL,in->revealed?"隐藏密码":"显示密码",false);
-    else if (in->pinyin[0]) button(fb,in,RAW,"输入原文",false);
+    button(fb,in,SHIFT,in->uppercase?UI_MSG("小写"):UI_MSG("大写"),in->uppercase); button(fb,in,CLEAR,UI_MSG("清空"),false);
+    if(in->max_lines>1&&!in->secret)button(fb,in,NEWLINE,UI_MSG("换行"),false);
+    if (in->secret) button(fb,in,REVEAL,in->revealed?UI_MSG("隐藏密码"):UI_MSG("显示密码"),false);
+    else if (in->pinyin[0]) button(fb,in,RAW,UI_MSG("输入原文"),false);
     const char *message=in->notice[0]?in->notice:notice;
     if (message && *message) ui_text_fixed(fb,40,in->max_lines>1?610:550,ui_text_effective_px(UI_TEXT_CAPTION),message,EPD_DRAW_ALIGN_LEFT,false);
     char label[80];
-    snprintf(label,sizeof(label),"%s%s%.32s",in->mode==UI_INPUT_CHINESE?"中文拼音":in->mode==UI_INPUT_SYMBOLS?(in->symbol_page?"数字 / 符号  2/2":"数字 / 符号  1/2"):in->uppercase?"英文大写":"英文小写",
+    ui_snprintf(label,sizeof(label),"%s%s%.32s",in->mode==UI_INPUT_CHINESE?UI_MSG("中文拼音"):in->mode==UI_INPUT_SYMBOLS?(in->symbol_page?UI_MSG("数字 / 符号  2/2"):UI_MSG("数字 / 符号  1/2")):in->uppercase?UI_MSG("英文大写"):UI_MSG("英文小写"),
         in->pinyin[0]?"  ·  ":"",in->pinyin);
     ui_text_fixed(fb,40,644,ui_text_effective_px(UI_TEXT_BODY),label,EPD_DRAW_ALIGN_LEFT,false);
     button(fb,in,PREVIOUS,"‹",false); button(fb,in,NEXT,"›",false);
     for (int i=0;i<5;++i) button(fb,in,CANDIDATE+i,
         (size_t)i<in->candidate_count?in->candidates[i]:"",i==0&&in->candidate_count);
     for (int i=0;i<40;++i) {char key[8];key_label(in,i,key);button(fb,in,i,key,false);}
-    button(fb,in,LANGUAGE,in->chinese_allowed?(in->letters_mode==UI_INPUT_CHINESE?"中 / EN":"EN / 中"):"EN",false);
+    button(fb,in,LANGUAGE,in->chinese_allowed?(in->letters_mode==UI_INPUT_CHINESE?UI_MSG("中 / EN"):UI_MSG("EN / 中")):"EN",false);
     button(fb,in,SYMBOLS,in->mode==UI_INPUT_SYMBOLS?"ABC":"123",false);
-    button(fb,in,SPACE,"空格",false); button(fb,in,BACKSPACE,"删除",false); button(fb,in,DONE,done?done:"完成",true);
+    button(fb,in,SPACE,UI_MSG("空格"),false); button(fb,in,BACKSPACE,UI_MSG("删除"),false); button(fb,in,DONE,done?done:UI_MSG("完成"),true);
 }
 static void place_cursor_line(ui_text_input_t *in,int x,int px) {
     size_t at=visible_start(in,field_width(in->suffix),px),best=at; int left=58,distance=10000;
@@ -245,7 +245,7 @@ ui_input_result_t ui_text_input_gesture(ui_text_input_t *in, const ui_gesture_ev
     in->notice[0]=0;
     if(id==CANCEL)return UI_INPUT_CANCEL;
     if(id==DONE){
-        if(in->pinyin[0]){snprintf(in->notice,sizeof(in->notice),"请先选择候选字，或输入原文");return UI_INPUT_CHANGED;}
+        if(in->pinyin[0]){ui_snprintf(in->notice,sizeof(in->notice),UI_MSG("请先选择候选字，或输入原文"));return UI_INPUT_CHANGED;}
         return UI_INPUT_DONE;
     }
     if(id>=CANDIDATE&&id<CANDIDATE+5)commit_candidate(in,id-CANDIDATE);
@@ -258,13 +258,13 @@ ui_input_result_t ui_text_input_gesture(ui_text_input_t *in, const ui_gesture_ev
         else if(in->cursor){size_t prev=previous_character(in->text,in->cursor);memmove(in->text+prev,in->text+in->cursor,strlen(in->text+in->cursor)+1);in->cursor=prev;}
     } else if(id==CLEAR)ui_text_input_clear(in);
     else if(id==NEWLINE){
-        if(in->pinyin[0])snprintf(in->notice,sizeof(in->notice),"请先选择候选字，或输入原文");
+        if(in->pinyin[0])ui_snprintf(in->notice,sizeof(in->notice),UI_MSG("请先选择候选字，或输入原文"));
         else ui_text_input_insert(in,"\n");
     }
     else if(id==REVEAL)in->revealed=!in->revealed;
     else if(id==RAW){if(ui_text_input_insert(in,in->pinyin)){in->pinyin[0]=0;in->candidate_page=0;refresh_candidates(in);}}
     else if(id==LANGUAGE||id==SYMBOLS||id==SHIFT||id==LEFT||id==RIGHT||id==FIELD){
-        if(in->pinyin[0]){snprintf(in->notice,sizeof(in->notice),"请先选择候选字，或输入原文");return UI_INPUT_CHANGED;}
+        if(in->pinyin[0]){ui_snprintf(in->notice,sizeof(in->notice),UI_MSG("请先选择候选字，或输入原文"));return UI_INPUT_CHANGED;}
         if(id==LANGUAGE){in->letters_mode=in->chinese_allowed&&in->letters_mode==UI_INPUT_ENGLISH?UI_INPUT_CHINESE:UI_INPUT_ENGLISH;in->mode=in->letters_mode;}
         else if(id==SYMBOLS)in->mode=in->mode==UI_INPUT_SYMBOLS?in->letters_mode:UI_INPUT_SYMBOLS;
         else if(id==SHIFT){in->uppercase=!in->uppercase;in->letters_mode=in->mode=UI_INPUT_ENGLISH;}
@@ -280,8 +280,8 @@ ui_input_result_t ui_text_input_gesture(ui_text_input_t *in, const ui_gesture_ev
         if(in->mode==UI_INPUT_CHINESE&&key[0]>='a'&&key[0]<='z'){
             size_t n=strlen(in->pinyin);
             if(n+1<sizeof(in->pinyin)){in->pinyin[n]=key[0];in->pinyin[n+1]=0;in->candidate_page=0;refresh_candidates(in);}
-            else snprintf(in->notice,sizeof(in->notice),"拼音已达到长度上限");
-        } else if(in->pinyin[0])snprintf(in->notice,sizeof(in->notice),"请先选择候选字，或输入原文");
+            else ui_snprintf(in->notice,sizeof(in->notice),UI_MSG("拼音已达到长度上限"));
+        } else if(in->pinyin[0])ui_snprintf(in->notice,sizeof(in->notice),UI_MSG("请先选择候选字，或输入原文"));
         else ui_text_input_insert(in,key);
     }
     return UI_INPUT_CHANGED;

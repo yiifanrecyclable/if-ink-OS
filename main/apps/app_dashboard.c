@@ -128,7 +128,7 @@ static void copy_title(char *dst, size_t cap, const char *src) {
 
 static void title_for(home_book_t *item) {
     if (!book_title_from_path(item->path, item->title, sizeof(item->title)))
-        copy_title(item->title, sizeof(item->title), "未命名");
+        copy_title(item->title, sizeof(item->title), UI_MSG("未命名"));
 }
 
 static void consider_book(const char *path, const struct stat *st) {
@@ -147,7 +147,7 @@ static void consider_book(const char *path, const struct stat *st) {
     if (slot < 0) return;
     for (int i = 5; i > slot; --i) s_recent[i] = s_recent[i - 1];
     memset(&s_recent[slot], 0, sizeof(s_recent[slot]));
-    snprintf(s_recent[slot].path, sizeof(s_recent[slot].path), "%s", path);
+    ui_snprintf(s_recent[slot].path, sizeof(s_recent[slot].path), "%s", path);
     s_recent[slot].modified = st->st_mtime;
     s_recent[slot].has_progress = has_progress;
     if (has_progress) s_recent[slot].progress = progress;
@@ -160,7 +160,7 @@ static void scan_root(const char *root) {
     while ((entry = readdir(dir))) {
         if (!is_book(entry->d_name)) continue;
         char path[BOOK_STORE_PATH_MAX];
-        if (snprintf(path, sizeof(path), "%s/%s", root, entry->d_name) >= sizeof(path)) continue;
+        if (ui_snprintf(path, sizeof(path), "%s/%s", root, entry->d_name) >= sizeof(path)) continue;
         struct stat st;
         if (!stat(path, &st) && S_ISREG(st.st_mode)) consider_book(path, &st);
     }
@@ -173,7 +173,7 @@ static void scan_books(void) {
         struct stat st;
         if (!stat(last, &st) && S_ISREG(st.st_mode) && st.st_size >= 0 && (uint64_t)st.st_size <= UINT32_MAX &&
             book_progress_load(last, (uint32_t)st.st_size, &s_current.progress)) {
-            snprintf(s_current.path, sizeof(s_current.path), "%s", last);
+            ui_snprintf(s_current.path, sizeof(s_current.path), "%s", last);
             s_current.has_progress = true;
             title_for(&s_current);
         }
@@ -236,7 +236,7 @@ static bool has_markdown_documents(void) {
         const char *name=entry->d_name,*ext=strrchr(name,'.');
         if(name[0]=='.'||!ext||strcasecmp(ext,".md"))continue;
         char path[BOOK_STORE_PATH_MAX];struct stat st;
-        if(snprintf(path,sizeof(path),DOCUMENT_ROOT "/%s",name)>=(int)sizeof(path))continue;
+        if(ui_snprintf(path,sizeof(path),DOCUMENT_ROOT "/%s",name)>=(int)sizeof(path))continue;
         if(!lstat(path,&st)&&S_ISREG(st.st_mode)&&st.st_size>=0&&(uint64_t)st.st_size<=UINT32_MAX){found=true;break;}
     }
     closedir(dir);return found;
@@ -278,7 +278,7 @@ static void remember_scan_state(const read_pico_sd_info_t *sd) {
     s_cached_store_revision = book_store_revision();
     s_cached_sd_present = sd->present;
     s_cached_sd_mounted = sd->mounted;
-    snprintf(s_cached_books_dir, sizeof(s_cached_books_dir), "%s", app_settings_books_dir());
+    ui_snprintf(s_cached_books_dir, sizeof(s_cached_books_dir), "%s", app_settings_books_dir());
     s_cached_last_path[0] = 0;
     (void)book_progress_last_path(s_cached_last_path, sizeof(s_cached_last_path));
 }
@@ -326,9 +326,9 @@ static bool load_cover(home_book_t *item, int slot) {
     if (stat(item->path, &st) || !S_ISREG(st.st_mode)) { free(pixels); return false; }
     home_cover_cache_t *cached = &s_cover_cache[slot];
     free(cached->pixels);
-    snprintf(cached->path, sizeof(cached->path), "%s", item->path);
-    snprintf(cached->title, sizeof(cached->title), "%s", item->title);
-    snprintf(cached->author, sizeof(cached->author), "%s", item->author);
+    ui_snprintf(cached->path, sizeof(cached->path), "%s", item->path);
+    ui_snprintf(cached->title, sizeof(cached->title), "%s", item->title);
+    ui_snprintf(cached->author, sizeof(cached->author), "%s", item->author);
     cached->size = st.st_size;
     cached->modified = st.st_mtime;
     cached->pixels = pixels;
@@ -428,7 +428,7 @@ static void draw_cover(uint8_t *fb, const home_book_t *item, EpdRect slot) {
                                ui_image_dither_gray(gray, box.x + x, box.y + y), fb);
             }
     } else {
-        char title[128]; snprintf(title, sizeof(title), "%s", item->title);
+        char title[128]; ui_snprintf(title, sizeof(title), "%s", item->title);
         fit(title, 24, box.width - 16);
         ui_text_vc(fb, box.x + box.width / 2, box.y + box.height / 2, 24, title, EPD_DRAW_ALIGN_CENTER, false);
     }
@@ -452,13 +452,33 @@ static int home_heatmap_history_index(uint32_t end_day, int row, int column) {
     return ago < 0 ? -1 : 29 - ago;
 }
 
-// 使用面板的离散灰阶：只要读过就有填色，达到120分钟才到最深灰。
-// Quantize to panel gray levels: any measured time gets a fill; deepest gray starts at 120 minutes.
-static uint8_t home_heatmap_gray(uint32_t seconds) {
+// 使用每日目标统一热力图与列表刻度：只要读过就有填色，达标后饱和至最深灰。
+// Share the daily target with list bars: any measured time gets a fill and reaching the target saturates at the darkest gray.
+static uint8_t home_heatmap_gray(uint32_t seconds, unsigned target_minutes) {
+    if(target_minutes<30||target_minutes>180||target_minutes%30)target_minutes=90;
+    unsigned target=target_minutes*60;
     if (!seconds) return 0xff;
-    if (seconds >= 7200) return 0x33;
-    unsigned steps = 1 + (seconds - 1) * 11 / 7199;
+    if (seconds >= target) return 0x33;
+    unsigned steps = 1 + (seconds - 1) * 11 / (target-1);
     return (uint8_t)((15 - steps) * 17);
+}
+
+// 对勾在整格居中，沿中心线盖半径2的圆形成五像素圆头笔画，保留约70%黑。
+// Center the check and stamp radius-two disks along its centerline for five-pixel round caps, retaining roughly70% black.
+static void home_heatmap_check(uint8_t *fb, EpdRect cell) {
+    const int points[3][2]={{10,23},{18,30},{33,14}};
+    for(int segment=0;segment<2;++segment){
+        int x=points[segment][0],y=points[segment][1];
+        int end_x=points[segment+1][0],end_y=points[segment+1][1];
+        int dx=abs(end_x-x),dy=-abs(end_y-y),sx=x<end_x?1:-1,sy=y<end_y?1:-1,error=dx+dy;
+        while(true){
+            epd_fill_circle(cell.x+x,cell.y+y,2,0x55,fb);
+            if(x==end_x&&y==end_y)break;
+            int twice=2*error;
+            if(twice>=dy){error+=dy;x+=sx;}
+            if(twice<=dx){error+=dx;y+=sy;}
+        }
+    }
 }
 
 static const char *const home_months[] = {"JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"};
@@ -515,13 +535,13 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     draw_home_banner(fb);
     home_geometry_t g=home_geometry();
     epd_fill_rect((EpdRect){36,g.recent_rule,612,2},0x68,fb);
-    ui_text_vc(fb,36,g.recent_title,UI_TEXT_TITLE,"最近阅读",EPD_DRAW_ALIGN_LEFT,false);
-    ui_text_vc(fb,648,g.recent_title,UI_TEXT_CAPTION,s_has_documents?"markdown文档":"图书",EPD_DRAW_ALIGN_RIGHT,false);
+    ui_text_vc(fb,36,g.recent_title,UI_TEXT_TITLE,UI_MSG("最近阅读"),EPD_DRAW_ALIGN_LEFT,false);
+    ui_text_vc(fb,648,g.recent_title,UI_TEXT_CAPTION,s_has_documents?UI_MSG("markdown文档"):UI_MSG("图书"),EPD_DRAW_ALIGN_RIGHT,false);
     home_book_t *featured=s_current.path[0]?&s_current:&s_recent[0];
     if(featured->path[0]) {
         unsigned pct=featured->has_progress?featured->progress.pct:0;if(pct>100)pct=100;
         recent_title_layout_t title=recent_title_layout(featured->title,172);
-        char detail[48];snprintf(detail,sizeof(detail),"阅读进度%u%%",pct);
+        char detail[48];ui_snprintf(detail,sizeof(detail),UI_MSG("阅读进度%u%%"),pct);
         recent_title_layout_t caption=recent_title_layout_role(detail,172,UI_TEXT_CAPTION,2);
         int title_h=title.count*title.line_height;
         int caption_h=caption.count*caption.line_height;
@@ -531,10 +551,10 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         int title_y=slot.y+slot.height+20;
         draw_recent_title_layout(fb,&title,122,title_y+title.line_height/2,true);
         draw_recent_title_layout(fb,&caption,122,title_y+title_h+10+caption.line_height/2,true);
-    } else draw_recent_title(fb,"暂无阅读图书",122,g.content_y+(g.content_end-g.content_y)/2,172,true);
+    } else draw_recent_title(fb,UI_MSG("暂无阅读图书"),122,g.content_y+(g.content_end-g.content_y)/2,172,true);
     // 竖线起点随标题的实际墨迹上沿对齐。/ Align the divider start with the title's actual ink top.
     int title_above=0,title_below=0;
-    ui_text_fixed_measure_px(ui_text_effective_px(UI_TEXT_TITLE),"最近阅读",&title_above,&title_below);
+    ui_text_fixed_measure_px(ui_text_effective_px(UI_TEXT_TITLE),UI_MSG("最近阅读"),&title_above,&title_below);
     int divider_top=g.recent_title+(title_above-title_below)/2-title_above;
     epd_fill_rect((EpdRect){240,divider_top,2,g.content_y+g.rows*g.row_height+1-divider_top},0x68,fb);
     for(int i=0;i<=g.rows;++i)epd_fill_rect((EpdRect){HOME_DOCUMENT_X,g.content_y+i*g.row_height,HOME_DOCUMENT_WIDTH,1},0x88,fb);
@@ -552,26 +572,14 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         draw_recent_progress(fb,HOME_DOCUMENT_X,top+title_h+6,HOME_DOCUMENT_WIDTH-36,pct);
         ui_text_vc(fb,646,y+g.row_height/2,UI_TEXT_BODY,"›",EPD_DRAW_ALIGN_RIGHT,false);
     }
-    if(!recent_list_path(0))draw_recent_title(fb,s_has_documents?"暂无阅读文档":"暂无其他阅读图书",HOME_DOCUMENT_X,g.content_y+g.row_height/2,HOME_DOCUMENT_WIDTH-36,false);
+    if(!recent_list_path(0))draw_recent_title(fb,s_has_documents?UI_MSG("暂无阅读文档"):UI_MSG("暂无其他阅读图书"),HOME_DOCUMENT_X,g.content_y+g.row_height/2,HOME_DOCUMENT_WIDTH-36,false);
     content_banner_config_t banner;content_banner_load(&banner);
     epd_fill_rect((EpdRect){banner.mode?0:36,UI_STATUS_HEIGHT+300,banner.mode?UI_LOCK_WIDTH:612,2},0x68,fb);
-    ui_text_vc(fb,36,g.heat_title,UI_TEXT_TITLE,"阅读记录",EPD_DRAW_ALIGN_LEFT,false);
-    uint64_t sum = 0;
-    if (s_reading_days_valid) {
-        // 只汇总当前周（末行）从周一到今天，保留四周热力图。
-        // Sum only the current week's Monday-to-today cells; keep the four-week heatmap.
-        for (int col = 0; col < 7; ++col) {
-            int index = home_heatmap_history_index(s_reading_end_day, 3, col);
-            if (index >= 0) sum += s_reading_days[index];
-        }
-    }
-    char value[64];
-    snprintf(value, sizeof(value), "本周已读%llu小时%llu分",
-             (unsigned long long)(sum / 3600), (unsigned long long)(sum / 60 % 60));
-    int week_px=ui_text_effective_px(UI_TEXT_CAPTION);
-    ui_text_fixed_vc(fb, 648, g.heat_title, week_px, s_reading_days_valid ? value : "未设置日期", EPD_DRAW_ALIGN_RIGHT, false);
+    ui_text_vc(fb,36,g.heat_title,UI_TEXT_TITLE,UI_MSG("阅读打卡"),EPD_DRAW_ALIGN_LEFT,false);
+    ui_text_vc(fb,648,g.heat_title,UI_TEXT_CAPTION,UI_MSG("更多"),EPD_DRAW_ALIGN_RIGHT,false);
+    unsigned target_minutes=content_reading_target_minutes();
     if (!s_reading_days_valid) {
-        ui_text_vc(fb, 342, UI_PAGE_Y(582), 22, "完成日期与时间设置后显示阅读记录", EPD_DRAW_ALIGN_CENTER, false);
+        ui_text_vc(fb, 342, UI_PAGE_Y(582), 22, UI_MSG("完成日期与时间设置后显示阅读记录"), EPD_DRAW_ALIGN_CENTER, false);
     } else {
         static const char *const weekdays[] = {"MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"};
         int calendar_px=34;
@@ -583,7 +591,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             for (int col = 0; col < 7; ++col) {
                 EpdRect cell = {g.col_x-22+col*g.col_step, g.grid_y+row*g.row_step, 44, 44};
                 int index = home_heatmap_history_index(s_reading_end_day, row, col);
-                uint8_t gray=index>=0?home_heatmap_gray(s_reading_days[index]):0xff;
+                uint8_t gray=index>=0?home_heatmap_gray(s_reading_days[index],target_minutes):0xff;
                 if (index < 0 || !s_reading_days[index]) {
                     // 未阅读与未来日期统一浅框白底，短路条件避免索引未来历史。/ Unread and future dates share a faint white cell; short-circuit before indexing future history.
                     epd_fill_rect(cell, 0xdd, fb);
@@ -591,9 +599,10 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
                 } else {
                     epd_fill_rect(cell, gray, fb);
                 }
+                if(index>=0&&s_reading_days[index]>=target_minutes*60)home_heatmap_check(fb,cell);
                 if(home_heatmap_cell_month(s_reading_end_day,row,col)>=0){
-                    // 右上四分之一放月初数字；深于中灰时反白，与真实格子底色混合。/ Place the month-start digit in the upper-right quarter; reverse below mid-gray and blend against the actual fill.
-                    ui_text_fixed_vc_gray(fb,cell.x+33,cell.y+11,24,"1",EPD_DRAW_ALIGN_CENTER,
+                    // 左上四分之一放月初数字；深于中灰时反白，与真实格子底色混合。/ Place the month-start digit in the upper-left quarter; reverse below mid-gray and blend against the actual fill.
+                    ui_text_fixed_vc_gray(fb,cell.x+11,cell.y+11,24,"1",EPD_DRAW_ALIGN_CENTER,
                         gray<0x88?UI_INK_WHITE:UI_INK_BLACK,gray>>4);
                 }
                 if (index == 29) epd_fill_rect((EpdRect){cell.x + 14, cell.y + 48, 16, 3}, UI_GRAY_BLACK, fb);
@@ -710,6 +719,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     int tab = ui_nav_hit(ev->x0, ev->y0);
     if (tab >= 0) { ui_nav_request(ctx, tab); return APP_REDRAW_NONE; }
     home_geometry_t g=home_geometry();
+    if(ui_rect_hit(history_more_rect(),ev->x0,ev->y0)){history_show();return APP_REDRAW_PAGE;}
     if (ev->x0 >= HOME_DOCUMENT_X && ev->x0 < 648 && ev->y0 >= g.content_y &&
         ev->y0 < g.content_y + g.rows*g.row_height) {
         size_t i = (ev->y0-g.content_y)/g.row_height;
@@ -727,6 +737,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
 }
 static app_redraw_t on_key(app_ctx_t *ctx, int key) {
     if(s_history_open){
+        if(s_history_target_open)return key==0||key==1?history_back():APP_REDRAW_NONE;
         if(key==0)return history_turn(-1);
         if(key==2)return history_turn(1);
         if(key==1){s_history_open=false;return APP_REDRAW_PAGE;}
@@ -744,7 +755,7 @@ static bool no_menu_handle(app_ctx_t *ctx) { (void)ctx; return false; }
 static EpdRect area_hint(app_ctx_t *ctx) { (void)ctx; return s_area; }
 
 const app_desc_t app_dashboard = {
-    .title = "首页 Home", .detail = "最近阅读与四周阅读记录", .enter_full = false,
+    .title = UI_MSG("首页 Home"), .detail = UI_MSG("最近阅读与四周阅读记录"), .enter_full = false,
     .owns_keys = true, .menu_handle_enabled = no_menu_handle,
     .on_enter = on_enter, .on_exit=home_exit, .on_media_lost = on_media_lost, .on_media_ready = on_media_ready,
     .render = render, .present = present, .on_tick = on_tick,

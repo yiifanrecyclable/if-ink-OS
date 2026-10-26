@@ -104,8 +104,14 @@ bool ui_banner_quote_fits_font(const char *text,const char *path){return ui_bann
 void ui_banner_date_line(uint32_t day,bool valid,char *line,size_t cap){
     static const char *const weekdays[]={"星期日","星期一","星期二","星期三","星期四","星期五","星期六"};
     struct tm date;char lunar[80];time_t seconds=(time_t)((uint64_t)day*86400);
-    strlcpy(line,"请设置日期与时间",cap);
-    if(valid&&gmtime_r(&seconds,&date)){bool have=ui_lunar_label((int32_t)day,lunar,sizeof(lunar));
+    strlcpy(line,ui_i18n_english()?"Set date & time":"请设置日期与时间",cap);
+    if(valid&&gmtime_r(&seconds,&date)){
+        if(ui_i18n_english()){
+            static const char *const months[]={"Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"};
+            static const char *const days[]={"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
+            snprintf(line,cap,"%s %d, %d · %s",months[date.tm_mon],date.tm_mday,date.tm_year+1900,days[date.tm_wday]);return;
+        }
+        bool have=ui_lunar_label((int32_t)day,lunar,sizeof(lunar));
         snprintf(line,cap,"%d年%d月%d日 · %s%s%s",date.tm_year+1900,date.tm_mon+1,date.tm_mday,weekdays[date.tm_wday],have?" · ":"",have?lunar:"");}
 }
 uint16_t ui_banner_default_date_y(int quote_px){

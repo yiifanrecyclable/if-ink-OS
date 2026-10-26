@@ -103,6 +103,11 @@ esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *out,size_t *n){(void
 esp_err_t nvs_set_blob(nvs_handle_t h,const char *key,const void *in,size_t n){(void)h;assert(!strcmp(key,"preferences")&&n==sizeof(input_staged));memcpy(&input_staged,in,n);input_pending=true;return ESP_OK;}
 
 int main(void) {
+    assert(app_settings_language()==APP_LANGUAGE_ZH&&!ui_i18n_english());
+    assert(app_settings_set_language(APP_LANGUAGE_EN)==ESP_OK&&ui_i18n_english());
+    assert(app_settings_set_language((app_language_t)2)==ESP_ERR_INVALID_ARG);
+    assert(app_settings_language()==APP_LANGUAGE_EN);
+    assert(app_settings_set_language(APP_LANGUAGE_ZH)==ESP_OK&&!ui_i18n_english());
     // 日期格式、UTC+8跨日、隐藏日期保留格式。/ Numeric formats, UTC+8 rollover and retaining format while hidden.
     char clock[64];const char *expected[]={"2024-01-02 04:00","2024/01/02 04:00","2024.01.02 04:00","01-02 04:00","01/02 04:00"};
     for(int i=0;i<APP_STATUS_DATE_FORMAT_COUNT;++i){
@@ -417,6 +422,13 @@ int main(void) {
     assert(wallpaper_backup&&fread(&wallpaper_record,1,sizeof(wallpaper_record),wallpaper_backup)==sizeof(wallpaper_record));fclose(wallpaper_backup);
     assert(backup_valid(&wallpaper_record)&&!strcmp(wallpaper_record.wallpaper,"/sdcard/wallpapers/"));
     assert(app_settings_backup_restore()==ESP_OK&&!app_settings_wallpaper_rotating()); // 缺失目录回退默认。/ Missing directories use the default.
+    // 英文选择随备份保存；旧备份的蓝牙位不作为语言位。/ Save English in backup without reinterpreting the retired Bluetooth bit.
+    assert(app_settings_set_language(APP_LANGUAGE_EN)==ESP_OK);
+    assert(app_settings_backup_save()==ESP_OK);
+    assert(app_settings_set_language(APP_LANGUAGE_ZH)==ESP_OK);
+    assert(app_settings_backup_restore()==ESP_OK);
+    assert(app_settings_language()==APP_LANGUAGE_EN&&ui_i18n_english());
+    assert(app_settings_set_language(APP_LANGUAGE_ZH)==ESP_OK);
     puts("settings backup host test passed (including numeric status dates, display preferences, four size presets and legacy restore)");
     return 0;
 }

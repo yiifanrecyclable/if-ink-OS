@@ -4,7 +4,7 @@
  */
 const button = document.getElementById('flash-installer');
 const status = document.getElementById('flash-status');
-const expectedVersion = '0.1.5';
+const expectedVersion = '0.1.6';
 const expectedParts = new Map([
   ['bootloader.bin', 0], ['partition-table.bin', 0x8000],
   ['firmware.bin', 0x10000], ['ota-data-initial.bin', 0xd10000],
@@ -70,8 +70,8 @@ async function start() {
           seen.has(part.path) || !Number.isInteger(part.size) || part.size <= 0 ||
           !/^[a-f0-9]{64}$/.test(part.sha256) ||
           Math.ceil((part.offset + part.size) / 4096) * 4096 > regionEnds.get(part.path)) throw new Error('parts');
-      if (part.path === 'firmware.bin' && (part.size !== 3658320 ||
-          part.sha256 !== 'a21255d274a6378330a4885a59fc42967c7a7505bd8dba00fbd08303440c9604')) throw new Error('image');
+      if (part.path === 'firmware.bin' && (part.size !== 3717088 ||
+          part.sha256 !== '3309df71c9c130c261fa5933084d7d3deb91f6af7f7a715b8abd570df478f7df')) throw new Error('image');
       seen.add(part.path);
     }
     button.prepareManifest = () => prepareBundleSnapshot(manifest, new URL(button.getAttribute('manifest'), document.baseURI).href);

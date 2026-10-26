@@ -15,6 +15,7 @@
 #include <stdint.h>
 
 #include "epdiy.h"
+#include "ui_i18n.h"
 #include "fallback.h"
 #include "../assets/ui_icons.h"
 

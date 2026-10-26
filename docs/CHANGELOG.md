@@ -4,6 +4,14 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 2026-10-26 · Codex · if-ink OS v0.1.6
+
+- 新增系统语言：中文与English即时切换并保存，用户书名、正文、格言和签名保留原文。 / Add persistent Chinese/English system language selection while preserving user content.
+- 首页新增“阅读打卡”（Record）与“更多”入口，保留区域长按；详情按日列出，目标设定（Target）支持30至180分钟六档、默认90分钟，随配置备份。热力图与横条统一按目标显示，达标格叠加居中圆头灰色对勾，月初“1”置于左上角。 / Add daily Record/More and a backed-up Target(default90,30–180 minutes), shared heatmap/bar thresholds, centered round-cap completion checks and upper-left month-start labels.
+- 四个主页面采用普通同步灰阶刷新，文字、封面与底栏同轮输出；底栏保留现有样式，只驱动变化像素并使用同向擦白。保留阅读水波纹、首页强刷与周期清理。 / Use ordinary simultaneous root-page grayscale with held-equal footer pixels and directional whitening, retaining reader ripple and explicit/periodic cleanup.
+- 锁屏壁纸使用完整图片刷新；浅睡与深睡恢复后统一清理首个完整页面，避免壁纸参考帧不一致。 / Present wallpaper with full image refresh and clean the first complete wake target from a consistent baseline.
+- 固件信息更新为Obsidian、Send to E-ink Reader与坚果云的四行简介，精简来源注明并补齐内建字库。 / Update the firmware information introduction, attribution and built-in glyph coverage.
+
 ## 2026-10-23 · Codex · if-ink OS v0.1.5
 
 - 四个主页面统一同轮分区刷新，底部80像素使用原校准灰阶；底栏未变化时保持，不增加串行补刷，现有阅读水波纹与手动/周期清理保留。 / Unify root-page scan phases with calibrated80px navigation; hold unchanged navigation without serial replay and retain reader ripple/full cleanup.

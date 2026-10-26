@@ -8,7 +8,7 @@ bash tools/run_book_host_tests.sh
 mkdir -p build/book-tests/settings-card
 cc -std=gnu11 -Wall -Wextra -Werror -Itools/settings_backup_stubs \
     -Icomponents/read_pico_transfer/include \
-    tools/settings_backup_host_test.c main/book/reader_input.c -o build/book-tests/settings-backup
+    -Imain tools/settings_backup_host_test.c main/book/reader_input.c main/ui/ui_i18n.c -o build/book-tests/settings-backup
 build/book-tests/settings-backup
 cc -std=gnu11 -Wall -Wextra -Werror -Itools/settings_backup_stubs \
     tools/book_history_backup_host_test.c main/book/content_library.c -Imain/book -o build/book-tests/book-history-backup

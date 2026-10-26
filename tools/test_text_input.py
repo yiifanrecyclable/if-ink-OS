@@ -8,7 +8,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build', prefix='input-unit-') as tmp:
     command=['cc','-std=gnu11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-fno-omit-frame-pointer',
         f'-DUI_PINYIN_DICTIONARY_PATH="{dictionary}"', '-I'+str(ROOT/'tools/simulator/include'),
         '-I'+str(ROOT/'main'),'-I'+str(ROOT/'main/app'),'-I'+str(ROOT/'main/ui'),'-I'+str(ROOT/'main/font'),
-        '-I'+str(ROOT/'components/read_pico_search/include'),str(ROOT/'tools/text_input_host_test.c'),
+        '-I'+str(ROOT/'components/read_pico_search/include'),str(ROOT/'main/ui/ui_i18n.c'),str(ROOT/'tools/text_input_host_test.c'),
         str(ROOT/'components/read_pico_search/read_pico_search.c'),'-o',str(binary)]
     subprocess.run(command,check=True)
     subprocess.run([str(binary)],check=True)
@@ -60,5 +60,5 @@ int main(void) {
     command=['cc','-std=gnu11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-fno-omit-frame-pointer',
         '-I'+str(ROOT/'tools/simulator/include'),'-I'+str(ROOT/'main'),'-I'+str(ROOT/'main/app'),
         '-I'+str(ROOT/'main/ui'),'-I'+str(ROOT/'main/font'),'-I'+str(ROOT/'components/read_pico_search/include'),
-        str(test),str(ROOT/'components/read_pico_search/read_pico_search.c'),'-o',str(binary)]
+        str(ROOT/'main/ui/ui_i18n.c'),str(test),str(ROOT/'components/read_pico_search/read_pico_search.c'),'-o',str(binary)]
     subprocess.run(command,check=True);subprocess.run([str(binary)],check=True)

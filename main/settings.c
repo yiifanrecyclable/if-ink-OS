@@ -28,6 +28,7 @@
 #include "book/book_history_backup.h"
 #include "cloud/cloud_config.h"
 #include "ui/ui_wallpaper_rotation.h"
+#include "ui/ui_i18n.h"
 
 #define TAG "settings"
 #define NVS_NS "read_pico"
@@ -38,6 +39,7 @@
 #define NVS_KEY_AVATAR "dev_avatar"
 #define NVS_KEY_STATUS_SIGNATURE "status_sig"
 #define NVS_KEY_STATUS_DATE "status_date"
+#define NVS_KEY_LANGUAGE "language"
 #define NVS_KEY_IDLE_SLEEP "idle_sleep"
 #define NVS_KEY_FONT "font"
 #define NVS_KEY_SYS_FONT "sys_font"
@@ -77,6 +79,7 @@ static char s_avatar[288];
 static char s_status_signature[96];
 static uint8_t s_idle_sleep_minutes=5;
 static uint8_t s_status_date; // 高位隐藏日期，低位保留格式。/ High bit hides date; low bits retain format.
+static app_language_t s_language;
 static char s_font[FONT_PATH_MAX];
 static char s_system_font[FONT_PATH_MAX];
 static uint8_t system_size_preset(uint8_t value) {
@@ -158,6 +161,10 @@ void app_settings_init(void) {
 
     nvs_handle_t h;
     if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return;
+    uint8_t language=APP_LANGUAGE_ZH;
+    s_language=APP_LANGUAGE_ZH;
+    if(nvs_get_u8(h,NVS_KEY_LANGUAGE,&language)==ESP_OK && language<=APP_LANGUAGE_EN)s_language=(app_language_t)language;
+    ui_i18n_set_english(s_language==APP_LANGUAGE_EN);
     uint8_t idle=5;
     if(nvs_get_u8(h,NVS_KEY_IDLE_SLEEP,&idle)==ESP_OK&&idle_sleep_valid(idle))s_idle_sleep_minutes=idle;
     uint8_t date=0;
@@ -358,6 +365,16 @@ const char* app_settings_font_path(void) {
 }
 
 const char* app_settings_system_font_path(void) { return s_system_font; }
+app_language_t app_settings_language(void){return s_language;}
+esp_err_t app_settings_set_language(app_language_t language){
+    if(language!=APP_LANGUAGE_ZH&&language!=APP_LANGUAGE_EN)return ESP_ERR_INVALID_ARG;
+    if(language==s_language)return ESP_OK;
+    nvs_handle_t h;esp_err_t err=nvs_open(NVS_NS,NVS_READWRITE,&h);
+    if(err!=ESP_OK)return err;
+    err=nvs_set_u8(h,NVS_KEY_LANGUAGE,(uint8_t)language);
+    if(err==ESP_OK)err=nvs_commit(h);
+    nvs_close(h);if(err==ESP_OK){s_language=language;ui_i18n_set_english(language==APP_LANGUAGE_EN);}return err;
+}
 void app_settings_set_system_font_path(const char* path) {
     if (!path) path = "";
     if (strnlen(path, sizeof(s_system_font)) >= sizeof(s_system_font)) return;
@@ -752,9 +769,11 @@ static esp_err_t backup_save_to(const char *target, const char *temporary, const
     strlcpy(profile.status_signature, s_status_signature, sizeof(profile.status_signature));
     // v5 及之后复用此字段的预留位；v7 在其后追加 WiFi 与阅读资料。
     // V5+ use reserved bits here; v7 appends WiFi and reading records afterward.
+    // 128保存语言；旧蓝牙位8仍退役，不作复用。/ Bit128 stores language; retired Bluetooth bit8 remains unused.
     profile.home_full_refresh = (s_home_full_refresh ? 1 : 0) |
                                 (s_reader_hide_images ? 2 : 0) |
                                 (s_shelf_recent_sort ? 4 : 0) |
+                                (s_language==APP_LANGUAGE_EN ? 128 : 0) |
                                 (s_reader_hold_refresh ? 16 : 0) |
                                 (s_reader_vertical_turn ? 32 : 0) |
                                 (s_reader_fullscreen ? 64 : 0);
@@ -927,7 +946,6 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
                      strnlen(profile.device_name, sizeof(profile.device_name)) < sizeof(profile.device_name) &&
                      profile.device_name[0] &&
                      strnlen(profile.status_signature, sizeof(profile.status_signature)) < sizeof(profile.status_signature) &&
-                     profile.home_full_refresh <= 127 &&
                      backup_path_valid(profile.avatar, sizeof(profile.avatar));
             }
         }
@@ -1006,6 +1024,7 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
     if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_HOME_FULL, profile.home_full_refresh & 1);
     if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_HIDE_IMAGES, (profile.home_full_refresh & 2) != 0);
     if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_SHELF_RECENT, (profile.home_full_refresh & 4) != 0);
+    if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_LANGUAGE, (profile.home_full_refresh & 128) != 0);
     if (err == ESP_OK) err = nvs_set_str(h, NVS_KEY_DEVICE_NAME, profile.device_name);
     if (err == ESP_OK) err = nvs_set_str(h, NVS_KEY_AVATAR, profile.avatar);
     if (err == ESP_OK) err = nvs_set_str(h, NVS_KEY_STATUS_SIGNATURE, profile.status_signature);
@@ -1064,6 +1083,8 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
     s_home_full_refresh = (profile.home_full_refresh & 1) != 0;
     s_reader_hide_images = (profile.home_full_refresh & 2) != 0;
     s_shelf_recent_sort = (profile.home_full_refresh & 4) != 0;
+    s_language = (profile.home_full_refresh & 128) ? APP_LANGUAGE_EN : APP_LANGUAGE_ZH;
+    ui_i18n_set_english(s_language==APP_LANGUAGE_EN);
     strlcpy(s_device_name, profile.device_name, sizeof(s_device_name));
     strlcpy(s_avatar, profile.avatar, sizeof(s_avatar));
     strlcpy(s_status_signature, profile.status_signature, sizeof(s_status_signature));

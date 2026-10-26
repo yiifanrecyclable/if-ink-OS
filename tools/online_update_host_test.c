@@ -85,6 +85,18 @@ static void prepare(void){
 }
 static void run_worker(void){assert(pending_worker);void(*fn)(void*)=pending_worker;pending_worker=NULL;fn(pending_arg);if_update_poll();assert(!s_status.busy&&!s_task);}
 static void policy(void){
+ assert(if_update_newer("0.1.6","0.1.6-beta3-r2"));
+ assert(!if_update_newer("0.1.6-beta3-r2","0.1.5"));
+ assert(!if_update_newer("0.1.6","0.1.6-beta3-r0"));
+ assert(!if_update_newer("0.1.6","0.1.6-beta3-r2junk"));
+ assert(if_update_newer("0.1.6","0.1.6-beta2"));
+ assert(if_update_newer("0.1.7","0.1.6-beta2"));
+ assert(!if_update_newer("0.1.6-beta2","0.1.5"));
+ assert(!if_update_newer("0.1.6","0.1.6-beta2-junk"));
+ assert(!if_update_newer("0.1.6","0.1.6-beta0"));
+ assert(if_update_newer("0.1.6","0.1.6-beta"));assert(if_update_newer("0.1.7","0.1.6-beta"));
+ assert(!if_update_newer("0.1.5","0.1.6-beta"));assert(!if_update_newer("0.1.6-beta","0.1.5"));
+ assert(!if_update_newer("0.1.6","0.1.6-beta-junk"));
  assert(if_update_newer("0.1.0","0.1.0-test.2"));assert(if_update_newer("0.1.0","0.3.3-rc83-if.8"));
  assert(!if_update_newer("0.1.0","0.1.0"));assert(!if_update_newer("0.1.0","0.1.1"));assert(!if_update_newer("0.2.0-test.1","0.1.0"));
  assert(!if_update_newer("01.2.0","0.1.0"));assert(!if_update_newer("0.1.0","unknown"));

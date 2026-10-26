@@ -48,8 +48,12 @@ enum EpdDrawError e0470_page_turn_with_waveform(EpdiyHighlevelState *hl,EpdRect 
 enum EpdDrawError e0470_update_regions(EpdiyHighlevelState *hl,EpdRect area,EpdRect art,const EpdWaveform *soft,const EpdWaveform *strong,enum EpdDrawMode mode);
 
 /// 同轮校准真实变化的底栏，其他区域保留柔和/图片序列；底栏须16像素对齐并结束于area底边。
-/// Calibrate changed navigation in the shared scan; keep soft/art sequences elsewhere. Navigation is16-pixel aligned and ends at the area bottom.
-enum EpdDrawError e0470_update_navigation_regions(EpdiyHighlevelState *hl,EpdRect area,EpdRect art,EpdRect navigation,const EpdWaveform *soft,const EpdWaveform *strong);
+/// Calibrate changed navigation pixels with ordinary grayscale in the shared scan; hold equal grays. Navigation is16-pixel aligned and ends at the area bottom.
+enum EpdDrawError e0470_update_navigation_regions(EpdiyHighlevelState *hl,EpdRect area,EpdRect art,EpdRect navigation,const EpdWaveform *soft,const EpdWaveform *strong,const EpdWaveform *nav);
+
+/// 主体完整清理，底栏沿用普通灰阶序列；保留首页强刷且不重复驱动等灰底栏。
+/// Clean the body while retaining the same changed-pixel ordinary footer calibration as ordinary root transitions.
+enum EpdDrawError e0470_update_navigation_clean(EpdiyHighlevelState *hl,EpdRect area,EpdRect navigation,const EpdWaveform *nav);
 
 #ifdef __cplusplus
 }

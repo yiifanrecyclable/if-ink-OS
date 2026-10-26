@@ -20,6 +20,8 @@ static uint8_t dirty_columns[WIDTH / 2];
 static const EpdWaveformPhases gl = {.phases = 37, .luts = (const uint8_t*)"x"};
 const EpdWaveform E0470_WAVEFORM = {.id = 1};
 const EpdWaveform E0470_APPLY_WAVEFORM = {.id = 2};
+const EpdWaveform E0470_FULL_WAVEFORM = {.id = 5};
+static const EpdWaveformPhases full_phases = {.phases = 48, .luts = (const uint8_t*)"f"};
 static enum EpdRotation rotation;
 static e0470_turn_dir_t direction;
 static bool check_direction = true;
@@ -30,6 +32,7 @@ static const int8_t* staged_bands;
 static int staged_count;
 static int scans, fail_at, differences, powerons;
 static bool region_test, nav_test, nav_changed;
+static bool nav_clean;
 static EpdRect expected_art;
 static const EpdWaveform soft_wave={.id=3},art_wave={.id=4};
 static const EpdWaveformPhases soft_phases={.phases=37,.luts=(const uint8_t*)"s"},art_phases={.phases=37,.luts=(const uint8_t*)"a"};
@@ -44,14 +47,15 @@ void epd_poweron(void) { ++powerons; }
 int64_t esp_timer_get_time(void) { return now_us; }
 void esp_rom_delay_us(uint32_t us) { now_us += us; }
 const EpdWaveformPhases* e0470_waveform_phases(const EpdWaveform* waveform, int mode) {
+    if(waveform==&E0470_FULL_WAVEFORM){assert(mode==MODE_GL16||mode==MODE_GC16);return &full_phases;}
     assert(mode == MODE_GL16);
     if(waveform==&soft_wave)return &soft_phases;
     if(waveform==&art_wave)return &art_phases;
     assert(waveform==&E0470_WAVEFORM);return &gl;
 }
 void epd_build_1ppB_lut_1k(uint8_t* lut, const EpdWaveformPhases* phases, int frame) {
-    assert((phases==&gl||phases==&soft_phases||phases==&art_phases)&&frame>=0&&frame<37);
-    memset(lut,frame+(phases==&soft_phases?100:phases==&art_phases?150:0),1024);
+    assert((phases==&gl||phases==&soft_phases||phases==&art_phases||phases==&full_phases)&&frame>=0&&frame<phases->phases);
+    memset(lut,frame+(phases==&soft_phases?100:phases==&art_phases?150:phases==&full_phases?200:0),1024);
 }
 EpdRect epd_difference_image_cropped(const uint8_t* to, const uint8_t* from, EpdRect area,
                                       uint8_t* difference, bool* lines, uint8_t* columns) {
@@ -107,8 +111,22 @@ enum EpdDrawError epd_draw_base(EpdRect area, const uint8_t* data, EpdRect crop,
             for(int x=staged_x0[b];x<staged_x1[b];++x){
                 int expected=x>=1136?(nav_changed?2:-1):
                     x>=expected_art.y&&x<expected_art.y+expected_art.height?1:0;
-                assert(staged_bands[b]==expected);
-                if(expected>=0)assert(staged_luts[expected][0]==tick+(expected==0?100:expected==1?150:0));
+                int limit=expected!=2&&nav_clean?48:37;
+                int phase=tick;
+                int selected=staged_bands[b];
+                if(expected<0)assert(selected==-1);
+                else {
+                    assert(selected==expected);
+                    int value=phase>=limit?0:phase+(expected==2?150:nav_clean?200:expected==0?100:150);
+                    assert(staged_luts[selected][4]==value);
+                    if(expected==2){
+                        // 全部16种等灰保持，所有240种变化保留原表，包含按钮、图标和渐变。
+                        // Hold all16 equal pairs; preserve all240 changed pairs for buttons, icons and gradients.
+                        for(int to=0;to<16;++to)for(int from=0;from<16;++from)
+                            for(int byte=0;byte<4;++byte)
+                                assert(staged_luts[selected][4*(to*16+from)+byte]==(to==from?0:value));
+                    }
+                }
             }
         }
         assert(next==1216);
@@ -215,28 +233,39 @@ int main(void) {
     }
     region_test=false;nav_test=true;rotation=EPD_ROT_INVERTED_PORTRAIT;
     EpdRect arts[]={{0,128,684,928},{0,32,684,1088},{0,0,684,1216}};
-    // 四主导航全部16种迁移：底栏独立原表、无变化保持，正文/图片同37相。/ All16 root transitions use the original footer table or hold, sharing37 phases with body/art.
+    // 四主页正文、封面和底栏同步37相，未变化底栏像素保持。/ Body, covers and footer share37 synchronous phases, holding equal footer pixels.
     for(int a=0;a<3;++a)for(int from=0;from<4;++from)for(int to=0;to<4;++to){
         expected_art=arts[a];nav_changed=from!=to;
         memset(back,0xff,sizeof(back));memset(front,0x24,sizeof(front));paint_nav(back,from);paint_nav(front,to);
         scans=differences=fail_at=0;
-        assert(e0470_update_navigation_regions(&hl,(EpdRect){0,0,684,1216},expected_art,(EpdRect){0,1136,684,80},&soft_wave,&art_wave)==EPD_DRAW_SUCCESS);
+        assert(e0470_update_navigation_regions(&hl,(EpdRect){0,0,684,1216},expected_art,(EpdRect){0,1136,684,80},&soft_wave,&art_wave,&art_wave)==EPD_DRAW_SUCCESS);
         assert(scans==37&&differences==1&&!memcmp(front,back,sizeof(back)));
     }
+    // 首页强刷和普通切页共享底栏校准；主体仍完整48相，未变化底栏不动。
+    // Home cleanup shares footer calibration; clean the body in48 phases and hold an unchanged footer.
+    nav_clean=true;expected_art=(EpdRect){0,0,684,1216};
+    for(int from=0;from<4;++from)for(int to=0;to<4;++to){
+        nav_changed=from!=to;memset(front,0x24,sizeof(front));memset(back,0xff,sizeof(back));
+        paint_nav(back,from);paint_nav(front,to);scans=differences=fail_at=0;
+        assert(e0470_update_navigation_clean(&hl,(EpdRect){0,0,684,1216},(EpdRect){0,1136,684,80},&art_wave)==EPD_DRAW_SUCCESS);
+        assert(scans==48&&differences==1&&!memcmp(front,back,sizeof(back)));
+    }
+    nav_clean=false;
     expected_art=arts[0];nav_changed=true;
     memset(front,0x24,sizeof(front));memset(back,0xff,sizeof(back));scans=differences=0;fail_at=13;
-    assert(e0470_update_navigation_regions(&hl,(EpdRect){0,0,684,1216},expected_art,(EpdRect){0,1136,684,80},&soft_wave,&art_wave)==EPD_DRAW_OTHER_ERROR);
+    assert(e0470_update_navigation_regions(&hl,(EpdRect){0,0,684,1216},expected_art,(EpdRect){0,1136,684,80},&soft_wave,&art_wave,&art_wave)==EPD_DRAW_OTHER_ERROR);
     assert(scans==13&&differences==1);for(size_t i=0;i<sizeof(back);++i)assert(back[i]==0xff);
     scans=differences=fail_at=0;water_test_alloc_fail=1;
-    assert(e0470_update_navigation_regions(&hl,(EpdRect){0,0,684,1216},expected_art,(EpdRect){0,1136,684,80},&soft_wave,&art_wave)==EPD_DRAW_NO_PHASES_AVAILABLE);
+    assert(e0470_update_navigation_regions(&hl,(EpdRect){0,0,684,1216},expected_art,(EpdRect){0,1136,684,80},&soft_wave,&art_wave,&art_wave)==EPD_DRAW_NO_PHASES_AVAILABLE);
     assert(!scans&&!differences);water_test_alloc_fail=0;
     EpdRect invalid_nav[]={{0,1135,684,81},{0,1136,684,64},{1,1136,683,80},{0,0,0,0}};
     for(size_t i=0;i<sizeof(invalid_nav)/sizeof(invalid_nav[0]);++i){
-        assert(e0470_update_navigation_regions(&hl,(EpdRect){0,0,684,1216},expected_art,invalid_nav[i],&soft_wave,&art_wave)==EPD_DRAW_INVALID_CROP);
+        assert(e0470_update_navigation_regions(&hl,(EpdRect){0,0,684,1216},expected_art,invalid_nav[i],&soft_wave,&art_wave,&art_wave)==EPD_DRAW_INVALID_CROP);
         assert(!scans&&!differences);
     }
     for(size_t i=0;i<sizeof(back);++i)assert(back[i]==0xff);
     nav_test=false;
+    nav_test=nav_clean=false;
     e0470_page_turn_release();
     memset(back, 0xFF, sizeof(back));
     scans = differences = 0;
@@ -246,5 +275,5 @@ int main(void) {
            EPD_DRAW_NO_PHASES_AVAILABLE);
     assert(scans == 0 && differences == 0);
     for (size_t i = 0; i < sizeof(back); ++i) assert(back[i] == 0xFF);
-    puts("water turn: 4 rotations × 4 directions, 52 ticks, single diff, 37 phases, 48 calibrated navigation cases and failure baseline passed");
+    puts("water turn: reader rotations/directions unchanged; 48 synchronous +16 clean navigation cases, equal-gray hold, complete changed-pixel phases, interruption and resource fallback passed");
 }

@@ -87,6 +87,12 @@ esp_err_t nvs_entry_info(nvs_iterator_t it, nvs_entry_info_t *info) {
 void nvs_release_iterator(nvs_iterator_t it) { free(it); }
 
 int main(void) {
+    assert(content_reading_target_minutes()==90);
+    for(unsigned goal=30;goal<=180;goal+=30){assert(content_reading_target_valid(goal));assert(content_reading_target_set(goal)==ESP_OK);assert(content_reading_target_minutes()==goal);}
+    assert(!content_reading_target_valid(0)&&!content_reading_target_valid(31)&&!content_reading_target_valid(181));
+    assert(content_reading_target_set(91)==ESP_ERR_INVALID_ARG&&content_reading_target_minutes()==180);
+    uint8_t bad_goal=91;assert(!valid_record(6,NVS_TYPE_U8,"read_target",&bad_goal,1));
+
     const char *path = "/sdcard/books/one.epub";
     uint32_t seq = 9;
     assert(put(0,"seq",NVS_TYPE_U32,&seq,4)==ESP_OK);
@@ -132,7 +138,7 @@ int main(void) {
     assert(!content_book_pinned(path)&&content_book_pin_set(path,true)==ESP_ERR_INVALID_RESPONSE);
     assert(content_book_pin_set(path,false)==ESP_ERR_INVALID_RESPONSE);
     assert(put(6,pin_record_key,NVS_TYPE_STR,path,path_len)==ESP_OK);
-    assert(counts[0]==13);
+    assert(counts[0]==14);
     assert(content_home_quote_valid("阅读每一天") && content_home_quote_valid(""));
     assert(content_home_quote_valid("one\ntwo\nthree\nfour")&&!content_home_quote_valid("one\ntwo\nthree\nfour\nfive"));
     assert(!content_home_quote_valid("bad\r") && !content_home_quote_valid("\xc0\xaf"));
@@ -198,6 +204,7 @@ int main(void) {
     snprintf(key,sizeof(key),"h_%08x",path_hash);
     assert(put(5,key,NVS_TYPE_STR,path,path_len)==ESP_OK);
     assert(book_history_backup_restore(f)==ESP_OK);
+    assert(content_reading_target_minutes()==180);
     content_markdown_sizes(md_sizes);assert(!memcmp(md_sizes,wanted,4));
     assert(counts[1]==counts[0]);
     assert(!find_record(3,"f_deadbeef"));

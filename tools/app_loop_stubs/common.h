@@ -37,6 +37,7 @@ enum EpdDrawError update_display_mode(EpdiyHighlevelState*, int);
 enum EpdDrawError update_display_mode_diff(EpdiyHighlevelState*, int);
 enum EpdDrawError update_display_fast_page(EpdiyHighlevelState*);
 enum EpdDrawError update_display_white(EpdiyHighlevelState*);
+bool display_resume_clean_pending(void);
 bool display_take_white_exit(void);
 void rails_idle_check(int64_t);
 bool read_pico_pmu_ready(void);

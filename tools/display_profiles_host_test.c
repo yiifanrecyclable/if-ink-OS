@@ -24,6 +24,7 @@ int main(void){
    if(to==15&&to!=from)assert(s==0||s==2);
    if(to==0&&to!=from)assert(s==0||s==1);
    if(to!=15)assert(e0470_phase_action(art,f,to,from)==b);
+   else assert(e0470_phase_action(art,f,to,from)==0||e0470_phase_action(art,f,to,from)==2);
   }
   if(to!=from)assert(derived[1]==originals[1]);
  }

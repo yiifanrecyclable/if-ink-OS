@@ -44,3 +44,13 @@ S3睡眠时钟采用内部振荡器分频源（INT_8MD256）、8190周期校准�
 首页强刷一次性对整个目标画面执行完整灰阶GC16，包括未选中导航的灰色底，不再先擦白后重画。保留必要的GC16波形相位，不能保证完全无闪烁；光学残影与纵向条纹应在设备上验证，模拟器仅核对绘图和刷新调用。
 
 English: Use the divided internal RTC source with 8190-cycle calibration, retaining board memory timing. Idle background time sync reuses an existing STA, polls without waiting, writes successful time to the PMU and retries hourly after success or at least five minutes after failure. Foreground work and sleep take priority; offline never starts WiFi. Home refresh drives every pixel in one full-grayscale target pass without an extra white preclear. Hardware clock drift and optical artifacts require physical testing.
+
+## 系统语言 / System language
+
+在设置 → 系统与设备 → 日期与时间下方的“系统语言”一行，点击右端当前语言“中文”或“English”即可切换；默认中文，立即生效，重启后保留，并随“保存与恢复”备份。切换只影响系统文案、日期说明和默认输入模式；书名、文件名、文章正文、格言、签名及TF卡字体名称不翻译。英文界面的输入法仍可切回中文拼音。
+
+In Settings → System & device, tap the current language below Date & time to switch between Chinese and English. The choice applies immediately, persists across restarts and is included in settings backups. User titles, file names, document text, quotes, signatures and TF font names remain unchanged. Chinese Pinyin input stays available in the English interface.
+
+维护约定：只有UI_MSG显式标记的系统文案进入集中目录，布局和绘制前解析；格式串与嵌套标签用ui_snprintf处理，不对任意用户文本做词语替换。备份使用原资料字段的新高位128，退休蓝牙位8继续忽略；旧备份恢复为中文，英文备份需此版本或更新版本恢复。
+
+Maintenance: only explicitly marked system messages enter the catalog. Resolve them before layout/painting and use ui_snprintf for templates and nested labels. Bit128 of the existing profile stores English; retired Bluetooth bit8 remains ignored. Older backups restore Chinese; English backups require this version or newer.

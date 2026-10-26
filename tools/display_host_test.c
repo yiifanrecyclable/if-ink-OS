@@ -37,14 +37,24 @@ const EpdWaveform *display_art_waveform(void){return &E0470_WAVEFORM;}
 enum EpdDrawError e0470_page_turn_with_waveform(EpdiyHighlevelState *hl,EpdRect area,e0470_turn_dir_t dir,const EpdWaveform *wave){assert(wave==display_text_waveform());return e0470_page_turn(hl,area,dir);}
 static enum EpdDrawError region_result;
 static int region_calls;
+static int navigation_clean_calls;
 enum EpdDrawError e0470_update_regions(EpdiyHighlevelState *hl,EpdRect area,EpdRect art,const EpdWaveform *soft,const EpdWaveform *strong,enum EpdDrawMode mode){
     assert(hl&&area.x==0&&area.y==0&&area.width==684&&area.height==1216);
     assert(art.width==684&&soft&&strong&&mode==MODE_GL16);++region_calls;return region_result;
 }
 
-enum EpdDrawError e0470_update_navigation_regions(EpdiyHighlevelState *hl,EpdRect area,EpdRect art,EpdRect nav,const EpdWaveform *soft,const EpdWaveform *strong){
+enum EpdDrawError e0470_update_navigation_regions(EpdiyHighlevelState *hl,EpdRect area,EpdRect art,EpdRect nav,const EpdWaveform *soft,const EpdWaveform *strong,const EpdWaveform *nav_wave){
+    assert(nav_wave==display_art_waveform());
     assert(nav.x==0&&nav.y==1136&&nav.width==684&&nav.height==80);
     return e0470_update_regions(hl,area,art,soft,strong,MODE_GL16);
+}
+enum EpdDrawError e0470_update_navigation_clean(EpdiyHighlevelState *hl,EpdRect area,EpdRect nav,const EpdWaveform *nav_wave){
+    assert(nav_wave==display_art_waveform());
+    assert(hl&&area.x==0&&area.y==0&&area.width==684&&area.height==1216);
+    assert(nav.x==0&&nav.y==1136&&nav.width==684&&nav.height==80);
+    ++navigation_clean_calls;
+    if(region_result==EPD_DRAW_SUCCESS)memcpy(hl->back_fb,hl->front_fb,FB_BYTES);
+    return region_result;
 }
 
 void read_pico_epd_set_pclk(int mhz) { ++clocks; safe_clock = mhz; }
@@ -141,12 +151,12 @@ int main(void) {
     assert(last_mode == MODE_GC16 && waveform_at_draw == &E0470_FULL_WAVEFORM &&
            hl.waveform == &E0470_WAVEFORM);
 
-    // 首页只推一次完整目标，不擦白、不跳过未变化灰底。/ Home sends one complete target without a white preclear or skipping unchanged gray pixels.
+    // 首页与周期清理复用底栏路径，单轮输出且不擦白。/ Home and periodic cleanup share the footer path, without a serial pass or white preclear.
     memcpy(front,target,FB_BYTES);memset(back,0x55,FB_BYTES);
     clears=draws=full_draws=0;
     assert(update_display_home_clean(&hl)==EPD_DRAW_SUCCESS);
-    assert(!clears&&draws==1&&full_draws==1&&!white_baseline&&correct_target_at_draw);
-    assert(last_scan==READ_PICO_EPD_SCAN_FULL&&last_mode==MODE_GC16&&waveform_at_draw==&E0470_FULL_WAVEFORM);
+    assert(!clears&&!draws&&!full_draws&&navigation_clean_calls==1);
+    assert(last_scan==READ_PICO_EPD_SCAN_FULL);
     assert(hl.waveform==&E0470_WAVEFORM&&!memcmp(front,target,FB_BYTES)&&!memcmp(back,target,FB_BYTES));
 
     clocks = powerons = clears = draws = full_draws = last_mode = 0;
@@ -210,9 +220,23 @@ int main(void) {
         assert(clocks==before_clock+(failure==3));
         assert(hl.waveform==&E0470_WAVEFORM);
     }
-    update_display_full(&hl);region_calls=0;draws=clears=0;region_result=EPD_DRAW_SUCCESS;
+    update_display_full(&hl);region_calls=navigation_clean_calls=0;draws=clears=0;region_result=EPD_DRAW_SUCCESS;
     for(int i=0;i<APP_UI_FAST_GC16_EVERY;++i)
         assert(update_display_navigation_page(&hl,(EpdRect){0,128,684,928},(EpdRect){0,1136,684,80})==EPD_DRAW_SUCCESS);
-    assert(region_calls==APP_UI_FAST_GC16_EVERY-1&&draws==1&&!clears&&last_mode==MODE_GC16);
+    assert(region_calls==APP_UI_FAST_GC16_EVERY-1&&navigation_clean_calls==1&&!draws&&!clears);
+    // 唤醒先完成一次清理，再恢复原有阅读出口；同一次唤醒不重复清理。
+    // Clean once after wake, then restore the existing reader path without a second cleanup.
+    for(int root=0;root<3;++root){
+        memcpy(front,target,FB_BYTES);memset(back,0x88,FB_BYTES);draws=clears=0;
+        display_resume_clean_next();assert(display_resume_clean_pending());
+        if(root==0)assert(update_display_navigation_page(&hl,(EpdRect){0},(EpdRect){0,1136,684,80})==EPD_DRAW_SUCCESS);
+        else if(root==1)assert(update_display_home_clean(&hl)==EPD_DRAW_SUCCESS);
+        else assert(update_display_full(&hl)==EPD_DRAW_SUCCESS);
+        assert(!display_resume_clean_pending()&&draws==1&&clears==1&&white_baseline&&correct_target_at_draw);
+        assert(last_mode==MODE_GC16&&waveform_at_draw==&E0470_FULL_WAVEFORM&&last_scan==READ_PICO_EPD_SCAN_FULL);
+        assert(!memcmp(front,target,FB_BYTES)&&!memcmp(back,target,FB_BYTES));
+        assert(update_display_mode_diff(&hl,MODE_GL16)==EPD_DRAW_SUCCESS);
+        assert(clears==1&&draws==2&&waveform_at_draw==&E0470_WAVEFORM);
+    }
     puts("display underrun: front retained, white back baseline, full GC16 recovery and bulk prefill passed");
 }

@@ -95,7 +95,7 @@ static void transfer_directory_moved(const char *old_path, const char *new_path)
     for (int i = 0; i < 2; ++i) {
         if (!transfer_path_below(selected[i], old_path)) continue;
         char updated[288];
-        if (snprintf(updated, sizeof(updated), "%s%s", new_path, selected[i] + strlen(old_path)) >= (int)sizeof(updated)) continue;
+        if (ui_snprintf(updated, sizeof(updated), "%s%s", new_path, selected[i] + strlen(old_path)) >= (int)sizeof(updated)) continue;
         bool saved = i == 0 ? app_settings_set_books_dir(updated) : app_settings_set_fonts_dir(updated);
         if (!saved) {
             if (i == 0) (void)app_settings_set_books_dir("/sdcard/books");
@@ -210,15 +210,15 @@ static EpdRect method_control_rect(int id) {
 static void draw_methods(uint8_t *fb) {
     ui_clear_page(fb);
     epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_NAV_TOP}, UI_GRAY_WHITE, fb);
-    transfer_header(fb, "WiFi/热点", NULL);
-    ui_text(fb, 42,UI_PAGE_Y(180), 21, "选择方式", EPD_DRAW_ALIGN_LEFT, false);
+    transfer_header(fb, UI_MSG("WiFi/热点"), NULL);
+    ui_text(fb, 42,UI_PAGE_Y(180), 21, UI_MSG("选择方式"), EPD_DRAW_ALIGN_LEFT, false);
     EpdRect card = {36,UI_PAGE_Y(224), 612, 224};
     epd_fill_rect((EpdRect){36,UI_PAGE_Y(164),612,2},UI_GRAY_SECTION_LINE,fb);
     epd_fill_rect((EpdRect){card.x,card.y+card.height,card.width,2},UI_GRAY_ITEM_LINE,fb);
-    static const char *titles[] = {"WiFi", "热点"};
+    static const char *titles[] = {"WiFi", UI_MSG("热点")};
     static const char *details[] = {
-        "与手机或电脑连接同一个无线网络",
-        "由 Pico 创建临时网络，离线也能传书"
+        UI_MSG("与手机或电脑连接同一个无线网络"),
+        UI_MSG("由 Pico 创建临时网络，离线也能传书")
     };
     for (int i = 0; i < 2; ++i) {
         EpdRect row = method_control_rect(i);
@@ -236,8 +236,8 @@ static void draw_methods(uint8_t *fb) {
         epd_fill_rect((EpdRect){36,UI_PAGE_Y(552),612,2},UI_GRAY_ITEM_LINE,fb);
         ui_text_vc(fb, 342,UI_PAGE_Y(516), 20, s_method_message, EPD_DRAW_ALIGN_CENTER, false);
     }
-    ui_text(fb,42,UI_NAV_TOP-112,UI_TEXT_CAPTION,"支持 EPUB、TXT、MD 文档、字体和图片。",EPD_DRAW_ALIGN_LEFT,false);
-    ui_text(fb,42,UI_NAV_TOP-64,UI_TEXT_CAPTION,"MD 文档保存至 markdown，在内容页阅读。",EPD_DRAW_ALIGN_LEFT,false);
+    ui_text(fb,42,UI_NAV_TOP-112,UI_TEXT_CAPTION,UI_MSG("支持 EPUB、TXT、MD 文档、字体和图片。"),EPD_DRAW_ALIGN_LEFT,false);
+    ui_text(fb,42,UI_NAV_TOP-64,UI_TEXT_CAPTION,UI_MSG("MD 文档保存至 markdown，在内容页阅读。"),EPD_DRAW_ALIGN_LEFT,false);
     ui_nav_draw(fb, 2);
 }
 
@@ -290,51 +290,51 @@ static void draw_networks(uint8_t* fb) {
     ui_clear_page(fb);
     epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_NAV_TOP}, UI_GRAY_WHITE, fb);
     if (s_forget_confirm) {
-        transfer_header(fb, "遗忘网络", "仅清除当前 WiFi，不影响其他网络和图书");
+        transfer_header(fb, UI_MSG("遗忘网络"), UI_MSG("仅清除当前 WiFi，不影响其他网络和图书"));
         char name[33];
-        snprintf(name, sizeof(name), "%s", s_saved_ssid);
+        ui_snprintf(name, sizeof(name), "%s", s_saved_ssid);
         fit_label(name, UI_PX_BODY, ui_content_width());
         ui_text(fb, UI_MARGIN,UI_PAGE_Y(350), UI_PX_BODY, name, EPD_DRAW_ALIGN_LEFT, false);
         ui_text(fb, UI_MARGIN,UI_PAGE_Y(450), UI_PX_CAPTION, s_network_message, EPD_DRAW_ALIGN_LEFT, false);
-        provisioning_button(fb, network_control_rect(11), "确认遗忘", 11);
-        provisioning_button(fb, network_control_rect(12), "取消", 12);
+        provisioning_button(fb, network_control_rect(11), UI_MSG("确认遗忘"), 11);
+        provisioning_button(fb, network_control_rect(12), UI_MSG("取消"), 12);
         ui_nav_draw(fb, 3);
         return;
     }
-    transfer_header(fb, "无线网络", NULL);
+    transfer_header(fb, UI_MSG("无线网络"), NULL);
     epd_fill_rect((EpdRect){36,UI_PAGE_Y(168),612,2},UI_GRAY_SECTION_LINE,fb);
-    ui_text(fb, 42,UI_PAGE_Y(182), 24, "当前网络", EPD_DRAW_ALIGN_LEFT, false);
+    ui_text(fb, 42,UI_PAGE_Y(182), 24, UI_MSG("当前网络"), EPD_DRAW_ALIGN_LEFT, false);
     if (s_saved_configured) {
-        char saved[40]; snprintf(saved, sizeof(saved), "%s", s_saved_ssid); fit_label(saved, 29, 375);
+        char saved[40]; ui_snprintf(saved, sizeof(saved), "%s", s_saved_ssid); fit_label(saved, 29, 375);
         ui_nav_wifi_icon(fb, 74,UI_PAGE_Y(265), 28, UI_GRAY_BLACK);
         ui_text(fb, 104,UI_PAGE_Y(243), 29, saved, EPD_DRAW_ALIGN_LEFT, false);
-        const char *state = s_status.network_ready ? "已连接" :
-            s_network_connect_pending || s_status.state == READ_PICO_TRANSFER_STARTING ? "正在连接…" : "已保存 · 尚未连接";
+        const char *state = s_status.network_ready ? UI_MSG("已连接") :
+            s_network_connect_pending || s_status.state == READ_PICO_TRANSFER_STARTING ? UI_MSG("正在连接…") : UI_MSG("已保存 · 尚未连接");
         ui_text(fb, 64,UI_PAGE_Y(297), 23, state, EPD_DRAW_ALIGN_LEFT, false);
         char address[80];
         const char *url = !strncmp(s_status.url, "http://", 7) ? s_status.url + 7 : s_status.url;
-        snprintf(address, sizeof(address), "%.79s", s_status.network_ready ? url[0] ? url : "已连接，可传书和对时" : "连接后可传书和对时");
+        ui_snprintf(address, sizeof(address), "%.79s", s_status.network_ready ? url[0] ? url : UI_MSG("已连接，可传书和对时") : UI_MSG("连接后可传书和对时"));
         fit_label(address, 21, 419);
         ui_text(fb, 64,UI_PAGE_Y(336), 21, address, EPD_DRAW_ALIGN_LEFT, false);
-        network_button(fb, 6, s_status.network_ready ? "断开" : "连接");
+        network_button(fb, 6, s_status.network_ready ? UI_MSG("断开") : UI_MSG("连接"));
         if (s_pressed == 11) epd_fill_rect(network_control_rect(11),UI_GRAY_ITEM_LINE,fb);
-        ui_text_vc(fb, 563,UI_PAGE_Y(341), 21, "遗忘网络", EPD_DRAW_ALIGN_CENTER, false);
+        ui_text_vc(fb, 563,UI_PAGE_Y(341), 21, UI_MSG("遗忘网络"), EPD_DRAW_ALIGN_CENTER, false);
     } else {
-        ui_text(fb, 64,UI_PAGE_Y(253), 29, "尚未保存网络", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 64,UI_PAGE_Y(312), 23, "请从下方列表选择 2.4 GHz WiFi", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 64,UI_PAGE_Y(253), 29, UI_MSG("尚未保存网络"), EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 64,UI_PAGE_Y(312), 23, UI_MSG("请从下方列表选择 2.4 GHz WiFi"), EPD_DRAW_ALIGN_LEFT, false);
     }
     char count[64];
-    snprintf(count, sizeof(count), "%u 个 · %u/%u 页", (unsigned)s_network_count,
+    ui_snprintf(count, sizeof(count), UI_MSG("%u 个 · %u/%u 页"), (unsigned)s_network_count,
              (unsigned)s_network_page + 1, (unsigned)(s_network_count ? (s_network_count + NETWORK_ROWS - 1) / NETWORK_ROWS : 1));
     epd_fill_rect((EpdRect){36,UI_PAGE_Y(400),612,2},UI_GRAY_SECTION_LINE,fb);
-    ui_text(fb, 42,UI_PAGE_Y(418), 24, "附近网络", EPD_DRAW_ALIGN_LEFT, false);
+    ui_text(fb, 42,UI_PAGE_Y(418), 24, UI_MSG("附近网络"), EPD_DRAW_ALIGN_LEFT, false);
     ui_text(fb, 642,UI_PAGE_Y(420), 21, count, EPD_DRAW_ALIGN_RIGHT, false);
     if (s_scan_pending) {
-        ui_text_vc(fb, 342,UI_PAGE_Y(655), 25, "正在扫描 2.4 GHz WiFi", EPD_DRAW_ALIGN_CENTER, false);
+        ui_text_vc(fb, 342,UI_PAGE_Y(655), 25, UI_MSG("正在扫描 2.4 GHz WiFi"), EPD_DRAW_ALIGN_CENTER, false);
     } else if (!s_network_count) {
-        ui_text_vc(fb, 342,UI_PAGE_Y(620), 27, s_scan_error == ESP_OK ? "没有发现可用网络" : "扫描没有完成",
+        ui_text_vc(fb, 342,UI_PAGE_Y(620), 27, s_scan_error == ESP_OK ? UI_MSG("没有发现可用网络") : UI_MSG("扫描没有完成"),
                    EPD_DRAW_ALIGN_CENTER, false);
-        ui_text_vc(fb, 342,UI_PAGE_Y(678), 22, s_scan_error == ESP_OK ? "请靠近路由器后重新扫描" : "点下方按钮自动重试",
+        ui_text_vc(fb, 342,UI_PAGE_Y(678), 22, s_scan_error == ESP_OK ? UI_MSG("请靠近路由器后重新扫描") : UI_MSG("点下方按钮自动重试"),
                    EPD_DRAW_ALIGN_CENTER, false);
     }
     for (int row = 0; !s_scan_pending && row < NETWORK_ROWS; ++row) {
@@ -345,11 +345,11 @@ static void draw_networks(uint8_t* fb) {
         if (s_pressed == row) epd_fill_rect(rect,UI_GRAY_ITEM_LINE,fb);
         if (row) epd_fill_rect((EpdRect){36, rect.y, 612, 2}, UI_GRAY_ITEM_LINE, fb);
         char name[33], detail[64];
-        snprintf(name, sizeof(name), "%s", network->ssid);
+        ui_snprintf(name, sizeof(name), "%s", network->ssid);
         fit_label(name, 28, 520);
         ui_text_vc(fb, 64, rect.y+12+ui_text_line_height(UI_TEXT_BODY)/2, UI_TEXT_BODY, name, EPD_DRAW_ALIGN_LEFT, false);
-        snprintf(detail, sizeof(detail), "%s · %s", network->rssi > -60 ? "信号强" : network->rssi > -75 ? "信号良好" : "信号一般",
-                 !network->supported ? "暂不支持" : network->requires_password ? "需要密码" : "开放网络");
+        ui_snprintf(detail, sizeof(detail), "%s · %s", network->rssi > -60 ? UI_MSG("信号强") : network->rssi > -75 ? UI_MSG("信号良好") : UI_MSG("信号一般"),
+                 !network->supported ? UI_MSG("暂不支持") : network->requires_password ? UI_MSG("需要密码") : UI_MSG("开放网络"));
         ui_text_fixed_vc(fb, 64, rect.y+12+ui_text_line_height(UI_TEXT_BODY)+ui_text_line_height(UI_TEXT_CAPTION)/2, ui_text_effective_px(UI_TEXT_CAPTION), detail, EPD_DRAW_ALIGN_LEFT, false);
         ui_text_vc(fb, 615, rect.y+rect.height/2, UI_TEXT_BODY, "›", EPD_DRAW_ALIGN_CENTER, false);
     }
@@ -358,19 +358,19 @@ static void draw_networks(uint8_t* fb) {
         network_button(fb, 7, "‹");
         network_button(fb, 9, "›");
     }
-    network_button(fb, 8, s_scan_error == ESP_OK ? "重新扫描" : "重试扫描");
+    network_button(fb, 8, s_scan_error == ESP_OK ? UI_MSG("重新扫描") : UI_MSG("重试扫描"));
     if (s_network_count <= NETWORK_ROWS) ui_draw_icon(fb, 597,UI_PAGE_Y(906), 32, UI_ICON_ROTATE_CW, UI_GRAY_BLACK);
-    ui_text(fb, 42,UI_PAGE_Y(976), 21, "支持 2.4 GHz WiFi（信道 1–13）", EPD_DRAW_ALIGN_LEFT, false);
+    ui_text(fb, 42,UI_PAGE_Y(976), 21, UI_MSG("支持 2.4 GHz WiFi（信道 1–13）"), EPD_DRAW_ALIGN_LEFT, false);
     char message[96];
-    snprintf(message, sizeof(message), "%s", s_network_message[0] ? s_network_message :
-             s_status.network_ready ? "退出此页后，WiFi 仍保持连接。" : "连接后，可退出此页继续使用。");
+    ui_snprintf(message, sizeof(message), "%s", s_network_message[0] ? s_network_message :
+             s_status.network_ready ? UI_MSG("退出此页后，WiFi 仍保持连接。") : UI_MSG("连接后，可退出此页继续使用。"));
     fit_label(message, 21, 600);
     ui_text(fb, 42,UI_PAGE_Y(1014), 21, message, EPD_DRAW_ALIGN_LEFT, false);
     ui_nav_draw(fb, 3);
 }
 
 static void draw_password(uint8_t *fb){
-    ui_text_input_draw(fb,&s_password_input,"连接 WiFi",s_selected.ssid,NULL,"连接",s_network_message);
+    ui_text_input_draw(fb,&s_password_input,UI_MSG("连接 WiFi"),s_selected.ssid,NULL,UI_MSG("连接"),s_network_message);
 }
 
 static void queue_network_start(read_pico_transfer_mode_t mode,bool use_selected_wifi) {
@@ -387,10 +387,10 @@ static void queue_network_start(read_pico_transfer_mode_t mode,bool use_selected
     s_status.mode = s_mode;
     read_pico_transfer_get_saved_wifi(s_status.wifi_ssid, &s_status.wifi_configured);
     s_saved_configured = s_status.wifi_configured;
-    snprintf(s_saved_ssid, sizeof(s_saved_ssid), "%s", s_status.wifi_ssid);
+    ui_snprintf(s_saved_ssid, sizeof(s_saved_ssid), "%s", s_status.wifi_ssid);
     if (s_wifi_settings_only) {
         s_network_connect_pending = true;
-        snprintf(s_network_message, sizeof(s_network_message), "正在连接 %s…", s_status.wifi_ssid);
+        ui_snprintf(s_network_message, sizeof(s_network_message), UI_MSG("正在连接 %s…"), s_status.wifi_ssid);
     } else s_start_pending = true;
 }
 
@@ -435,9 +435,9 @@ static app_redraw_t network_ui_tick(app_ctx_t* ctx) {
         esp_err_t err = read_pico_transfer_start(&cfg);
         s_session_started = err == ESP_OK;
         read_pico_transfer_get_status(&s_status);
-        s_saved_configured=s_status.wifi_configured;snprintf(s_saved_ssid,sizeof(s_saved_ssid),"%s",s_status.wifi_ssid);
-        if(err==ESP_ERR_NOT_FOUND&&s_status.wifi_configured)snprintf(s_network_message,sizeof(s_network_message),"附近未找到已保存的WiFi");
-        else if (err != ESP_OK) snprintf(s_network_message, sizeof(s_network_message), "连接启动失败，请重试");
+        s_saved_configured=s_status.wifi_configured;ui_snprintf(s_saved_ssid,sizeof(s_saved_ssid),"%s",s_status.wifi_ssid);
+        if(err==ESP_ERR_NOT_FOUND&&s_status.wifi_configured)ui_snprintf(s_network_message,sizeof(s_network_message),UI_MSG("附近未找到已保存的WiFi"));
+        else if (err != ESP_OK) ui_snprintf(s_network_message, sizeof(s_network_message), UI_MSG("连接启动失败，请重试"));
         return APP_REDRAW_PAGE;
     }
     if (s_session_started) {
@@ -447,10 +447,10 @@ static app_redraw_t network_ui_tick(app_ctx_t* ctx) {
         bool changed = next.state != s_status.state || next.network_ready != s_status.network_ready ||
                        next.last_error != s_status.last_error || strcmp(next.wifi_ssid,s_status.wifi_ssid);
         s_status = next;
-        s_saved_configured=s_status.wifi_configured;snprintf(s_saved_ssid,sizeof(s_saved_ssid),"%s",s_status.wifi_ssid);
-        if (s_status.network_ready) snprintf(s_network_message, sizeof(s_network_message), "连接成功");
-        else if (s_status.state == READ_PICO_TRANSFER_ERROR) snprintf(s_network_message, sizeof(s_network_message), "连接失败，请检查密码或信号");
-        else if(s_status.state==READ_PICO_TRANSFER_STARTING)snprintf(s_network_message,sizeof(s_network_message),"正在连接 %s…",s_status.wifi_ssid);
+        s_saved_configured=s_status.wifi_configured;ui_snprintf(s_saved_ssid,sizeof(s_saved_ssid),"%s",s_status.wifi_ssid);
+        if (s_status.network_ready) ui_snprintf(s_network_message, sizeof(s_network_message), UI_MSG("连接成功"));
+        else if (s_status.state == READ_PICO_TRANSFER_ERROR) ui_snprintf(s_network_message, sizeof(s_network_message), UI_MSG("连接失败，请检查密码或信号"));
+        else if(s_status.state==READ_PICO_TRANSFER_STARTING)ui_snprintf(s_network_message,sizeof(s_network_message),UI_MSG("正在连接 %s…"),s_status.wifi_ssid);
         return changed ? APP_REDRAW_PAGE : APP_REDRAW_NONE;
     }
     if (!s_scan_pending) return APP_REDRAW_NONE;
@@ -464,10 +464,10 @@ static app_redraw_t network_ui_tick(app_ctx_t* ctx) {
     s_scan_error = err;
     if (err != ESP_OK) {
         s_network_count = 0;
-        snprintf(s_network_message, sizeof(s_network_message), "%s",
-                 err == ESP_ERR_NO_MEM ? "内存已清理，请点下方按钮重试" : "扫描失败，请点下方按钮重试");
+        ui_snprintf(s_network_message, sizeof(s_network_message), "%s",
+                 err == ESP_ERR_NO_MEM ? UI_MSG("内存已清理，请点下方按钮重试") : UI_MSG("扫描失败，请点下方按钮重试"));
     }
-    else if (!s_network_count) snprintf(s_network_message, sizeof(s_network_message), "未发现网络，请靠近路由器后重扫");
+    else if (!s_network_count) ui_snprintf(s_network_message, sizeof(s_network_message), UI_MSG("未发现网络，请靠近路由器后重扫"));
     else s_network_message[0] = 0;
     s_pressed = -1;
     return APP_REDRAW_PAGE;
@@ -500,8 +500,8 @@ static app_redraw_t provisioning_action(int id) {
                 s_forget_confirm = false;
                 s_saved_configured=false;s_saved_ssid[0]=0;
                 read_pico_transfer_get_saved_wifi(s_saved_ssid,&s_saved_configured);
-                snprintf(s_network_message, sizeof(s_network_message), "已遗忘网络");
-            } else snprintf(s_network_message, sizeof(s_network_message), "遗忘失败，请重试或取消");
+                ui_snprintf(s_network_message, sizeof(s_network_message), UI_MSG("已遗忘网络"));
+            } else ui_snprintf(s_network_message, sizeof(s_network_message), UI_MSG("遗忘失败，请重试或取消"));
         }
         return APP_REDRAW_PAGE;
     }
@@ -509,22 +509,22 @@ static app_redraw_t provisioning_action(int id) {
         if (id < NETWORK_ROWS) {
             s_selected = s_networks[s_network_page * NETWORK_ROWS + id];
             if (!s_selected.supported) {
-                snprintf(s_network_message, sizeof(s_network_message), "此网络认证暂不支持，请选择其他网络");
+                ui_snprintf(s_network_message, sizeof(s_network_message), UI_MSG("此网络认证暂不支持，请选择其他网络"));
                 return APP_REDRAW_PAGE;
             }
             if(s_session_started&&!stop_upload_if_idle()){
-                snprintf(s_network_message,sizeof(s_network_message),"正在传输，请完成后再更换网络");return APP_REDRAW_PAGE;
+                ui_snprintf(s_network_message,sizeof(s_network_message),UI_MSG("正在传输，请完成后再更换网络"));return APP_REDRAW_PAGE;
             }
             esp_err_t remembered=read_pico_transfer_select_saved_wifi(s_selected.ssid);
             if(remembered==ESP_OK){queue_network_start(READ_PICO_TRANSFER_MODE_STA,true);return APP_REDRAW_PAGE;}
-            if(remembered!=ESP_ERR_NOT_FOUND){snprintf(s_network_message,sizeof(s_network_message),"读取已保存网络失败，请重试");return APP_REDRAW_PAGE;}
+            if(remembered!=ESP_ERR_NOT_FOUND){ui_snprintf(s_network_message,sizeof(s_network_message),UI_MSG("读取已保存网络失败，请重试"));return APP_REDRAW_PAGE;}
             if (!s_selected.requires_password) {
                 esp_err_t err = read_pico_transfer_save_wifi(s_selected.ssid, "");
                 if (err == ESP_OK) {
                     queue_network_start(READ_PICO_TRANSFER_MODE_STA,true);
                     return APP_REDRAW_PAGE;
                 }
-                snprintf(s_network_message, sizeof(s_network_message), "开放网络保存失败，请重试");
+                ui_snprintf(s_network_message, sizeof(s_network_message), UI_MSG("开放网络保存失败，请重试"));
                 return APP_REDRAW_PAGE;
             }
             clear_password();
@@ -534,11 +534,11 @@ static app_redraw_t provisioning_action(int id) {
         } else if (id == 6) {
             if (s_status.network_ready) {
                 if (!stop_upload_if_idle()) {
-                    snprintf(s_network_message, sizeof(s_network_message), "正在传输，请完成后再断开");
+                    ui_snprintf(s_network_message, sizeof(s_network_message), UI_MSG("正在传输，请完成后再断开"));
                     return APP_REDRAW_PAGE;
                 }
                 s_network_connect_pending = false;
-                snprintf(s_network_message, sizeof(s_network_message), "已断开，连接信息保留");
+                ui_snprintf(s_network_message, sizeof(s_network_message), UI_MSG("已断开，连接信息保留"));
             } else queue_network_start(READ_PICO_TRANSFER_MODE_STA,false);
         }
         else if (id == 7 && s_network_page) --s_network_page;
@@ -559,11 +559,11 @@ static app_redraw_t password_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev
     if(result==UI_INPUT_CANCEL){clear_password();s_network_message[0]=0;s_view=TRANSFER_NETWORKS;return APP_REDRAW_PAGE;}
     if(result==UI_INPUT_DONE){
         size_t len=strlen(s_password);
-        if(s_selected.requires_password&&len<8)snprintf(s_network_message,sizeof(s_network_message),"加密网络密码至少 8 个字符");
+        if(s_selected.requires_password&&len<8)ui_snprintf(s_network_message,sizeof(s_network_message),UI_MSG("加密网络密码至少 8 个字符"));
         else {
             esp_err_t err=read_pico_transfer_save_wifi(s_selected.ssid,s_selected.requires_password?s_password:"");
             if(err==ESP_OK){clear_password();queue_network_start(READ_PICO_TRANSFER_MODE_STA,true);return APP_REDRAW_PAGE;}
-            snprintf(s_network_message,sizeof(s_network_message),"%s",err==ESP_ERR_INVALID_ARG?"密码须 8–63 字符或 64 位十六进制":"保存失败，输入已保留，请重试");
+            ui_snprintf(s_network_message,sizeof(s_network_message),"%s",err==ESP_ERR_INVALID_ARG?UI_MSG("密码须 8–63 字符或 64 位十六进制"):UI_MSG("保存失败，输入已保留，请重试"));
         }
     } else s_network_message[0]=0;
     render(ctx,ctx->fb);s_area=ui_text_input_area();s_settle=true;return APP_REDRAW_AREA;
@@ -598,32 +598,32 @@ static void draw_status(uint8_t* fb) {
     ui_clear_rect_fast(fb, area);
     epd_fill_rect((EpdRect){area.x,area.y,area.width,2},UI_GRAY_SECTION_LINE,fb);
     epd_fill_rect((EpdRect){area.x,area.y+area.height-2,area.width,2},UI_GRAY_ITEM_LINE,fb);
-    const char* state = "网络已停止";
-    if (s_start_pending || s_status.state == READ_PICO_TRANSFER_STARTING) state = "正在准备传书…";
-    else if (s_status.state == READ_PICO_TRANSFER_READY) state = "等待上传";
-    else if (s_status.state == READ_PICO_TRANSFER_UPLOADING) state = "正在接收";
-    else if (s_status.state == READ_PICO_TRANSFER_ERROR) state = s_status.network_ready ? "上传失败，请重试" :
-        s_mode == READ_PICO_TRANSFER_MODE_AP ? "热点传书未启动" : "WiFi 传书未启动";
-    if (s_media_lost) state = "存储已移除，传书已停止";
+    const char* state = UI_MSG("网络已停止");
+    if (s_start_pending || s_status.state == READ_PICO_TRANSFER_STARTING) state = UI_MSG("正在准备传书…");
+    else if (s_status.state == READ_PICO_TRANSFER_READY) state = UI_MSG("等待上传");
+    else if (s_status.state == READ_PICO_TRANSFER_UPLOADING) state = UI_MSG("正在接收");
+    else if (s_status.state == READ_PICO_TRANSFER_ERROR) state = s_status.network_ready ? UI_MSG("上传失败，请重试") :
+        s_mode == READ_PICO_TRANSFER_MODE_AP ? UI_MSG("热点传书未启动") : UI_MSG("WiFi 传书未启动");
+    if (s_media_lost) state = UI_MSG("存储已移除，传书已停止");
     ui_text(fb, area.x + 28, area.y + 24, 26, state, EPD_DRAW_ALIGN_LEFT, false);
     char line[256];
-    if (s_media_lost) snprintf(line, sizeof(line), "重新进入传书可使用内置存储");
+    if (s_media_lost) ui_snprintf(line, sizeof(line), UI_MSG("重新进入传书可使用内置存储"));
     else if (s_status.state == READ_PICO_TRANSFER_ERROR && !s_status.network_ready){
-        if(s_status.last_error==ESP_ERR_NOT_FOUND&&s_status.wifi_configured&&s_mode==READ_PICO_TRANSFER_MODE_STA)snprintf(line,sizeof(line),"附近未找到已保存的WiFi，请前往设置");
-        else snprintf(line, sizeof(line), "原因：%s", esp_err_to_name(s_status.last_error));
+        if(s_status.last_error==ESP_ERR_NOT_FOUND&&s_status.wifi_configured&&s_mode==READ_PICO_TRANSFER_MODE_STA)ui_snprintf(line,sizeof(line),UI_MSG("附近未找到已保存的WiFi，请前往设置"));
+        else ui_snprintf(line, sizeof(line), UI_MSG("原因：%s"), esp_err_to_name(s_status.last_error));
     }
     else if (s_mode == READ_PICO_TRANSFER_MODE_AP)
-        snprintf(line, sizeof(line), "已连接 %u 台 · 已完成 %u 本", s_status.sta_count, s_status.done_count);
-    else snprintf(line, sizeof(line), "同网浏览器上传 · 已完成 %u 本", s_status.done_count);
+        ui_snprintf(line, sizeof(line), UI_MSG("已连接 %u 台 · 已完成 %u 本"), s_status.sta_count, s_status.done_count);
+    else ui_snprintf(line, sizeof(line), UI_MSG("同网浏览器上传 · 已完成 %u 本"), s_status.done_count);
     ui_text(fb, area.x + 28, area.y + 68, 19, line, EPD_DRAW_ALIGN_LEFT, false);
-    snprintf(line, sizeof(line), "%s", s_status.cur_name);
+    ui_snprintf(line, sizeof(line), "%s", s_status.cur_name);
     while (*line && ttf_text_width_px(ui_text_effective_px(19), line) > area.width - 280) {
         size_t n = strlen(line) - 1;
         while (n && ((unsigned char)line[n] & 0xc0) == 0x80) --n;
         line[n] = 0;
     }
-    ui_text(fb, area.x + 28, area.y + 108, 19, line[0] ? line : "尚无正在传输的文件", EPD_DRAW_ALIGN_LEFT, false);
-    snprintf(line, sizeof(line), "%.1f / %.1f MB", s_status.cur_bytes / 1048576.0, s_status.cur_total / 1048576.0);
+    ui_text(fb, area.x + 28, area.y + 108, 19, line[0] ? line : UI_MSG("尚无正在传输的文件"), EPD_DRAW_ALIGN_LEFT, false);
+    ui_snprintf(line, sizeof(line), "%.1f / %.1f MB", s_status.cur_bytes / 1048576.0, s_status.cur_total / 1048576.0);
     ui_text(fb, area.x + area.width - 28, area.y + 108, 19, line, EPD_DRAW_ALIGN_RIGHT, false);
     EpdRect track = {area.x + 28, area.y + 150, area.width - 56, 10};
     ui_fill_round_rect(fb, track, 5, 0xc8);
@@ -633,12 +633,12 @@ static void draw_status(uint8_t* fb) {
         ui_fill_round_rect(fb, track, 5, UI_GRAY_BLACK);
     }
     char capacity[112];
-    if (s_media_lost) snprintf(capacity, sizeof(capacity), "TF 卡已移除，原存储已停用");
-    else snprintf(capacity, sizeof(capacity), "%s · 剩余 %.1f MB%s", s_root.is_flash ? "内置" : "TF 卡",
-                  s_free / 1048576.0, s_root.is_flash ? " · 单文件 ≤ 1 MB" : "");
+    if (s_media_lost) ui_snprintf(capacity, sizeof(capacity), UI_MSG("TF 卡已移除，原存储已停用"));
+    else ui_snprintf(capacity, sizeof(capacity), UI_MSG("%s · 剩余 %.1f MB%s"), s_root.is_flash ? UI_MSG("内置") : UI_MSG("TF 卡"),
+                  s_free / 1048576.0, s_root.is_flash ? UI_MSG(" · 单文件 ≤ 1 MB") : "");
     ui_text(fb, area.x + 28, area.y + 190, 18, capacity, EPD_DRAW_ALIGN_LEFT, false);
     ui_text(fb, area.x + 28, area.y + 228, 18,
-            s_status.last_error != ESP_OK ? "传输未完成，请检查网络后重试" : "同名文件会覆盖；完成后自动更新书架",
+            s_status.last_error != ESP_OK ? UI_MSG("传输未完成，请检查网络后重试") : UI_MSG("同名文件会覆盖；完成后自动更新书架"),
             EPD_DRAW_ALIGN_LEFT, false);
 }
 
@@ -654,34 +654,34 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
     if (s_usb_entry) {
         ui_clear_page(fb);
         bool active = usb_storage_active();
-        transfer_header(fb, "USB 读卡", NULL);
-        ui_text(fb, 42,UI_PAGE_Y(181), 20, "连接状态", EPD_DRAW_ALIGN_LEFT, false);
+        transfer_header(fb, UI_MSG("USB 读卡"), NULL);
+        ui_text(fb, 42,UI_PAGE_Y(181), 20, UI_MSG("连接状态"), EPD_DRAW_ALIGN_LEFT, false);
         epd_fill_rect((EpdRect){36,UI_PAGE_Y(164),612,2},UI_GRAY_SECTION_LINE,fb);
-        const char *state = s_usb_start_pending ? "正在准备 TF 卡" :
-            !active ? "USB 读卡未开启" :
-            s_usb_host_connected ? "电脑已连接" : "等待电脑连接";
+        const char *state = s_usb_start_pending ? UI_MSG("正在准备 TF 卡") :
+            !active ? UI_MSG("USB 读卡未开启") :
+            s_usb_host_connected ? UI_MSG("电脑已连接") : UI_MSG("等待电脑连接");
         ui_text(fb, 64,UI_PAGE_Y(241), 31, state, EPD_DRAW_ALIGN_LEFT, false);
         if (active) {
-            ui_text(fb, 64,UI_PAGE_Y(296), 20, "磁盘名称  SD_CARD", EPD_DRAW_ALIGN_LEFT, false);
+            ui_text(fb, 64,UI_PAGE_Y(296), 20, UI_MSG("磁盘名称  SD_CARD"), EPD_DRAW_ALIGN_LEFT, false);
             char size[64];
-            snprintf(size, sizeof(size), "TF 卡容量  %.1f GB", s_usb_capacity_bytes / 1073741824.0);
+            ui_snprintf(size, sizeof(size), UI_MSG("TF 卡容量  %.1f GB"), s_usb_capacity_bytes / 1073741824.0);
             ui_text(fb, 64,UI_PAGE_Y(337), 20, size, EPD_DRAW_ALIGN_LEFT, false);
         } else ui_text(fb, 64,UI_PAGE_Y(309), 20, s_usb_message, EPD_DRAW_ALIGN_LEFT, false);
 
-        ui_text(fb, 42,UI_PAGE_Y(450), 20, "文件存放位置", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 42,UI_PAGE_Y(450), 20, UI_MSG("文件存放位置"), EPD_DRAW_ALIGN_LEFT, false);
         epd_fill_rect((EpdRect){36,UI_PAGE_Y(422),612,2},UI_GRAY_SECTION_LINE,fb);
         ui_text(fb, 64,UI_PAGE_Y(510), 27, "books", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 64,UI_PAGE_Y(553), 19, "EPUB、TXT 书籍", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 64,UI_PAGE_Y(553), 19, UI_MSG("EPUB、TXT 书籍"), EPD_DRAW_ALIGN_LEFT, false);
         epd_fill_rect((EpdRect){36,UI_PAGE_Y(580),612,2},UI_GRAY_ITEM_LINE,fb);
         ui_text(fb, 64,UI_PAGE_Y(597), 27, "fonts", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 64,UI_PAGE_Y(640), 19, "TTF、OTF 字体", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 64,UI_PAGE_Y(640), 19, UI_MSG("TTF、OTF 字体"), EPD_DRAW_ALIGN_LEFT, false);
 
-        ui_text(fb, 42,UI_PAGE_Y(740), 20, "完成传输", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 42,UI_PAGE_Y(740), 20, UI_MSG("完成传输"), EPD_DRAW_ALIGN_LEFT, false);
         epd_fill_rect((EpdRect){36,UI_PAGE_Y(712),612,2},UI_GRAY_SECTION_LINE,fb);
-        ui_text(fb, 64,UI_PAGE_Y(802), 21, "1  在电脑上等待复制完成", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 64,UI_PAGE_Y(855), 21, "2  安全弹出 SD_CARD，再结束读卡", EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 64,UI_PAGE_Y(802), 21, UI_MSG("1  在电脑上等待复制完成"), EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 64,UI_PAGE_Y(855), 21, UI_MSG("2  安全弹出 SD_CARD，再结束读卡"), EPD_DRAW_ALIGN_LEFT, false);
         ui_fill_round_rect(fb, control_rect(2), 22, s_pressed == 2 ? 0x60 : 0x38);
-        ui_text_vc(fb, 342,UI_PAGE_Y(1014), 24, active ? "结束 USB 读卡" : "返回文件管理",
+        ui_text_vc(fb, 342,UI_PAGE_Y(1014), 24, active ? UI_MSG("结束 USB 读卡") : UI_MSG("返回文件管理"),
                    EPD_DRAW_ALIGN_CENTER, true);
         return;
     }
@@ -689,51 +689,51 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
     if (s_view == TRANSFER_NETWORKS) { draw_networks(fb); return; }
     if (s_view == TRANSFER_PASSWORD) { draw_password(fb); return; }
     ui_clear_page(fb);
-    transfer_header(fb, s_mode == READ_PICO_TRANSFER_MODE_AP ? "热点传书" : "WiFi 传书", NULL);
+    transfer_header(fb, s_mode == READ_PICO_TRANSFER_MODE_AP ? UI_MSG("热点传书") : UI_MSG("WiFi 传书"), NULL);
     EpdRect connection = {36,UI_PAGE_Y(168), 612, 132};
     epd_fill_rect((EpdRect){connection.x,connection.y,connection.width,2},UI_GRAY_SECTION_LINE,fb);
     epd_fill_rect((EpdRect){connection.x,connection.y+connection.height,connection.width,2},UI_GRAY_ITEM_LINE,fb);
     char name[64];
-    snprintf(name, sizeof(name), "%s", s_mode == READ_PICO_TRANSFER_MODE_AP ? s_status.ssid : s_status.wifi_ssid);
-    if (!name[0]) snprintf(name, sizeof(name), "%s", s_mode == READ_PICO_TRANSFER_MODE_AP ? "Pico 热点" : "已保存的 WiFi");
+    ui_snprintf(name, sizeof(name), "%s", s_mode == READ_PICO_TRANSFER_MODE_AP ? s_status.ssid : s_status.wifi_ssid);
+    if (!name[0]) ui_snprintf(name, sizeof(name), "%s", s_mode == READ_PICO_TRANSFER_MODE_AP ? UI_MSG("Pico 热点") : UI_MSG("已保存的 WiFi"));
     fit_label(name, 26, 420);
     ui_text(fb, 66,UI_PAGE_Y(190), 26, name, EPD_DRAW_ALIGN_LEFT, false);
     ui_text(fb, 66,UI_PAGE_Y(236), 19,
-            s_mode == READ_PICO_TRANSFER_MODE_AP ? "口令：" READ_PICO_TRANSFER_PASSWORD :
-            s_status.network_ready ? "设备已连接；手机需同网" :
-            s_start_pending || s_status.state == READ_PICO_TRANSFER_STARTING ? "正在连接已保存网络…" :
-            s_status.wifi_configured ? "已保存，尚未连接" : "尚未选择 WiFi",
+            s_mode == READ_PICO_TRANSFER_MODE_AP ? UI_MSG("口令：") READ_PICO_TRANSFER_PASSWORD :
+            s_status.network_ready ? UI_MSG("设备已连接；手机需同网") :
+            s_start_pending || s_status.state == READ_PICO_TRANSFER_STARTING ? UI_MSG("正在连接已保存网络…") :
+            s_status.wifi_configured ? UI_MSG("已保存，尚未连接") : UI_MSG("尚未选择 WiFi"),
             EPD_DRAW_ALIGN_LEFT, false);
-    ui_text_vc(fb, 605,UI_PAGE_Y(234), 20, s_status.network_ready ? "服务已开启" : "准备中", EPD_DRAW_ALIGN_RIGHT, false);
+    ui_text_vc(fb, 605,UI_PAGE_Y(234), 20, s_status.network_ready ? UI_MSG("服务已开启") : UI_MSG("准备中"), EPD_DRAW_ALIGN_RIGHT, false);
     int url_px = UI_PX_CAPTION;
     while (url_px > 14 && ttf_text_width_px(url_px, s_status.url) > 560) --url_px;
     if (s_status.network_ready && s_qr_ready)
         ui_wifi_qr_draw(fb, (EpdRect){222,UI_PAGE_Y(330), 240, 240});
     else {
-        ui_text_vc(fb, 342,UI_PAGE_Y(450), 22, s_start_pending ? "正在生成二维码…" : "等待网络地址…", EPD_DRAW_ALIGN_CENTER, false);
+        ui_text_vc(fb, 342,UI_PAGE_Y(450), 22, s_start_pending ? UI_MSG("正在生成二维码…") : UI_MSG("等待网络地址…"), EPD_DRAW_ALIGN_CENTER, false);
     }
     if (s_mode == READ_PICO_TRANSFER_MODE_AP) {
         ui_text_vc(fb, 342,UI_PAGE_Y(583), 20,
-                   s_status.network_ready ? s_status.url : "热点就绪后显示访问地址",
+                   s_status.network_ready ? s_status.url : UI_MSG("热点就绪后显示访问地址"),
                    EPD_DRAW_ALIGN_CENTER, false);
         for (int i = 0; i < 2; ++i) {
             EpdRect tab = control_rect(i);
             ui_fill_round_rect(fb, tab, 18, (s_qr_url == (i == 1)) ? 0x42 : UI_GRAY_WHITE);
             ui_draw_round_rect(fb, tab, 18, 0x92);
             ui_text_vc(fb, tab.x + tab.width / 2, tab.y + tab.height / 2, 21,
-                       i ? "打开传书网页" : "连接 Pico 热点", EPD_DRAW_ALIGN_CENTER, s_qr_url == (i == 1));
+                       i ? UI_MSG("打开传书网页") : UI_MSG("连接 Pico 热点"), EPD_DRAW_ALIGN_CENTER, s_qr_url == (i == 1));
         }
     } else {
         ui_text_vc(fb, 342,UI_PAGE_Y(602), url_px,
-                   s_status.network_ready ? s_status.url : "服务启动后显示访问地址", EPD_DRAW_ALIGN_CENTER, false);
-        ui_text_vc(fb, 342,UI_PAGE_Y(642), 18, "手机或电脑扫码后，即可在浏览器上传内容", EPD_DRAW_ALIGN_CENTER, false);
+                   s_status.network_ready ? s_status.url : UI_MSG("服务启动后显示访问地址"), EPD_DRAW_ALIGN_CENTER, false);
+        ui_text_vc(fb, 342,UI_PAGE_Y(642), 18, UI_MSG("手机或电脑扫码后，即可在浏览器上传内容"), EPD_DRAW_ALIGN_CENTER, false);
     }
     draw_status(fb);
     EpdRect back = control_rect(2);
     if (s_pressed == 2) ui_draw_pressed_round_rect(fb, back, UI_BTN_RADIUS);
     ui_draw_button(fb, back,
                    s_mode == READ_PICO_TRANSFER_MODE_AP && s_status.state == READ_PICO_TRANSFER_ERROR && !s_status.network_ready
-                       ? "重试热点传书" : "停止传输服务", false);
+                       ? UI_MSG("重试热点传书") : UI_MSG("停止传输服务"), false);
     ui_nav_draw(fb, 2);
 }
 
@@ -774,13 +774,13 @@ static void on_enter(app_ctx_t* ctx) {
         s_usb_requested = false;
         s_view = TRANSFER_HOME;
         s_usb_start_pending = true;
-        snprintf(s_usb_message, sizeof(s_usb_message), "正在卸载本机 TF 卡并启动 USB…");
+        ui_snprintf(s_usb_message, sizeof(s_usb_message), UI_MSG("正在卸载本机 TF 卡并启动 USB…"));
     } else if (s_hotspot_requested) {
         s_hotspot_requested = false;
         if (!start_hotspot_service()) {
             s_view = TRANSFER_HOME;
             s_status.state = READ_PICO_TRANSFER_ERROR;
-            snprintf(s_method_message, sizeof(s_method_message), "传输正在结束，请稍后再试");
+            ui_snprintf(s_method_message, sizeof(s_method_message), UI_MSG("传输正在结束，请稍后再试"));
         }
     } else if (s_wifi_upload_requested) {
         s_wifi_upload_requested = false;
@@ -791,12 +791,12 @@ static void on_enter(app_ctx_t* ctx) {
         else if (s_status.wifi_configured) {
             s_view = TRANSFER_HOME;
             s_status.state = READ_PICO_TRANSFER_ERROR;
-            snprintf(s_method_message, sizeof(s_method_message), "传输正在结束，请稍后再试");
+            ui_snprintf(s_method_message, sizeof(s_method_message), UI_MSG("传输正在结束，请稍后再试"));
         }
         else if (!enter_networks()) {
             s_view = TRANSFER_NETWORKS;
             s_scan_pending = false;
-            snprintf(s_network_message, sizeof(s_network_message), "网络正在结束，请稍后再试");
+            ui_snprintf(s_network_message, sizeof(s_network_message), UI_MSG("网络正在结束，请稍后再试"));
         }
     } else if (s_wifi_setup_requested) {
         s_wifi_setup_requested = false;
@@ -805,8 +805,8 @@ static void on_enter(app_ctx_t* ctx) {
             s_session_started = true;
             s_view = TRANSFER_NETWORKS;
             s_saved_configured = s_status.wifi_configured;
-            snprintf(s_saved_ssid, sizeof(s_saved_ssid), "%s", s_status.wifi_ssid);
-            snprintf(s_network_message, sizeof(s_network_message), "连接成功");
+            ui_snprintf(s_saved_ssid, sizeof(s_saved_ssid), "%s", s_status.wifi_ssid);
+            ui_snprintf(s_network_message, sizeof(s_network_message), UI_MSG("连接成功"));
         } else {
             (void)enter_networks();
         }
@@ -892,7 +892,7 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
         s_usb_start_pending = false;
         s_usb_host_connected = usb_storage_connected();
         if (err != ESP_OK)
-            snprintf(s_usb_message, sizeof(s_usb_message), "USB 模式启动失败：%s", esp_err_to_name(err));
+            ui_snprintf(s_usb_message, sizeof(s_usb_message), UI_MSG("USB 模式启动失败：%s"), esp_err_to_name(err));
         return APP_REDRAW_PAGE;
     }
     if (usb_storage_active()) return APP_REDRAW_NONE;
@@ -981,7 +981,7 @@ static app_redraw_t stop_usb_for_navigation(app_ctx_t *ctx, bool home) {
     if (usb_storage_active()) {
         esp_err_t err = usb_storage_stop();
         if (err != ESP_OK) {
-            snprintf(s_usb_message, sizeof(s_usb_message), "USB 写入未完成：%s，请在电脑弹出后重试", esp_err_to_name(err));
+            ui_snprintf(s_usb_message, sizeof(s_usb_message), UI_MSG("USB 写入未完成：%s，请在电脑弹出后重试"), esp_err_to_name(err));
             return APP_REDRAW_PAGE;
         }
         s_any_changed = true;
@@ -1005,10 +1005,10 @@ static app_redraw_t method_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev)
                     return APP_REDRAW_PAGE;
                 }
             } else if (enter_networks()) return APP_REDRAW_PAGE;
-            snprintf(s_method_message, sizeof(s_method_message), "传输正在结束，请稍后再试");
+            ui_snprintf(s_method_message, sizeof(s_method_message), UI_MSG("传输正在结束，请稍后再试"));
         } else if (origin == 1) {
             if (start_hotspot_service()) return APP_REDRAW_PAGE;
-            snprintf(s_method_message, sizeof(s_method_message), "传输正在结束，请稍后再试");
+            ui_snprintf(s_method_message, sizeof(s_method_message), UI_MSG("传输正在结束，请稍后再试"));
         }
         return APP_REDRAW_PAGE;
     }
@@ -1130,7 +1130,7 @@ static bool prevent_idle_sleep(app_ctx_t *ctx){
 }
 const app_desc_t app_transfer = {
     .on_media_lost = transfer_on_media_lost,
-    .title = "传书 Transfer", .detail = "热点或已有 WiFi，浏览器上传", .enter_full = false,
+    .title = UI_MSG("传书 Transfer"), .detail = UI_MSG("热点或已有 WiFi，浏览器上传"), .enter_full = false,
     .on_enter = on_enter, .on_exit = transfer_on_exit, .render = render, .present = present,
     .on_tick = on_tick, .on_gesture = on_gesture, .on_key = on_key, .owns_keys = true,
     .menu_handle_enabled = transfer_menu_handle_enabled,

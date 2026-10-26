@@ -106,6 +106,7 @@ void app_main(void) {
         for(unsigned wait=0;wait<150&&read_pico_sd_get_info(&card)==ESP_ERR_NOT_FINISHED;++wait)vTaskDelay(pdMS_TO_TICKS(20));
         restored=card.present&&card.mounted&&sleep_resume_restore(framebuffer,hl.back_fb,(size_t)epd_width()*epd_height()/2,(unsigned)epd_get_rotation(),&resume);
     }
+    if(restored)display_resume_clean_next();
     if(!restored){
         epd_poweron();read_pico_i2c_census_take();epd_clear();epd_hl_set_all_white(&hl);
         ui_draw_full_image(framebuffer,loading_4bpp_bin_start);update_display_from_white(&hl);

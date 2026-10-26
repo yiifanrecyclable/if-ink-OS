@@ -40,7 +40,7 @@ static app_redraw_t reader_execute_shortcut(app_ctx_t *ctx,int slot){
 }
 static app_redraw_t reader_help_close(void){
     esp_err_t err=reader_input_ack_help(s_path,s_help_hide);
-    if(err!=ESP_OK){copy_text(s_reader_notice,sizeof(s_reader_notice),"操作说明偏好保存失败，请重试");s_reader_notice_until=esp_timer_get_time()/1000+2500;return APP_REDRAW_PAGE;}
+    if(err!=ESP_OK){copy_text(s_reader_notice,sizeof(s_reader_notice),UI_MSG("操作说明偏好保存失败，请重试"));s_reader_notice_until=esp_timer_get_time()/1000+2500;return APP_REDRAW_PAGE;}
     return reader_show_panel(READER_PANEL_NONE);
 }
 static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
@@ -81,7 +81,7 @@ static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
     }
     if(s_reader_panel==READER_PANEL_BASIC){
         for(int mode=0;mode<2;++mode)if(ui_rect_hit(reader_basic_option(mode),x,y)){
-            if(reader_input_set_tap_layout((reader_tap_layout_t)mode)!=ESP_OK){copy_text(s_reader_notice,sizeof(s_reader_notice),"操作区域保存失败，请重试");s_reader_notice_until=esp_timer_get_time()/1000+2500;}
+            if(reader_input_set_tap_layout((reader_tap_layout_t)mode)!=ESP_OK){copy_text(s_reader_notice,sizeof(s_reader_notice),UI_MSG("操作区域保存失败，请重试"));s_reader_notice_until=esp_timer_get_time()/1000+2500;}
             return APP_REDRAW_PAGE;}
         return APP_REDRAW_NONE;
     }
@@ -98,7 +98,7 @@ static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
         if(row==2&&book_kind()==BOOK_KIND_MARKDOWN)return reader_show_panel(READER_PANEL_MARKDOWN_SIZES);
     }else if(s_reader_panel==READER_PANEL_FONT_PICKER){
         if(i>=ttf_font_count()+1)return APP_REDRAW_NONE;
-        ttf_font_item_t builtin={0};snprintf(builtin.path,sizeof(builtin.path),"%s",TTF_FONT_BUILTIN);
+        ttf_font_item_t builtin={0};ui_snprintf(builtin.path,sizeof(builtin.path),"%s",TTF_FONT_BUILTIN);
         app_redraw_t result=select_reading_font_item(ctx,i?ttf_font_item(i-1):&builtin);
         if(result!=APP_REDRAW_NONE)s_reader_panel=READER_PANEL_FONT_SETTINGS;
         return result;
@@ -116,8 +116,8 @@ static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
     }else if(s_reader_panel==READER_PANEL_BINDING){
         if(i>=READER_ACTION_COUNT)return APP_REDRAW_NONE;
         int owner=reader_binding_owner(i);
-        if(owner>=0&&owner!=s_shortcut_slot){snprintf(s_reader_notice,sizeof(s_reader_notice),"已绑定%s",reader_shortcut_name(owner));s_reader_notice_until=esp_timer_get_time()/1000+2500;return APP_REDRAW_PAGE;}
-        if(reader_input_assign(s_shortcut_slot,i)!=ESP_OK){copy_text(s_reader_notice,sizeof(s_reader_notice),"快捷操作保存失败，请重试");s_reader_notice_until=esp_timer_get_time()/1000+2500;return APP_REDRAW_PAGE;}
+        if(owner>=0&&owner!=s_shortcut_slot){ui_snprintf(s_reader_notice,sizeof(s_reader_notice),UI_MSG("已绑定%s"),reader_shortcut_name(owner));s_reader_notice_until=esp_timer_get_time()/1000+2500;return APP_REDRAW_PAGE;}
+        if(reader_input_assign(s_shortcut_slot,i)!=ESP_OK){copy_text(s_reader_notice,sizeof(s_reader_notice),UI_MSG("快捷操作保存失败，请重试"));s_reader_notice_until=esp_timer_get_time()/1000+2500;return APP_REDRAW_PAGE;}
         return reader_show_panel(READER_PANEL_SHORTCUTS);
     }else if(s_reader_panel==READER_PANEL_BOOKMARKS){
         if(i==0){(void)bookmark_toggle();return APP_REDRAW_PAGE;}
@@ -147,7 +147,7 @@ static app_redraw_t reader_progress_jump(app_ctx_t *ctx,int progress){
     size_t low=0,high=count;
     while(low+1<high){size_t mid=low+(high-low)/2;if(book_chapter_byte_offset(mid)<=target)low=mid;else high=mid;}
     if(!load_chapter(ctx,low,0,progress==100)){
-        copy_text(s_reader_notice,sizeof(s_reader_notice),"跳转失败，请重试");s_reader_notice_until=esp_timer_get_time()/1000+2500;return APP_REDRAW_PAGE;
+        copy_text(s_reader_notice,sizeof(s_reader_notice),UI_MSG("跳转失败，请重试"));s_reader_notice_until=esp_timer_get_time()/1000+2500;return APP_REDRAW_PAGE;
     }
     if(progress!=100){uint32_t start=book_chapter_byte_offset(low),end=low+1<count?book_chapter_byte_offset(low+1):total;
         size_t offset=end>start?(size_t)((uint64_t)(target-start)*s_text_len/(end-start)):0;

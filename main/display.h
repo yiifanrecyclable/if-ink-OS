@@ -20,6 +20,10 @@
 extern "C" {
 #endif
 
+/// 唤醒后的首个完整目标须清除壁纸；成功后自动恢复常规刷新。/ Clean wallpaper on the first complete post-wake target; ordinary refresh resumes after success.
+void display_resume_clean_next(void);
+bool display_resume_clean_pending(void);
+
 // LCD 像素时钟：只决定有效像素段占一行的多少，剩下的由行结束段补足——行周期被锁在
 // 波形标定的帧周期上，所以调 pclk 不会让刷新变快，只影响 DMA 的供数余量。12MHz 是
 // epdiy 的保守默认值，18MHz 实测稳定（前提是 PSRAM 跑在 120MHz，80MHz 下 16MHz
@@ -64,7 +68,7 @@ enum EpdDrawError update_display_white(EpdiyHighlevelState* hl);
 enum EpdDrawError update_display_full(EpdiyHighlevelState* hl);
 /// 图片页清除旧光学状态，再驱动完整灰阶。/ Clear the prior optical state and drive the full gray ladder for images.
 enum EpdDrawError update_display_image_gray(EpdiyHighlevelState* hl);
-/// 首页单轮完整灰阶重建，覆盖导航栏且不独立擦白。/ Rebuild Home and its navigation in one full grayscale target pass without a separate clear.
+/// 首页单轮完整清理，底栏复用各主页面的变化像素校准。/ Clean Home in one scan with the same changed-pixel footer calibration as other root pages.
 enum EpdDrawError update_display_home_clean(EpdiyHighlevelState* hl);
 enum EpdDrawError update_display_with(
     EpdiyHighlevelState* hl, const EpdWaveform* waveform, enum EpdDrawMode mode
@@ -104,8 +108,8 @@ void guard_draw_result(EpdiyHighlevelState* hl, enum EpdDrawError result);
 /// 同步自然分区刷新，覆盖完整导航；周期全刷保持。/ Synchronous natural regions include navigation and preserve periodic cleanup.
 enum EpdDrawError update_display_natural_page(EpdiyHighlevelState *hl,EpdRect art);
 
-/// 四主页面底栏按原校准GL16同轮输出；不改变阅读出口或增加一次补刷。
-/// Present root navigation with calibrated GL16 in the shared scan, without changing reader paths or adding a pass.
+/// 四主页面底栏统一普通灰阶，等灰保持；主体与封面同步输出，不改阅读出口。
+/// Present soft body, calibrated covers and held-equal footer grays simultaneously without changing reader paths.
 enum EpdDrawError update_display_navigation_page(EpdiyHighlevelState *hl,EpdRect art,EpdRect navigation);
 
 /// 列表滑动仅以柔和序列输出实际变化区域。/ Scrolling uses soft sequences for real differences only.

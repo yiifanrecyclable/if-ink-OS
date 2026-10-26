@@ -79,7 +79,7 @@ EpdRect ui_nav_pager_rect(int direction) {
     return (EpdRect){direction<0?16:568,UI_NAV_PAGER_TOP,100,64};
 }
 void ui_nav_draw_pager(uint8_t *fb,int count,const char *unit,int page,int pages) {
-    char label[80];snprintf(label,sizeof(label),"%d%s · %02d/%02d",count,unit,page+1,pages);
+    char label[80];ui_snprintf(label,sizeof(label),ui_i18n_english()?"%d %s · %02d/%02d":"%d%s · %02d/%02d",count,unit,page+1,pages);
     int y=UI_NAV_PAGER_TOP+38,px=ui_text_fit_px(UI_TEXT_CAPTION,label,444,44);
     ui_text_fixed_vc(fb,342,y,px,label,EPD_DRAW_ALIGN_CENTER,false);
     ui_draw_icon(fb,58,y,28,UI_ICON_CHEVRON_LEFT,page>0?0:0x90);
@@ -156,5 +156,7 @@ int ui_nav_hit(uint16_t x, uint16_t y) {
 }
 
 void ui_nav_request(app_ctx_t *ctx, int index) {
-    if (index >= 0 && index < 4) ctx->request_app = app_at(index);
+    if (index >= 0 && index < 4) {
+        ctx->request_app = app_at(index);
+    }
 }

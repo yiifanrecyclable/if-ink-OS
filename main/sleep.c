@@ -356,8 +356,6 @@ void enter_lock_and_sleep(
         return;
     }
     uint8_t* framebuffer = epd_hl_get_framebuffer(hl);
-    epd_poweron();
-    epd_clear();
     epd_hl_set_all_white(hl);
     // 用户修订：锁屏仅显示壁纸，缺少自定义文件时使用内建默认画面。
     // User revision: wallpaper-only lock; use the bundled image if the custom file is unavailable.
@@ -367,7 +365,11 @@ void enter_lock_and_sleep(
         epd_hl_set_all_white(hl);
         ui_draw_full_image(framebuffer, lock_4bpp_bin_start);
     }
-    bool lock_presented=epd_hl_update_screen_from_white(hl, MODE_GC16, 25)==EPD_DRAW_SUCCESS;
+    // 壁纸不继承阅读快扫档；使用完整图片灰阶并在同一出口维护参考帧。
+    // Wallpaper never inherits reader fast scanning; use full image grayscale and track the baseline through the display wrapper.
+    enum EpdDrawError lock_result=update_display_image_gray(hl);
+    guard_draw_result(hl,lock_result);
+    bool lock_presented=lock_result==EPD_DRAW_SUCCESS;
 
     app_lock_wait_key_idle(800);
     // 短按电源键只锁屏并浅睡；深度关机只由长按电源菜单触发。
@@ -383,12 +385,10 @@ void enter_lock_and_sleep(
     }
     read_pico_transfer_resume_after_sleep();
 
-    // 参考帧和屏幕都归零，回到主循环后由当前页自己画一遍，不必知道是哪一页。
-    // Zero the reference frame and the panel; the current page redraws after the loop resumes, without knowing which page it is.
+    // 保留真实壁纸参考，完整目标绘制后再统一清理；不先擦白却继续拿旧壁纸做差分。
+    // Preserve the actual wallpaper reference and clean after drawing the target; never clear the panel while retaining wallpaper as the diff baseline.
     read_pico_pmu_drain_events();
-    epd_poweron();
-    epd_clear();
-    epd_hl_set_all_white(hl);
+    display_resume_clean_next();
     read_pico_pmu_drain_events();
     if (ignore_until_ms) {
         *ignore_until_ms = esp_timer_get_time() / 1000 + APP_LOCK_IGNORE_BOOT_MS;

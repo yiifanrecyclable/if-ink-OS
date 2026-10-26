@@ -8,6 +8,8 @@
  * 冻结：不得覆盖当前运行分区，不在校验结束前切换启动分区。
  * Frozen: never overwrite the running partition or switch boot slots before validation completes.
  */
+#include "ui/ui_i18n.h"
+
 #include "ota_update.h"
 
 #include <stdio.h>
@@ -26,7 +28,7 @@ static const char *TAG = "pico_ota";
 
 static void set_message(char *out, size_t size, const char *text) {
     if (!out || !size) return;
-    snprintf(out, size, "%s", text ? text : "");
+    ui_snprintf(out, size, "%s", text ? text : "");
 }
 
 static bool copy_field(char *out, size_t out_size, const char *field, size_t field_size) {
@@ -53,31 +55,31 @@ esp_err_t pico_ota_inspect(const char *path, pico_ota_info_t *info) {
     memset(info, 0, sizeof(*info));
     const esp_app_desc_t *running_desc = esp_app_get_description();
     if (!copy_field(info->current_version, sizeof(info->current_version), running_desc->version,
-                    sizeof(running_desc->version))) snprintf(info->current_version, sizeof(info->current_version), "未知");
+                    sizeof(running_desc->version))) ui_snprintf(info->current_version, sizeof(info->current_version), "%s", ui_message(UI_MSG("未知")));
 
     struct stat file_stat = {0};
     if (stat(path, &file_stat) != 0) {
-        set_message(info->message, sizeof(info->message), "TF 卡根目录未找到 Pico-IF-update.bin");
+        set_message(info->message, sizeof(info->message), ui_message(UI_MSG("TF 卡根目录未找到 Pico-IF-update.bin")));
         return ESP_ERR_NOT_FOUND;
     }
     if (file_stat.st_size <= 0) {
-        set_message(info->message, sizeof(info->message), "升级包为空");
+        set_message(info->message, sizeof(info->message), ui_message(UI_MSG("升级包为空")));
         return ESP_ERR_INVALID_SIZE;
     }
 
     const esp_partition_t *target = esp_ota_get_next_update_partition(NULL);
     if (!target) {
-        set_message(info->message, sizeof(info->message), "当前固件没有可用的 OTA 分区");
+        set_message(info->message, sizeof(info->message), ui_message(UI_MSG("当前固件没有可用的 OTA 分区")));
         return ESP_ERR_NOT_SUPPORTED;
     }
     if ((size_t)file_stat.st_size > target->size) {
-        set_message(info->message, sizeof(info->message), "升级包超过固件分区容量");
+        set_message(info->message, sizeof(info->message), ui_message(UI_MSG("升级包超过固件分区容量")));
         return ESP_ERR_INVALID_SIZE;
     }
 
     FILE *file = fopen(path, "rb");
     if (!file) {
-        set_message(info->message, sizeof(info->message), "升级包无法读取");
+        set_message(info->message, sizeof(info->message), ui_message(UI_MSG("升级包无法读取")));
         return ESP_FAIL;
     }
     esp_image_header_t header = {0};
@@ -85,7 +87,7 @@ esp_err_t pico_ota_inspect(const char *path, pico_ota_info_t *info) {
     esp_err_t err = read_candidate(file, &header, &candidate);
     fclose(file);
     if (err != ESP_OK) {
-        set_message(info->message, sizeof(info->message), "升级包不是有效的 Pico 固件");
+        set_message(info->message, sizeof(info->message), ui_message(UI_MSG("升级包不是有效的 Pico 固件")));
         return err;
     }
 
@@ -95,22 +97,22 @@ esp_err_t pico_ota_inspect(const char *path, pico_ota_info_t *info) {
                     sizeof(running_desc->project_name)) ||
         !copy_field(candidate_project, sizeof(candidate_project), candidate.project_name,
                     sizeof(candidate.project_name)) || strcmp(current_project, candidate_project) != 0) {
-        set_message(info->message, sizeof(info->message), "升级包不属于当前 Pico 固件");
+        set_message(info->message, sizeof(info->message), ui_message(UI_MSG("升级包不属于当前 Pico 固件")));
         return ESP_ERR_INVALID_RESPONSE;
     }
     if (!copy_field(info->candidate_version, sizeof(info->candidate_version), candidate.version,
                     sizeof(candidate.version))) {
-        set_message(info->message, sizeof(info->message), "升级包版本信息无效");
+        set_message(info->message, sizeof(info->message), ui_message(UI_MSG("升级包版本信息无效")));
         return ESP_ERR_INVALID_RESPONSE;
     }
     if (strcmp(info->current_version, info->candidate_version) == 0) {
-        set_message(info->message, sizeof(info->message), "升级包与当前版本相同");
+        set_message(info->message, sizeof(info->message), ui_message(UI_MSG("升级包与当前版本相同")));
         return ESP_ERR_INVALID_STATE;
     }
 
     info->image_size = (size_t)file_stat.st_size;
     info->ready = true;
-    set_message(info->message, sizeof(info->message), "升级包已通过初步检查");
+    set_message(info->message, sizeof(info->message), ui_message(UI_MSG("升级包已通过初步检查")));
     return ESP_OK;
 }
 
@@ -124,7 +126,7 @@ esp_err_t pico_ota_install(const char *path, char *message, size_t message_size)
 
     FILE *file = fopen(path, "rb");
     if (!file) {
-        set_message(message, message_size, "升级包无法读取");
+        set_message(message, message_size, ui_message(UI_MSG("升级包无法读取")));
         return ESP_FAIL;
     }
     const esp_partition_t *target = esp_ota_get_next_update_partition(NULL);
@@ -132,7 +134,7 @@ esp_err_t pico_ota_install(const char *path, char *message, size_t message_size)
     err = target ? esp_ota_begin(target, info.image_size, &handle) : ESP_ERR_NOT_FOUND;
     if (err != ESP_OK) {
         fclose(file);
-        set_message(message, message_size, "无法准备空闲固件分区");
+        set_message(message, message_size, ui_message(UI_MSG("无法准备空闲固件分区")));
         return err;
     }
 
@@ -143,7 +145,7 @@ esp_err_t pico_ota_install(const char *path, char *message, size_t message_size)
     if (!buffer) {
         esp_ota_abort(handle);
         fclose(file);
-        set_message(message, message_size, "内存不足，无法开始升级");
+        set_message(message, message_size, ui_message(UI_MSG("内存不足，无法开始升级")));
         return ESP_ERR_NO_MEM;
     }
     size_t total = 0;
@@ -164,21 +166,21 @@ esp_err_t pico_ota_install(const char *path, char *message, size_t message_size)
     if (err == ESP_OK && total != info.image_size) err = ESP_ERR_INVALID_SIZE;
     if (err != ESP_OK) {
         esp_ota_abort(handle);
-        set_message(message, message_size, "写入中断，当前版本保持不变");
+        set_message(message, message_size, ui_message(UI_MSG("写入中断，当前版本保持不变")));
         return err;
     }
 
     err = esp_ota_end(handle);
     if (err != ESP_OK) {
-        set_message(message, message_size, "固件完整性校验失败");
+        set_message(message, message_size, ui_message(UI_MSG("固件完整性校验失败")));
         return err;
     }
     err = esp_ota_set_boot_partition(target);
     if (err != ESP_OK) {
-        set_message(message, message_size, "无法切换到新固件");
+        set_message(message, message_size, ui_message(UI_MSG("无法切换到新固件")));
         return err;
     }
-    set_message(message, message_size, "安装完成，即将重新启动");
+    set_message(message, message_size, ui_message(UI_MSG("安装完成，即将重新启动")));
     ESP_LOGI(TAG, "OTA image %s (%u bytes) written to %s", info.candidate_version,
              (unsigned)info.image_size, target->label);
     return ESP_OK;

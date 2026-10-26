@@ -56,6 +56,7 @@ static bool valid_record(unsigned ns, uint8_t type, const char *key, const uint8
     if (ns == 3) return book_key(key, 'f') && type == NVS_TYPE_U8 && len == 1 && data[0] <= 1;
     if (ns == 4) return book_key(key, 't') && type == NVS_TYPE_BLOB && len >= 4;
     if(ns==6){
+        if(!strcmp(key,"read_target"))return type==NVS_TYPE_U8&&len==1&&content_reading_target_valid(data[0]);
         if(!strcmp(key,"banner_v1")){
             if(type!=NVS_TYPE_BLOB)return false;
             content_banner_config_t cfg;return content_banner_decode(data,len,&cfg);

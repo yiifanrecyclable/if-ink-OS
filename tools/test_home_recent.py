@@ -31,6 +31,7 @@ UNIT = r'''
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#define ui_snprintf snprintf
 #include <string.h>
 #define BOOK_STORE_PATH_MAX 288
 #define ESP_ERR_NOT_FINISHED 7
@@ -101,14 +102,18 @@ int main(void){
     assert(home_heatmap_row_month(0,3)==-1);
     assert(home_heatmap_history_index(0,0,0)==-1);
     assert(home_heatmap_history_index(20731,4,0)==-1);
-    assert(home_heatmap_gray(0)==255&&home_heatmap_gray(1)<255);
-    unsigned previous=255;
-    for(uint32_t sec=1;sec<7200;++sec){
-        unsigned gray=home_heatmap_gray(sec);
-        assert(gray<=previous&&gray>0x33&&gray%17==0);previous=gray;
+    for(unsigned minutes=30;minutes<=180;minutes+=30){
+        assert(home_heatmap_gray(0,minutes)==255&&home_heatmap_gray(1,minutes)<255);
+        unsigned previous=255;
+        for(uint32_t sec=1;sec<minutes*60;++sec){
+            unsigned gray=home_heatmap_gray(sec,minutes);
+            assert(gray<=previous&&gray>0x33&&gray%17==0);previous=gray;
+        }
+        assert(home_heatmap_gray(minutes*60,minutes)==0x33&&home_heatmap_gray(UINT32_MAX,minutes)==0x33);
     }
-    assert(home_heatmap_gray(7200)==0x33&&home_heatmap_gray(UINT32_MAX)==0x33);
-    puts("home_heatmap: Monday/Sunday, year boundary, future days and 0/1/120-minute gray levels pass");
+    assert(home_heatmap_gray(5399,90)>0x33&&home_heatmap_gray(5400,90)==0x33);
+    assert(home_heatmap_gray(5400,0)==home_heatmap_gray(5400,90));
+    puts("home_heatmap: calendar boundaries, future dates and all six target scales passed");
     puts("home_recent: latest book invalidates the home cache without an SD reprobe");
 }
 '''

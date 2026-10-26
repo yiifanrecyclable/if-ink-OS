@@ -2,6 +2,8 @@
  * 中文：独立HTTPS更新任务，完整校验前绝不切换启动槽；不依赖TF卡、不写当前运行槽。
  * English: Independent HTTPS updater; never switch boot slots before full validation, use TF storage or write the running slot.
  */
+#include "ui/ui_i18n.h"
+
 #include "ota_online.h"
 #include "time_service.h"
 #include "ota_online_policy.h"
@@ -34,7 +36,7 @@ static if_update_status_t s_status;
 static if_update_candidate_t s_candidate;
 static void phase(if_update_state_t state,const char *message){
     xSemaphoreTake(s_lock,portMAX_DELAY);s_status.state=state;
-    snprintf(s_status.message,sizeof(s_status.message),"%s",message);++s_status.revision;
+    ui_snprintf(s_status.message,sizeof(s_status.message),"%s",message);++s_status.revision;
     xSemaphoreGive(s_lock);
 }
 static void progress(uint32_t received,uint32_t total){
@@ -45,7 +47,7 @@ void if_update_get_status(if_update_status_t *out){
     if(!out)return;
     if(s_lock)xSemaphoreTake(s_lock,portMAX_DELAY);
     *out=s_status;
-    if(!out->current[0])snprintf(out->current,sizeof(out->current),"%s",esp_app_get_description()->version);
+    if(!out->current[0])ui_snprintf(out->current,sizeof(out->current),"%s",esp_app_get_description()->version);
     if(s_lock)xSemaphoreGive(s_lock);
 }
 static bool init(void){
@@ -68,7 +70,7 @@ static void http_dispose(esp_http_client_handle_t http){if(http){esp_http_client
 static esp_err_t http_open(const char *initial,bool asset,uint32_t limit,esp_http_client_handle_t *out){
     *out=NULL;char *url=malloc(2048);http_headers_t *headers=calloc(1,sizeof(*headers));
     if(!url||!headers){free(url);free(headers);return ESP_ERR_NO_MEM;}
-    snprintf(url,2048,"%s",initial);esp_err_t err=ESP_FAIL;
+    ui_snprintf(url,2048,"%s",initial);esp_err_t err=ESP_FAIL;
     for(int redirects=0;redirects<=3&&!atomic_load(&s_cancel);++redirects){
         memset(headers,0,sizeof(*headers));
         esp_http_client_config_t config={.url=url,.crt_bundle_attach=esp_crt_bundle_attach,
@@ -93,7 +95,7 @@ static esp_err_t http_open(const char *initial,bool asset,uint32_t limit,esp_htt
             if(asset&&(code==301||code==302||code==303||code==307||code==308)&&if_update_redirect_allowed(headers->location)){
                 strcpy(url,headers->location);http_dispose(http);continue;
             }
-            if(code==403||code==429)phase(IF_UPDATE_FAILED,"GitHub访问受限，请稍后重试");
+            if(code==403||code==429)phase(IF_UPDATE_FAILED,ui_message(UI_MSG("GitHub访问受限，请稍后重试")));
             err=ESP_ERR_INVALID_RESPONSE;
         }else if(err==ESP_OK)err=ESP_FAIL;
         http_dispose(http);break;
@@ -119,10 +121,10 @@ static esp_err_t check_manifest(void){
         json[total]=0;
         if(!if_update_parse_manifest(json,total,&s_candidate))err=ESP_ERR_INVALID_RESPONSE;
         else{
-            xSemaphoreTake(s_lock,portMAX_DELAY);snprintf(s_status.version,sizeof(s_status.version),"%s",s_candidate.version);
+            xSemaphoreTake(s_lock,portMAX_DELAY);ui_snprintf(s_status.version,sizeof(s_status.version),"%s",s_candidate.version);
             s_status.total=s_candidate.size;xSemaphoreGive(s_lock);
             phase(s_candidate.available&&if_update_newer(s_candidate.version,esp_app_get_description()->version)?IF_UPDATE_AVAILABLE:IF_UPDATE_CURRENT,
-                  !s_candidate.available?"暂未发布在线升级版本":if_update_newer(s_candidate.version,esp_app_get_description()->version)?"发现新版本，请确认后安装":"当前无需升级");
+                  !s_candidate.available?ui_message(UI_MSG("暂未发布在线升级版本")):if_update_newer(s_candidate.version,esp_app_get_description()->version)?ui_message(UI_MSG("发现新版本，请确认后安装")):ui_message(UI_MSG("当前无需升级")));
         }
     }
     free(json);return err;
@@ -147,7 +149,7 @@ static bool valid_prefix(const uint8_t *bytes){
 static esp_err_t install_image(void){
     const esp_partition_t *target=esp_ota_get_next_update_partition(NULL);
     if(!valid_layout(target)){
-        phase(IF_UPDATE_FAILED,"固件分区不兼容，请使用电脑刷机");return ESP_ERR_INVALID_STATE;
+        phase(IF_UPDATE_FAILED,ui_message(UI_MSG("固件分区不兼容，请使用电脑刷机")));return ESP_ERR_INVALID_STATE;
     }
     esp_http_client_handle_t http=NULL;esp_ota_handle_t handle=0;bool active=false;
     psa_hash_operation_t hash=PSA_HASH_OPERATION_INIT;
@@ -155,9 +157,9 @@ static esp_err_t install_image(void){
     // Prefer repository content by immutable ID over the Release CDN; switch once if opening it fails.
     esp_err_t err=http_open(s_candidate.blob_url,true,s_candidate.size,&http);
     if(err!=ESP_OK&&!atomic_load(&s_cancel)){
-        phase(IF_UPDATE_DOWNLOADING,"正在切换下载线路…");
+        phase(IF_UPDATE_DOWNLOADING,ui_message(UI_MSG("正在切换下载线路…")));
         err=http_open(s_candidate.asset_url,true,s_candidate.size,&http);
-        if(err==ESP_OK)phase(IF_UPDATE_DOWNLOADING,"正在下载并安装…");
+        if(err==ESP_OK)phase(IF_UPDATE_DOWNLOADING,ui_message(UI_MSG("正在下载并安装…")));
     }
     uint8_t *buffer=err==ESP_OK?malloc(8192):NULL;
     if(err==ESP_OK&&!buffer)err=ESP_ERR_NO_MEM;
@@ -170,7 +172,7 @@ static esp_err_t install_image(void){
         if(n<=0){err=ESP_ERR_INVALID_SIZE;break;}total+=(size_t)n;
     }
     if(err==ESP_OK&&!atomic_load(&s_cancel)){
-        if(!valid_prefix(buffer)){phase(IF_UPDATE_FAILED,"升级包身份不匹配，已停止安装");err=ESP_ERR_INVALID_RESPONSE;}
+        if(!valid_prefix(buffer)){phase(IF_UPDATE_FAILED,ui_message(UI_MSG("升级包身份不匹配，已停止安装")));err=ESP_ERR_INVALID_RESPONSE;}
         else if(psa_crypto_init()!=PSA_SUCCESS||psa_hash_setup(&hash,PSA_ALG_SHA_256)!=PSA_SUCCESS)err=ESP_FAIL;
         else{
             err=esp_ota_begin(target,s_candidate.size,&handle);active=err==ESP_OK;
@@ -189,15 +191,15 @@ static esp_err_t install_image(void){
     }
     http_dispose(http);free(buffer);
     if(err==ESP_OK&&!atomic_load(&s_cancel)){
-        phase(IF_UPDATE_VERIFYING,"正在校验固件完整性…");
+        phase(IF_UPDATE_VERIFYING,ui_message(UI_MSG("正在校验固件完整性…")));
         uint8_t digest[32];size_t n=0;
         if(total!=s_candidate.size||psa_hash_finish(&hash,digest,sizeof(digest),&n)!=PSA_SUCCESS||n!=32||memcmp(digest,s_candidate.sha256,32)){
-            phase(IF_UPDATE_FAILED,"下载校验失败，请重试");err=ESP_ERR_INVALID_RESPONSE;
+            phase(IF_UPDATE_FAILED,ui_message(UI_MSG("下载校验失败，请重试")));err=ESP_ERR_INVALID_RESPONSE;
         }
         if(err==ESP_OK){err=esp_ota_end(handle);active=false;}
         if(err==ESP_OK&&!atomic_load(&s_cancel)){
             err=esp_ota_set_boot_partition(target);
-            if(err==ESP_OK)phase(IF_UPDATE_READY,"安装完成，即将重启");
+            if(err==ESP_OK)phase(IF_UPDATE_READY,ui_message(UI_MSG("安装完成，即将重启")));
         }
     }
     if(active)esp_ota_abort(handle);
@@ -214,9 +216,9 @@ static void worker(void *argument){
     if(err==ESP_OK&&!atomic_load(&s_cancel)&&time(NULL)<1704067200){uint32_t utc;err=read_pico_transfer_sync_time_online(&utc);}
     if(err==ESP_OK&&!atomic_load(&s_cancel))err=install?install_image():check_manifest();
     if_update_status_t status;if_update_get_status(&status);
-    if(atomic_load(&s_cancel)&&status.state!=IF_UPDATE_READY)phase(IF_UPDATE_CANCELLED,"操作已取消");
+    if(atomic_load(&s_cancel)&&status.state!=IF_UPDATE_READY)phase(IF_UPDATE_CANCELLED,ui_message(UI_MSG("操作已取消")));
     else if(err!=ESP_OK&&status.state!=IF_UPDATE_FAILED)
-        phase(IF_UPDATE_FAILED,!network.network_ready?"WiFi未连接，请检查网络设置":err==ESP_ERR_NO_MEM?"内存不足，请稍后重试":install?"下载或安装失败，当前版本已保留":"检查失败，请检查网络与系统时间");
+        phase(IF_UPDATE_FAILED,!network.network_ready?ui_message(UI_MSG("WiFi未连接，请检查网络设置")):err==ESP_ERR_NO_MEM?ui_message(UI_MSG("内存不足，请稍后重试")):install?ui_message(UI_MSG("下载或安装失败，当前版本已保留")):ui_message(UI_MSG("检查失败，请检查网络与系统时间")));
     xSemaphoreGive(s_finished);vTaskDelete(NULL);
 }
 void if_update_poll(void){
@@ -232,28 +234,28 @@ static esp_err_t start(bool install){
     if(!init())return ESP_ERR_NO_MEM;
     if_update_poll();if(s_task)return ESP_ERR_INVALID_STATE;
     cloud_status_t cloud;cloud_get_status(&cloud);
-    if(cloud.busy||usb_storage_active()){phase(IF_UPDATE_FAILED,"请先结束同步或USB连接");return ESP_ERR_INVALID_STATE;}
-    if(strcmp(esp_app_get_description()->project_name,IF_OTA_PROJECT)){phase(IF_UPDATE_FAILED,"当前系统不支持此更新源");return ESP_ERR_INVALID_STATE;}
+    if(cloud.busy||usb_storage_active()){phase(IF_UPDATE_FAILED,ui_message(UI_MSG("请先结束同步或USB连接")));return ESP_ERR_INVALID_STATE;}
+    if(strcmp(esp_app_get_description()->project_name,IF_OTA_PROJECT)){phase(IF_UPDATE_FAILED,ui_message(UI_MSG("当前系统不支持此更新源")));return ESP_ERR_INVALID_STATE;}
     if(install&&(s_status.state!=IF_UPDATE_AVAILABLE||!s_candidate.available||!if_update_newer(s_candidate.version,esp_app_get_description()->version)))return ESP_ERR_INVALID_STATE;
     read_pico_transfer_status_t network;read_pico_transfer_get_status(&network);
     if(network.state==READ_PICO_TRANSFER_STOPPED||(network.state==READ_PICO_TRANSFER_ERROR&&!network.network_ready)){
-        if(network.state==READ_PICO_TRANSFER_ERROR&&!read_pico_transfer_try_stop_if_idle()){phase(IF_UPDATE_FAILED,"请先结束传输后重试");return ESP_ERR_INVALID_STATE;}
+        if(network.state==READ_PICO_TRANSFER_ERROR&&!read_pico_transfer_try_stop_if_idle()){phase(IF_UPDATE_FAILED,ui_message(UI_MSG("请先结束传输后重试")));return ESP_ERR_INVALID_STATE;}
         read_pico_transfer_cfg_t config={.mode=READ_PICO_TRANSFER_MODE_STA,.network_only=true};
         esp_err_t err=read_pico_transfer_start(&config);
-        if(err!=ESP_OK){read_pico_transfer_get_status(&network);phase(IF_UPDATE_FAILED,err==ESP_ERR_NOT_FOUND?(network.wifi_configured?"附近未找到已保存的WiFi":"请先在设置中配置WiFi"):"无法连接WiFi，请重试");return err;}
+        if(err!=ESP_OK){read_pico_transfer_get_status(&network);phase(IF_UPDATE_FAILED,err==ESP_ERR_NOT_FOUND?(network.wifi_configured?ui_message(UI_MSG("附近未找到已保存的WiFi")):ui_message(UI_MSG("请先在设置中配置WiFi"))):ui_message(UI_MSG("无法连接WiFi，请重试")));return err;}
         s_owned_wifi=true;
     }else if(network.mode!=READ_PICO_TRANSFER_MODE_STA||!network.network_ready||network.state!=READ_PICO_TRANSFER_READY){
-        phase(IF_UPDATE_FAILED,"请先结束传输并连接WiFi");return ESP_ERR_INVALID_STATE;
+        phase(IF_UPDATE_FAILED,ui_message(UI_MSG("请先结束传输并连接WiFi")));return ESP_ERR_INVALID_STATE;
     }
     atomic_store(&s_cancel,false);
     xSemaphoreTake(s_lock,portMAX_DELAY);s_status.busy=true;s_status.received=0;
     if(!install){memset(&s_candidate,0,sizeof(s_candidate));s_status.version[0]=0;s_status.total=0;}
     xSemaphoreGive(s_lock);
-    phase(install?IF_UPDATE_DOWNLOADING:IF_UPDATE_CHECKING,install?"正在下载并安装…":"正在检查更新…");
+    phase(install?IF_UPDATE_DOWNLOADING:IF_UPDATE_CHECKING,install?ui_message(UI_MSG("正在下载并安装…")):ui_message(UI_MSG("正在检查更新…")));
     if(xTaskCreate(worker,"if_ota",16384,(void*)(uintptr_t)install,4,&s_task)!=pdPASS){
         if(s_owned_wifi){read_pico_transfer_stop();s_owned_wifi=false;}
         xSemaphoreTake(s_lock,portMAX_DELAY);s_status.busy=false;xSemaphoreGive(s_lock);
-        phase(IF_UPDATE_FAILED,"无法启动升级任务，请重试");return ESP_ERR_NO_MEM;
+        phase(IF_UPDATE_FAILED,ui_message(UI_MSG("无法启动升级任务，请重试")));return ESP_ERR_NO_MEM;
     }
     return ESP_OK;
 }

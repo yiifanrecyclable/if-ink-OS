@@ -221,6 +221,7 @@ void ui_text(
     uint8_t* framebuffer, int x, int y_top, int px, const char* text,
     enum EpdFontFlags align, bool inverted
 ) {
+    text=ui_message(text);
     px = ui_text_effective_px(px);
     uint8_t fg = inverted ? UI_INK_WHITE : UI_INK_BLACK;
     uint8_t bg = inverted ? UI_INK_BLACK : UI_INK_WHITE;
@@ -230,22 +231,26 @@ void ui_text(
 }
 
 int ui_text_fixed_width_px(int px, const char* text) {
+    text=ui_message(text);
     if (!text || px <= 0) return 0;
     return !s_system_ttf && ui_font_has_text(text)
         ? ui_font_text_width_px(px, text)
         : ttf_text_width_px(px, text);
 }
 void ui_text_fixed_measure_px(int px,const char *text,int *above,int *below){
+    text=ui_message(text);
     if(!s_system_ttf&&ui_font_has_text(text))ui_font_measure_line_px(px,text,above,below);
     else ttf_measure_line_px(px,text,above,below);
 }
 void ui_text_fixed_ink_top(uint8_t *fb,int x,int top,int px,const char *text,enum EpdFontFlags align){
+    text=ui_message(text);
     int above=0,below=0;ui_text_fixed_measure_px(px,text,&above,&below);
     if(!s_system_ttf&&ui_font_has_text(text))ui_font_draw_text_px(fb,x,top+above,px,text,align,UI_INK_BLACK,UI_INK_WHITE,false);
     else ttf_draw_text_px(fb,x,top+above,px,text,align,UI_INK_BLACK,UI_INK_WHITE);
 }
 
 void ui_text_justify_ink_top(uint8_t *fb,int x,int top,int px,const char *text,int target_width,bool force_ttf){
+    text=ui_message(text);
     if(!fb||!text||!*text)return;
     // 整行固定同一字库和基线，防止逐字回退改变字形或垂直位置。/ Pin the whole row's face and baseline before drawing individual glyphs.
     bool builtin=!force_ttf&&!s_system_ttf&&ui_font_has_text(text);
@@ -279,6 +284,7 @@ void ui_text_fixed(
     uint8_t* framebuffer, int x, int y_top, int px, const char* text,
     enum EpdFontFlags align, bool inverted
 ) {
+    text=ui_message(text);
     uint8_t fg = inverted ? UI_INK_WHITE : UI_INK_BLACK;
     uint8_t bg = inverted ? UI_INK_BLACK : UI_INK_WHITE;
     if (!s_system_ttf && ui_font_has_text(text))
@@ -291,6 +297,7 @@ void ui_text_fixed_vc_gray(
     uint8_t *framebuffer,int x,int center_y,int px,const char *text,
     enum EpdFontFlags align,uint8_t fg,uint8_t bg
 ) {
+    text=ui_message(text);
     if (!framebuffer || !text || !text[0] || px <= 0) return;
     int above = 0, below = 0;
     if (!s_system_ttf && ui_font_has_text(text)) {
@@ -313,6 +320,7 @@ void ui_text_bw(
     uint8_t* framebuffer, int x, int y_top, int px, const char* text,
     enum EpdFontFlags align, bool inverted
 ) {
+    text=ui_message(text);
     px = ui_text_effective_px(px);
     uint8_t fg = inverted ? UI_INK_WHITE : UI_INK_BLACK;
     uint8_t bg = inverted ? UI_INK_BLACK : UI_INK_WHITE;
@@ -325,6 +333,7 @@ void ui_text_vc(
     uint8_t* framebuffer, int x, int center_y, int px, const char* text,
     enum EpdFontFlags align, bool inverted
 ) {
+    text=ui_message(text);
     px = ui_text_effective_px(px);
     int above = 0;
     int below = 0;
@@ -1425,6 +1434,7 @@ int ui_sample_line_count(void) {
 }
 
 void ui_text_title_line(uint8_t *fb, EpdRect box, int px, const char *text, uint8_t background) {
+    text=ui_message(text);
     if (!fb || !text || px <= 0 || box.width <= 0) return;
     char shown[160];
     size_t length=strnlen(text,sizeof(shown)-1);

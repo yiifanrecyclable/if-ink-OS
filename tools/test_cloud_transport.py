@@ -14,6 +14,7 @@ def function(text,name):
         end+=1
     return text[start:end]
 preamble=r'''
+#include "ui/ui_i18n.h"
 #include <assert.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -108,5 +109,5 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='cloud-transport-') as 
     work=Path(tmp);test=work/'test.c';binary=work/'test'
     chunks=[preamble,function(protocol,'cloud_etag_version'),function(protocol,'cloud_etag_same'),function(source,'strong_etag'),function(source,'network_diagnostic'),function(source,'http_event'),function(source,'fetch'),main]
     test.write_text('\n'.join(chunks))
-    subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-Wno-misleading-indentation','-fsanitize=address,undefined','-I'+str(ROOT/'tools/simulator/include'),str(test),'-o',str(binary)],check=True)
+    subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-Wno-misleading-indentation','-fsanitize=address,undefined','-I'+str(ROOT/'tools/simulator/include'),'-I'+str(ROOT/'main'),str(ROOT/'main/ui/ui_i18n.c'),str(test),'-o',str(binary)],check=True)
     subprocess.run([str(binary)],cwd=work,check=True)

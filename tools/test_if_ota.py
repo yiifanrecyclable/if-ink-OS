@@ -14,6 +14,7 @@ def function(name):
         n+=1
     return source[m.start():n]
 unit=r'''
+#include "ui/ui_i18n.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -55,10 +56,14 @@ int main(int argc,char **argv){
  candidate(path,"Read_Pico_IF","0.3.3-rc83-if.1");assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
  candidate(path,"Read_Pico_IF","0.3.3-rc83-if.2");FILE *f=fopen(path,"r+b");assert(f);fputc(0,f);fclose(f);assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_RESPONSE&&!info.ready);
  f=fopen(path,"wb");assert(f);fputc(0,f);fclose(f);assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_SIZE&&!info.ready);
- puts("PASS IF local upgrade identity, version, missing slot, capacity, malformed header and truncation");
+ snprintf(current.version,sizeof(current.version),"%s","0.1.6-beta3");
+ candidate(path,"Read_Pico_IF","0.1.6-beta3-r2");assert(pico_ota_inspect(path,&info)==ESP_OK&&info.ready);
+ snprintf(current.version,sizeof(current.version),"%s","0.1.6-beta3-r2");
+ assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
+ puts("PASS IF local upgrade identity, beta3-to-r2, same-version rejection, missing slot, capacity, malformed header and truncation");
 }
 '''
 with tempfile.TemporaryDirectory(prefix='if-ota-') as temp:
     work=Path(temp);file=work/'test.c';file.write_text(unit);binary=work/'test'
-    subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-I'+str(root/'tools/html_text_stubs'),'-I'+str(root/'main'),str(file),'-o',str(binary)],check=True)
+    subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-I'+str(root/'tools/html_text_stubs'),'-I'+str(root/'main'),str(root/'main/ui/ui_i18n.c'),str(file),'-o',str(binary)],check=True)
     subprocess.run([str(binary),str(work/'candidate.bin')],check=True)

@@ -39,7 +39,11 @@ static void display_guard_end(SemaphoreHandle_t *lock) { xSemaphoreGiveRecursive
 
 static const char* TAG = "read_pico";
 static bool s_bulk_io;
+static bool s_resume_clean;
 static int s_pclk_mhz = DISPLAY_PCLK_DEFAULT_MHZ;
+
+void display_resume_clean_next(void) { DISPLAY_GUARD; s_resume_clean=true; }
+bool display_resume_clean_pending(void) { DISPLAY_GUARD; return s_resume_clean; }
 
 void display_set_bulk_io(bool active) {
     DISPLAY_GUARD;
@@ -100,6 +104,21 @@ static void use_scan_for(const EpdWaveform* waveform, enum EpdDrawMode mode) {
 // Whole-page differentials since the last full GC16. Local feedback is excluded so a few taps cannot trigger flashing.
 static int s_page_refreshes;
 
+// 唤醒只在目标页画好后统一清屏并建立白底参考，不把壁纸或半途擦白当成当前页。
+// After wake, clean only once the complete target is drawn and establish a white baseline instead of reusing wallpaper state.
+static enum EpdDrawError resume_clean(EpdiyHighlevelState *hl) {
+    use_scan_for(&E0470_FULL_WAVEFORM,MODE_GC16);
+    epd_poweron();epd_clear();epd_hl_waveform(hl,&E0470_FULL_WAVEFORM);
+    enum EpdDrawError result=epd_hl_update_screen_from_white(hl,MODE_GC16,25);
+    if(result & EPD_DRAW_EMPTY_LINE_QUEUE){
+        s_pclk_mhz=DISPLAY_PCLK_SAFE_MHZ;read_pico_epd_set_pclk(DISPLAY_PCLK_SAFE_MHZ);
+        epd_clear();result=epd_hl_update_screen_from_white(hl,MODE_GC16,25);
+    }
+    if(result==EPD_DRAW_SUCCESS)s_resume_clean=false;
+    s_page_refreshes=0;
+    epd_hl_waveform(hl,&E0470_WAVEFORM);rails_keepalive();return result;
+}
+
 // 所有按 fb 刷屏的出口都经这里。GL16 必须全像素（白底补 1 帧靠它打到）。
 // 整页差分刷攒够 APP_UI_GC16_EVERY 次就把这一次升为全像素 GC16：区域、fb 都不变，只换模式，
 // 屏上内容仍由 fb 决定，不会丢；全像素是为了让未变化像素也过一遍 LUT，否则压不掉灰底。
@@ -114,6 +133,7 @@ static enum EpdDrawError hl_update(
     EpdiyHighlevelState* hl, const EpdWaveform* waveform, enum EpdDrawMode mode, bool full,
     const EpdRect* area, bool allow_gl16_diff
 ) {
+    if(s_resume_clean)return resume_clean(hl);
     full = full || ((mode & 0xF) == MODE_GL16 && !allow_gl16_diff);
     if (waveform != &E0470_FOLLOW_WAVEFORM && area == NULL) {
         if ((mode & 0xF) == MODE_GC16) {
@@ -243,10 +263,23 @@ enum EpdDrawError update_display_image_gray(EpdiyHighlevelState* hl) {
 
 enum EpdDrawError update_display_home_clean(EpdiyHighlevelState* hl){
     DISPLAY_GUARD;
+    if(s_resume_clean)return resume_clean(hl);
     use_scan_for(&E0470_FULL_WAVEFORM,MODE_GC16);
-    epd_poweron();epd_hl_waveform(hl,&E0470_FULL_WAVEFORM);
-    // 使用已知前帧，所有灰底像素都走完整波形，取消前置多轮擦白。/ Use the tracked prior frame and drive every gray pixel without a multi-pass white preclear.
-    enum EpdDrawError result=hl_update(hl,&E0470_FULL_WAVEFORM,MODE_GC16,true,NULL,false);
+    epd_poweron();
+    // 首页强刷只改变主体策略，底栏与其余主页采用相同校准；无第二轮输出。
+    // Home cleanup changes the body only; its footer shares the other roots' calibration without a second pass.
+    enum EpdDrawError result=e0470_update_navigation_clean(hl,(EpdRect){0,0,684,1216},(EpdRect){0,1136,684,80},display_art_waveform());
+    if(result==EPD_DRAW_NO_PHASES_AVAILABLE){
+        epd_hl_waveform(hl,&E0470_FULL_WAVEFORM);
+        result=epd_hl_update_screen_full(hl,MODE_GC16,25);
+    }else if(result!=EPD_DRAW_SUCCESS){
+        if(result & EPD_DRAW_EMPTY_LINE_QUEUE){
+            s_pclk_mhz=DISPLAY_PCLK_SAFE_MHZ;read_pico_epd_set_pclk(DISPLAY_PCLK_SAFE_MHZ);
+        }
+        epd_clear();epd_hl_waveform(hl,&E0470_FULL_WAVEFORM);
+        result=epd_hl_update_screen_from_white(hl,MODE_GC16,25);
+    }
+    s_page_refreshes=0;
     epd_hl_waveform(hl,&E0470_WAVEFORM);rails_keepalive();return result;
 }
 
@@ -378,13 +411,16 @@ enum EpdDrawError update_display_natural_page(EpdiyHighlevelState *hl,EpdRect ar
 
 enum EpdDrawError update_display_navigation_page(EpdiyHighlevelState *hl,EpdRect art,EpdRect navigation){
     DISPLAY_GUARD;
-    if(APP_UI_FAST_GC16_EVERY>0 && ++s_page_refreshes>=APP_UI_FAST_GC16_EVERY)return update_display_full(hl);
+    if(s_resume_clean)return resume_clean(hl);
+    if(APP_UI_FAST_GC16_EVERY>0 && ++s_page_refreshes>=APP_UI_FAST_GC16_EVERY)return update_display_home_clean(hl);
     bool no_art=art.height<=0;
     if(no_art)art=(EpdRect){0,0,684,1216};
     use_scan_for(&E0470_WAVEFORM,MODE_GL16);
     epd_poweron();
+    // 采用kiikoread普通模式：文字柔和、封面保留校准灰阶，同时输出；底栏独立保持等灰。
+    // Follow kiikoread ordinary mode: present soft text and calibrated covers together, holding unchanged footer grays.
     enum EpdDrawError err=e0470_update_navigation_regions(hl,(EpdRect){0,0,684,1216},art,navigation,
-        display_natural_waveform(),no_art?display_natural_waveform():display_art_waveform());
+        display_natural_waveform(),no_art?display_natural_waveform():display_art_waveform(),display_art_waveform());
     if(err==EPD_DRAW_NO_PHASES_AVAILABLE){
         epd_hl_waveform(hl,&E0470_WAVEFORM);err=epd_hl_update_screen_full(hl,MODE_GL16,25);
     }else if(err!=EPD_DRAW_SUCCESS){

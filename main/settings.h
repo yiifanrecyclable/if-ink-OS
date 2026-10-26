@@ -25,6 +25,10 @@ typedef enum {
 } app_sleep_mode_t;
 
 void app_settings_init(void);
+typedef enum { APP_LANGUAGE_ZH = 0, APP_LANGUAGE_EN = 1 } app_language_t;
+/// 默认简体中文，保存成功后立即应用，随设置备份恢复。/ Default to Simplified Chinese; apply after persistence and include in settings backup.
+app_language_t app_settings_language(void);
+esp_err_t app_settings_set_language(app_language_t language);
 app_sleep_mode_t app_settings_sleep_mode(void);
 void app_settings_set_sleep_mode(app_sleep_mode_t mode);
 const char* app_sleep_mode_name(app_sleep_mode_t mode);

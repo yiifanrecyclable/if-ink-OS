@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: Apache-2.0
  * 快捷设置原子保存、逐内容引导标记及双指收尾。/ Atomic shortcut preferences, per-content help flags and multi-contact completion.
  */
+#include "ui/ui_i18n.h"
+
 #include "reader_input.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,12 +12,12 @@
 static reader_input_preferences_t s_prefs = {.version=1};
 static bool s_loaded;
 const char *reader_shortcut_name(unsigned slot) {
-    static const char *const names[]={"单指向左滑动","单指向右滑动","单指向上滑动","单指向下滑动","长按正文","双指轻点","双指捏合","双指张开"};
-    return slot<READER_SHORTCUT_COUNT?names[slot]:"";
+    static const char *const names[]={UI_MSG("单指向左滑动"),UI_MSG("单指向右滑动"),UI_MSG("单指向上滑动"),UI_MSG("单指向下滑动"),UI_MSG("长按正文"),UI_MSG("双指轻点"),UI_MSG("双指捏合"),UI_MSG("双指张开")};
+    return slot<READER_SHORTCUT_COUNT?ui_message(names[slot]):"";
 }
 const char *reader_action_name(unsigned action) {
-    static const char *const names[]={"不启用","上一页","下一页","打开目录","书签列表","阅读面板","切换阅读布局","缩小字号","放大字号","添加或移除书签","立刻刷新"};
-    return action<READER_ACTION_COUNT?names[action]:"";
+    static const char *const names[]={UI_MSG("不启用"),UI_MSG("上一页"),UI_MSG("下一页"),UI_MSG("打开目录"),UI_MSG("书签列表"),UI_MSG("阅读面板"),UI_MSG("切换阅读布局"),UI_MSG("缩小字号"),UI_MSG("放大字号"),UI_MSG("添加或移除书签"),UI_MSG("立刻刷新")};
+    return action<READER_ACTION_COUNT?ui_message(names[action]):"";
 }
 bool reader_input_preferences_valid(const reader_input_preferences_t *p) {
     if(!p||(p->version!=1&&p->version!=2)||p->hide_help>1)return false;
@@ -69,7 +71,7 @@ esp_err_t reader_input_assign(unsigned slot,unsigned action){
 static void help_key(const char *path,char key[16]){
     uint64_t hash=UINT64_C(14695981039346656037);
     for(const unsigned char *p=(const unsigned char *)path;*p;++p)hash=(hash^*p)*UINT64_C(1099511628211);
-    snprintf(key,16,"h%014llx",(unsigned long long)(hash&UINT64_C(0xffffffffffffff)));
+    ui_snprintf(key,16,"h%014llx",(unsigned long long)(hash&UINT64_C(0xffffffffffffff)));
 }
 bool reader_input_needs_help(const char *path){
     load();if(s_prefs.hide_help||!path||!*path)return false;

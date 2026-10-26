@@ -50,6 +50,7 @@ idf_component_register(
         "app/app_loop.c"
         "app/app_registry.c"
         "ui/ui_kit.c"
+        "ui/ui_i18n.c"
         "ui/ui_text_input.c"
         "ui/ui_pinyin.c"
         "ui/ui_gesture.c"

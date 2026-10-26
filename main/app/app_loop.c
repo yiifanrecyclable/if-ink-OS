@@ -19,8 +19,8 @@
  * own Back/Home/Back keys; reading retains page turns, settings and hold-to-shelf.
  * Owners may opt into a single 500ms same-key hold callback after the press action; interruptions cancel it.
  * The menu handle still fires on press.
- * 用户修订：系统页面切换使用 GL16，不再每次 GC16 全刷；锁屏、手动强刷和周期清残影仍可全刷。
- * User revision: system page changes use GL16 instead of GC16; lock, manual refresh and periodic ghost cleanup may still use full refresh.
+ * 用户修订：主导航采用同步普通灰阶刷新，取消系统页面波浪；唤醒首帧统一清除壁纸。
+ * User revision: root transitions use simultaneous ordinary grayscale without main-page ripple; the first post-wake frame clears wallpaper.
  * 冻结：返回消费最近切页来源，恢复原页及菜单位置，不跳固定首页。
  * Frozen: Return consumes the latest page origin, restoring its page and menu position.
  */
@@ -78,6 +78,9 @@ void app_lock_ignore_for(int64_t ms) {
 
 void app_present(app_ctx_t* ctx, const app_desc_t* app, app_redraw_t redraw) {
     enum EpdDrawError result = EPD_DRAW_SUCCESS;
+    // 唤醒必须先画完整目标；仍调用页面自己的present来完成阅读等状态收尾。
+    // Draw a complete post-wake target while retaining each page's present-state bookkeeping.
+    if(redraw!=APP_REDRAW_NONE && redraw!=APP_REDRAW_DONE && display_resume_clean_pending())redraw=APP_REDRAW_FULL;
     ui_text_set_system_scale(true);
     if (app->present != NULL && app->present(ctx, redraw)) return;
     switch (redraw) {

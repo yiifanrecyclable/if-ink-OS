@@ -110,7 +110,7 @@ void ui_draw_menu_row_pressed(uint8_t* framebuffer, const app_desc_t* current,
     const int badge_cx = rect.x + 46;
     const int text_x = rect.x + 96;
     const int text_top = rect.y + (rect.height - (36 + 8 + UI_PX_CAPTION)) / 2;
-    snprintf(line, sizeof(line), "%d", first + row + 1);
+    ui_snprintf(line, sizeof(line), "%d", first + row + 1);
     ui_text_vc(
         framebuffer, badge_cx, rect.y + rect.height / 2, UI_PX_LABEL, line,
         EPD_DRAW_ALIGN_CENTER, false
@@ -134,19 +134,19 @@ void ui_draw_menu_page(uint8_t* framebuffer, const app_desc_t* current, int leaf
 
     char line[80];
     ui_clear_page(framebuffer);
-    snprintf(
+    ui_snprintf(
         line, sizeof(line),
-        "第 %d / %d 页　Page %d / %d",
+        UI_MSG("第 %d / %d 页　Page %d / %d"),
         leaf + 1, leaves, leaf + 1, leaves
     );
-    ui_draw_header(framebuffer, "功能", line);
+    ui_draw_header(framebuffer, UI_MSG("功能"), line);
 
     for (int row = 0; row < count; row++) {
         ui_draw_menu_row_pressed(framebuffer, current, leaf, row, false);
     }
 
-    ui_draw_button(framebuffer, menu_nav_rect(false), "上一页 Prev", leaf > 0);
-    ui_draw_button(framebuffer, menu_nav_rect(true), "下一页 Next", leaf + 1 < leaves);
+    ui_draw_button(framebuffer, menu_nav_rect(false), UI_MSG("上一页 Prev"), leaf > 0);
+    ui_draw_button(framebuffer, menu_nav_rect(true), UI_MSG("下一页 Next"), leaf + 1 < leaves);
     ui_draw_menu_handle(framebuffer, true);
 }
 

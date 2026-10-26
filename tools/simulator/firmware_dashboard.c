@@ -35,11 +35,14 @@ int simulator_home_cover_geometry(unsigned part) {
 }
 
 int simulator_history_state(unsigned part) {
- const int values[]={s_history_open,s_history_weekly,s_history_page,history_pages(),s_history_count,(int)s_history_first,(int)s_history_today,history_rows(),history_row_height()};
- return part<9?values[part]:0;
+ const int values[]={s_history_open,s_history_target_open,s_history_page,history_pages(),s_history_count,(int)s_history_first,(int)s_history_today,history_rows(),history_row_height(),history_target_row_height(),history_list_top()};
+ return part<11?values[part]:0;
 }
 unsigned long long simulator_history_seconds(unsigned row){return row<HOME_HISTORY_MAX_ROWS?s_history_seconds[row]:0;}
 
 bool simulator_home_has_documents(void){return s_has_documents;}
 const char *simulator_home_list_path(unsigned row){const char *path=recent_list_path(row);return path?path:"";}
 const char *simulator_home_featured_path(void){return s_current.path[0]?s_current.path:s_recent[0].path;}
+
+unsigned simulator_reading_target(void){return content_reading_target_minutes();}
+unsigned simulator_history_bar_width(unsigned row){return row<HOME_HISTORY_MAX_ROWS?history_bar_width(s_history_seconds[row],content_reading_target_minutes()):0;}

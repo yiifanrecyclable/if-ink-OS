@@ -3,11 +3,11 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="if-ink OS，为 Pico RDP-G01-W 带来 EPUB、TXT、Markdown 阅读、坚果云同步、自定义首页与长期阅读记录。了解功能，在线安装或下载 v0.1.5。">
+  <meta name="description" content="if-ink OS，为 Pico RDP-G01-W 带来 EPUB、TXT、Markdown 阅读、坚果云同步、自定义首页与长期阅读记录。了解功能，在线安装或下载 v0.1.6。">
   <meta name="theme-color" content="#ffffff">
   <title>if-ink OS — 化繁为简，即刻阅读</title>
-  <link rel="stylesheet" href="./site.css?v=0.1.5-5">
-  <script src="./site.js?v=0.1.5-1" defer></script>
+  <link rel="stylesheet" href="./site.css?v=0.1.6-5">
+  <script src="./site.js?v=0.1.6-1" defer></script>
 </head>
 <body>
 <a class="skip-link" href="#main">跳至正文</a>
@@ -20,20 +20,20 @@
       <a href="#showcase"><span>02</span> 在 Pico 上看看</a>
       <a href="#markdown"><span>03</span> Markdown 阅读</a>
       <a href="#sync"><span>04</span> 从笔记到墨水屏</a>
-      <a href="#personal"><span>05</span> 首页与阅读记录</a>
+      <a href="#personal"><span>05</span> 首页与阅读打卡</a>
       <a href="#guide"><span>06</span> 操作与文件整理</a>
       <a href="#install"><span>07</span> 安装与升级</a>
-      <a href="#downloads"><span>08</span> 下载 v0.1.5</a>
+      <a href="#downloads"><span>08</span> 下载 v0.1.6</a>
       <a href="#artwork"><span>09</span> Banner 背景与壁纸</a>
       <a href="#faq"><span>10</span> 常见问题</a>
       <a href="#opensource"><span>11</span> 来源与开源</a>
     </nav>
   </details>
-  <div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span> 当前发布 v0.1.5<br><a href="https://github.com/yiifanrecyclable/if-ink-OS">GitHub ↗</a></div>
+  <div class="sidebar-bottom"><span class="status-dot" aria-hidden="true"></span> 当前发布 v0.1.6<br><a href="https://github.com/yiifanrecyclable/if-ink-OS">GitHub ↗</a></div>
 </aside>
 <main id="main">
   <section class="intro section" id="intro" aria-labelledby="intro-title">
-    <div class="eyebrow"><span>INK, WORDS &amp; A LITTLE MORE.</span><span class="version">v0.1.5</span></div>
+    <div class="eyebrow"><span>INK, WORDS &amp; A LITTLE MORE.</span><span class="version">v0.1.6</span></div>
     <h1 id="intro-title">化繁为简，即刻阅读</h1>
     <div class="intro-bottom"><p class="lead">if-ink OS，为 Pico 打造的 EPUB、TXT 与 Markdown 阅读固件。</p><div class="hero-actions"><a class="button button-dark" href="#install">在线安装 <span aria-hidden="true">↗</span></a><a class="button" href="#downloads">下载固件 <span aria-hidden="true">↓</span></a></div></div>
     <div class="intro-foot"><span>仅适用 <strong>Pico RDP-G01-W</strong></span><span>EPUB / TXT / MARKDOWN</span><span>本地阅读 · 按需同步</span></div>
@@ -44,23 +44,23 @@
     <div class="carousel" role="region" aria-roledescription="轮播图" aria-label="Pico 功能展示">
       <div class="carousel-stage" id="showcase-stage">
         <article class="showcase-slide" id="slide-home" role="tabpanel" aria-labelledby="tab-home">
-          <a class="showcase-image" href="./images/showcase/home.png?v=0.1.5-2" target="_blank" rel="noopener" aria-label="查看首页展示原图（可放大）"><img src="./images/showcase/home.webp?v=0.1.5-2" width="1200" height="1200" alt="Pico 设备首页展示：Banner、阅读记录和最近阅读" fetchpriority="high" decoding="async"></a>
-          <div class="showcase-copy"><span class="slide-index">01 / 05 — HOME</span><h3>首页，<br>留一点自己的样子。</h3><p>自定义 Banner 随心组合背景、日期与文字；阅读记录热力图记录每日阅读时长。下方的最近阅读左右分栏，左侧展示最近图书，右侧列出文档；没有文档时显示最近图书，点开即可接着读。</p><a class="text-link" href="#personal">认识你的首页 <span aria-hidden="true">↗</span></a></div>
+          <a class="showcase-image" href="./images/showcase/home.png?v=0.1.6-2" target="_blank" rel="noopener" aria-label="查看首页展示原图（可放大）"><img src="./images/showcase/home.webp?v=0.1.6-2" width="1200" height="1200" alt="Pico 设备首页展示：Banner、阅读记录和最近阅读" fetchpriority="high" decoding="async"></a>
+          <div class="showcase-copy"><span class="slide-index">01 / 05 — HOME</span><h3>首页，<br>留一点自己的样子。</h3><p>自定义 Banner 随心组合背景、日期与文字；阅读打卡热力图按每日目标显示进度，达标后出现灰色对勾。下方的最近阅读左右分栏，左侧展示最近图书，右侧列出文档；没有文档时显示最近图书，点开即可接着读。</p><a class="text-link" href="#personal">认识你的首页 <span aria-hidden="true">↗</span></a></div>
         </article>
         <article class="showcase-slide" id="slide-shelf" role="tabpanel" aria-labelledby="tab-shelf" hidden>
-          <a class="showcase-image" href="./images/showcase/shelf.png?v=0.1.5-2" target="_blank" rel="noopener" aria-label="查看书架展示原图（可放大）"><img src="./images/showcase/shelf.webp?v=0.1.5-2" width="1200" height="1200" alt="Pico 设备展示三行三列的封面书架与阅读进度" loading="lazy" decoding="async"></a>
+          <a class="showcase-image" href="./images/showcase/shelf.png?v=0.1.6-2" target="_blank" rel="noopener" aria-label="查看书架展示原图（可放大）"><img src="./images/showcase/shelf.webp?v=0.1.6-2" width="1200" height="1200" alt="Pico 设备展示三行三列的封面书架与阅读进度" loading="lazy" decoding="async"></a>
           <div class="showcase-copy"><span class="slide-index">02 / 05 — LIBRARY</span><h3>读到哪里，<br>书架替你留着。</h3><p>3 × 3 封面书架，封面保留原始比例，进度细线放在书名上方。图书与文档分区管理，常读的内容可以置顶，打开继续读。</p><a class="text-link" href="#guide">整理内容与阅读 <span aria-hidden="true">↗</span></a></div>
         </article>
         <article class="showcase-slide" id="slide-markdown" role="tabpanel" aria-labelledby="tab-markdown" hidden>
-          <a class="showcase-image" href="./images/showcase/markdown.png?v=0.1.5-2" target="_blank" rel="noopener" aria-label="查看 Markdown 展示原图（可放大）"><img src="./images/showcase/markdown.webp?v=0.1.5-2" width="1200" height="1200" alt="Pico 设备展示 Markdown 标题、文字样式与表格阅读" loading="lazy" decoding="async"></a>
+          <a class="showcase-image" href="./images/showcase/markdown.png?v=0.1.6-2" target="_blank" rel="noopener" aria-label="查看 Markdown 展示原图（可放大）"><img src="./images/showcase/markdown.webp?v=0.1.6-2" width="1200" height="1200" alt="Pico 设备展示 Markdown 标题、文字样式与表格阅读" loading="lazy" decoding="async"></a>
           <div class="showcase-copy"><span class="slide-index">03 / 05 — MARKDOWN</span><h3>笔记的层次，<br>在屏上也清楚。</h3><p>标题、粗体、斜体、高亮，以及会换行、会分页的表格。让整理过的知识，拥有适合阅读的样子。</p><a class="text-link" href="#markdown">了解文档排版 <span aria-hidden="true">↗</span></a></div>
         </article>
         <article class="showcase-slide" id="slide-cloud" role="tabpanel" aria-labelledby="tab-cloud" hidden>
-          <a class="showcase-image" href="./images/showcase/cloud.png?v=0.1.5-2" target="_blank" rel="noopener" aria-label="查看坚果云同步展示原图（可放大）"><img src="./images/showcase/cloud.webp?v=0.1.5-2" width="1200" height="1200" alt="Pico 设备展示坚果云文件列表与按需下载" loading="lazy" decoding="async"></a>
+          <a class="showcase-image" href="./images/showcase/cloud.png?v=0.1.6-2" target="_blank" rel="noopener" aria-label="查看坚果云同步展示原图（可放大）"><img src="./images/showcase/cloud.webp?v=0.1.6-2" width="1200" height="1200" alt="Pico 设备展示坚果云文件列表与按需下载" loading="lazy" decoding="async"></a>
           <div class="showcase-copy"><span class="slide-index">04 / 05 — SYNC</span><div class="brand-pair" aria-label="坚果云与 Obsidian"><span><img src="./images/brands/nutstore.svg" width="28" height="28" alt="">坚果云</span><span><img src="./images/brands/obsidian.svg" width="28" height="28" alt="">Obsidian</span></div><h3>在电脑整理，<br>在 Pico 慢读。</h3><p>通过坚果云下载 MD、TXT、EPUB、PNG/JPEG 图片与 TTF 字体，并按类型归档。Obsidian 用户可用 Send to E-ink Reader 推送 Markdown 与优化后的本地插图。</p><a class="text-link" href="#sync">走通你的同步流程 <span aria-hidden="true">↗</span></a></div>
         </article>
         <article class="showcase-slide" id="slide-reader" role="tabpanel" aria-labelledby="tab-reader" hidden>
-          <a class="showcase-image" href="./images/showcase/reader.png?v=0.1.5-2" target="_blank" rel="noopener" aria-label="查看阅读控制面板原图（可放大）"><img src="./images/showcase/reader.webp?v=0.1.5-2" width="1200" height="1200" alt="Pico 设备展示阅读进度、书签、字体与版式控制面板" loading="lazy" decoding="async"></a>
+          <a class="showcase-image" href="./images/showcase/reader.png?v=0.1.6-2" target="_blank" rel="noopener" aria-label="查看阅读控制面板原图（可放大）"><img src="./images/showcase/reader.webp?v=0.1.6-2" width="1200" height="1200" alt="Pico 设备展示阅读进度、书签、字体与版式控制面板" loading="lazy" decoding="async"></a>
           <div class="showcase-copy"><span class="slide-index">05 / 05 — READER</span><h3>找到适合自己的<br>那一页。</h3><p>目录、书签、文字、版式和更多设置，收在同一个控制面板。调整阅读节奏，再回到正文。</p><a class="text-link" href="#guide">查看基础操作 <span aria-hidden="true">↗</span></a></div>
         </article>
       </div>
@@ -85,7 +85,7 @@
 
   <section class="section" id="personal" aria-labelledby="personal-title">
     <div class="section-heading"><div><span class="section-number">05 / MAKE IT YOURS</span><h2 id="personal-title">首页留给喜好，<br>记录留给时间。</h2></div></div>
-    <div class="editorial-rows"><article><span class="row-label">01 / BANNER</span><div><h3>一张图，一句文字，一个今天。</h3><p>长按首页 Banner，或进入“设置 → 显示与个性化 → 首页Banner”。背景、日期、文字是三个独立图层，可分别启用与调整。文字最多四行，支持字体、字号、对齐和上下位置；预览满意后点“保存”统一生效，取消或离开会放弃草稿。</p><p>背景可选 PNG / JPG / JPEG，单张不超过 2 MiB，按原比例居中铺满并裁切。推荐按 <strong>684 × 300</strong> 准备，默认从 TF 卡 <code>banner pic</code> 文件夹选图。0.1.4 起已内置“思考大猩猩”，卡就绪时自动释放为可选文件，不会自动应用，也不覆盖已有同名文件。</p></div></article><article id="reading-history"><span class="row-label">02 / READING HISTORY</span><div><h3>把“最近读过”，延伸为“读过的日子”。</h3><p>长按首页“阅读记录”，切换按日或按周查看。没有阅读的日子也会列出；周以周一至周日汇总，当前周累计至今天，横条便于比较这一页的阅读时长。</p><p>长期记录存放在 <code>.readpico/reading</code>，不按固定天数淘汰，容量取决于 TF 卡。旧系统尚保留的近期记录会迁入；已经被覆盖的旧日期无法补回。请保持设备日期可靠，并单独复制这个文件夹备份完整历史。</p></div></article><article><span class="row-label">03 / LOCK SCREEN</span><div><h3>暂时合上，也有自己的样子。</h3><p>支持壁纸锁屏与壁纸轮播。阅读时用电源键锁屏，再唤醒继续；具体显示内容可在设备锁屏设置中选择。锁屏图片与 Banner 图片各有用途，图片文件请随 TF 卡一起备份。</p></div></article></div>
+    <div class="editorial-rows"><article><span class="row-label">01 / BANNER</span><div><h3>一张图，一句文字，一个今天。</h3><p>长按首页 Banner，或进入“设置 → 显示与个性化 → 首页Banner”。背景、日期、文字是三个独立图层，可分别启用与调整。文字最多四行，支持字体、字号、对齐和上下位置；预览满意后点“保存”统一生效，取消或离开会放弃草稿。</p><p>背景可选 PNG / JPG / JPEG，单张不超过 2 MiB，按原比例居中铺满并裁切。推荐按 <strong>684 × 300</strong> 准备，默认从 TF 卡 <code>banner pic</code> 文件夹选图。0.1.4 起已内置“思考大猩猩”，卡就绪时自动释放为可选文件，不会自动应用，也不覆盖已有同名文件。</p></div></article><article id="reading-history"><span class="row-label">02 / READING HISTORY</span><div><h3>把“最近读过”，延伸为“读过的日子”。</h3><p>点击首页“阅读打卡”右侧的“更多”，或长按整个打卡区域，按日查看阅读时长。通过“目标设定”选择每日30至180分钟，默认90分钟；热力图最深色和详情横条满格共用目标，达标格内显示圆头灰色对勾。没有阅读的日期也会列出，实际时长以分钟显示。</p><p>长期记录存放在 <code>.readpico/reading</code>，不按固定天数淘汰，容量取决于 TF 卡。旧系统尚保留的近期记录会迁入；已经被覆盖的旧日期无法补回。请保持设备日期可靠，并单独复制这个文件夹备份完整历史。</p></div></article><article><span class="row-label">03 / LOCK SCREEN</span><div><h3>暂时合上，也有自己的样子。</h3><p>支持壁纸锁屏与壁纸轮播。阅读时用电源键锁屏，再唤醒继续；具体显示内容可在设备锁屏设置中选择。锁屏图片与 Banner 图片各有用途，图片文件请随 TF 卡一起备份。</p></div></article></div>
   </section>
 
   <section class="section" id="guide" aria-labelledby="guide-title">
@@ -96,19 +96,19 @@
   </section>
 
   <section class="section install-section" id="install" aria-labelledby="install-title">
-    <div class="section-heading"><div><span class="section-number">07 / INSTALL &amp; UPDATE</span><h2 id="install-title">从这里，<br>开始新的阅读日常。</h2></div><p>当前版本 <strong>0.1.5</strong><br>先确认机型：Pico RDP-G01-W。</p></div>
-    <div class="install-path"><div class="install-label"><span>首次安装</span><h3>电脑在线刷机</h3><p>从原系统迁移，选这一条。<br>不需要 Python 或刷机工具。</p></div><div class="install-content"><p class="callout">首次安装会重写分区表，请先备份重要数据。原系统的本地升级不接受 IF 镜像。</p><ol class="steps"><li><span>01</span><div>用电脑端 <strong>Chrome 或 Edge</strong> 打开本页。</div></li><li><span>02</span><div>唤醒 Pico，用可传数据的 USB 线连接电脑。退出 USB 读卡模式，关闭其他占用串口的程序。</div></li><li><span>03</span><div>点击下方“连接 Pico，安装固件”，选择设备对应串口，再按弹窗确认安装。</div></li><li><span>04</span><div>保持连接，等待写入、校验与重启。在“设置 → 固件信息”核对版本 <strong>0.1.5</strong>。</div></li></ol>
-      <div class="installer-area"><p id="flash-status" role="status" aria-live="polite">正在加载在线安装按钮…</p><esp-web-install-button id="flash-installer" hidden manifest="./webflash/0.1.5/manifest.json"><button class="button button-dark" slot="activate" type="button">连接 Pico，安装固件 <span aria-hidden="true">↗</span></button></esp-web-install-button><noscript><p>在线安装需要启用 JavaScript。也可下载离线 USB 刷机包，按详细安装说明操作。</p></noscript><p class="fineprint">只有点击连接按钮后才会请求串口。使用 <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>，安装器不执行整片擦除，不要额外添加擦除命令。</p></div></div></div>
-    <div class="install-path"><div class="install-label"><span>已有 IF / if-ink OS</span><h3>TF 卡本地升级</h3><p>无需重新在线刷机。<br>同版本无需重复安装。</p></div><div class="install-content"><ol class="steps"><li><span>01</span><div>可先在“设置 → 保存与恢复”备份配置，再下载 <a href="if-ink-OS-v0.1.5-tf.zip" download>TF 卡升级包</a>。完整关机后取卡。</div></li><li><span>02</span><div>解压，将 <code>Pico-IF-update.bin</code> 复制到 TF 卡根目录，替换旧同名更新文件。安全弹出，插回设备。内置大猩猩底图会在升级后卡就绪时自动释放，无需手动复制图片。</div></li><li><span>03</span><div>开机，进入“设置 → 固件信息 → 本地升级”，核对 <strong>0.1.5</strong> 并确认。旧 IF 系统的入口为“系统升级”。</div></li></ol><p>保持充足电量或 USB 供电。此路径只写应用槽，不改分区，书籍、文档与设置继续使用。</p></div></div>
-    <div class="update-note"><h3>之后的版本，设备上检查。</h3><p>本版包含独立在线更新器，可在“设置 → 固件信息 → 在线升级”检查并确认后续更新。旧版若没有此入口，先通过 TF 卡升到本版。GitHub 连接受网络环境影响，连接困难时可用 TF 卡升级。</p></div>
+    <div class="section-heading"><div><span class="section-number">07 / INSTALL &amp; UPDATE</span><h2 id="install-title">从这里，<br>开始新的阅读日常。</h2></div><p>当前版本 <strong>0.1.6</strong><br>先确认机型：Pico RDP-G01-W。</p></div>
+    <div class="install-path"><div class="install-label"><span>首次安装</span><h3>电脑在线刷机</h3><p>从原系统迁移，选这一条。<br>不需要 Python 或刷机工具。</p></div><div class="install-content"><p class="callout">首次安装会重写分区表，请先备份重要数据。原系统的本地升级不接受 IF 镜像。</p><ol class="steps"><li><span>01</span><div>用电脑端 <strong>Chrome 或 Edge</strong> 打开本页。</div></li><li><span>02</span><div>唤醒 Pico，用可传数据的 USB 线连接电脑。退出 USB 读卡模式，关闭其他占用串口的程序。</div></li><li><span>03</span><div>点击下方“连接 Pico，安装固件”，选择设备对应串口，再按弹窗确认安装。</div></li><li><span>04</span><div>保持连接，等待写入、校验与重启。在“设置 → 固件信息”核对版本 <strong>0.1.6</strong>。</div></li></ol>
+      <div class="installer-area"><p id="flash-status" role="status" aria-live="polite">正在加载在线安装按钮…</p><esp-web-install-button id="flash-installer" hidden manifest="./webflash/0.1.6/manifest.json"><button class="button button-dark" slot="activate" type="button">连接 Pico，安装固件 <span aria-hidden="true">↗</span></button></esp-web-install-button><noscript><p>在线安装需要启用 JavaScript。也可下载离线 USB 刷机包，按详细安装说明操作。</p></noscript><p class="fineprint">只有点击连接按钮后才会请求串口。使用 <a href="https://esphome.github.io/esp-web-tools/">ESP Web Tools</a>，安装器不执行整片擦除，不要额外添加擦除命令。</p></div></div></div>
+    <div class="install-path"><div class="install-label"><span>已有 IF / if-ink OS</span><h3>TF 卡本地升级</h3><p>无需重新在线刷机。<br>同版本无需重复安装。</p></div><div class="install-content"><ol class="steps"><li><span>01</span><div>可先在“设置 → 保存与恢复”备份配置，再下载 <a href="if-ink-OS-v0.1.6-tf.zip" download>TF 卡升级包</a>。完整关机后取卡。</div></li><li><span>02</span><div>解压，将 <code>Pico-IF-update.bin</code> 复制到 TF 卡根目录，替换旧同名更新文件。安全弹出，插回设备。内置大猩猩底图会在升级后卡就绪时自动释放，无需手动复制图片。</div></li><li><span>03</span><div>开机，进入“设置 → 固件信息 → 本地升级”，核对 <strong>0.1.6</strong> 并确认。旧 IF 系统的入口为“系统升级”。</div></li></ol><p>保持充足电量或 USB 供电。此路径只写应用槽，不改分区，书籍、文档与设置继续使用。</p></div></div>
+    <div class="update-note"><h3>之后的版本，设备上检查。</h3><p>系统界面支持中文与 English，可在“设置 → 系统与设备 → 系统语言”切换。本版包含独立在线更新器，可在“设置 → 固件信息 → 在线升级”检查并确认后续更新。旧版若没有此入口，先通过 TF 卡升到本版。GitHub 连接受网络环境影响，连接困难时可用 TF 卡升级。</p></div>
     <details class="manual-install"><summary>备用方式：手动 USB 安装 <span aria-hidden="true">＋</span></summary><div><p>下载离线 USB 刷机包，预先准备 Python 3 与 esptool 5.4.0。安装工具需联网，写入使用本地文件。在解压包目录打开终端，把 <code>PORT</code> 换成实际串口：Mac 常见 <code>/dev/cu.usbmodem…</code>，Windows 为 <code>COM…</code>。</p><pre><code>python3 -m pip install esptool==5.4.0
 python3 -m esptool --chip esp32s3 --port PORT --baud 460800 --before default-reset --after hard-reset write-flash @flash_args</code></pre><p>Windows 将 <code>python3</code> 换成 <code>py</code>；PowerShell 请把 <code>'@flash_args'</code> 加引号。连接不稳定可改为 <code>--baud 115200</code>。保持目录结构，不格式化 TF 卡，不擦除整片 Flash。本机型没有 BOOT / RESET 物理按键。</p><a class="text-link" href="安装说明.md">阅读完整安装说明 ↗</a></div></details>
   </section>
 
   <section class="section" id="downloads" aria-labelledby="downloads-title">
-    <div class="section-heading"><div><span class="section-number">08 / GET THE FILES</span><h2 id="downloads-title">下载。按需要选。</h2></div><a class="text-link" href="https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.1.5">GitHub 版本页面 ↗</a></div>
-    <div class="download-list"><a class="download-row" href="if-ink-OS-v0.1.5-tf.zip" download><span class="file-type">ZIP</span><span><strong>TF 卡升级包</strong><small>已有 IF / if-ink OS · 内置可选 Banner 底图</small></span><span class="download-arrow" aria-hidden="true">↓</span></a><a class="download-row" href="if-ink-OS-v0.1.5-usb.zip" download><span class="file-type">ZIP</span><span><strong>离线 USB 刷机包</strong><small>首次手动安装 · 四段固件与刷写参数</small></span><span class="download-arrow" aria-hidden="true">↓</span></a><a class="download-row" href="if-ink-OS-v0.1.5-resources.zip" download><span class="file-type">ZIP</span><span><strong>TF 字体与词库</strong><small>首次准备 TF 卡 · 已有字体与词库可保留</small></span><span class="download-arrow" aria-hidden="true">↓</span></a><a class="download-row" href="if-ink-OS-v0.1.5-source.zip" download><span class="file-type">ZIP</span><span><strong>对应源码与构建材料</strong><small>v0.1.5 源码、依赖与构建说明</small></span><span class="download-arrow" aria-hidden="true">↓</span></a></div>
-    <div class="download-extras"><a href="表格阅读示例.md" download>Markdown 表格示例 ↓</a><a href="安装说明.md">详细安装说明 ↗</a><a href="SHA256SUMS">SHA256 校验值 ↗</a><a href="许可证.zip" download>完整许可包 ↓</a><a href="https://github.com/yiifanrecyclable/if-ink-OS/tree/v0.1.5">版本源码 ↗</a></div>
+    <div class="section-heading"><div><span class="section-number">08 / GET THE FILES</span><h2 id="downloads-title">下载。按需要选。</h2></div><a class="text-link" href="https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.1.6">GitHub 版本页面 ↗</a></div>
+    <div class="download-list"><a class="download-row" href="if-ink-OS-v0.1.6-tf.zip" download><span class="file-type">ZIP</span><span><strong>TF 卡升级包</strong><small>已有 IF / if-ink OS · 内置可选 Banner 底图</small></span><span class="download-arrow" aria-hidden="true">↓</span></a><a class="download-row" href="if-ink-OS-v0.1.6-usb.zip" download><span class="file-type">ZIP</span><span><strong>离线 USB 刷机包</strong><small>首次手动安装 · 四段固件与刷写参数</small></span><span class="download-arrow" aria-hidden="true">↓</span></a><a class="download-row" href="if-ink-OS-v0.1.6-resources.zip" download><span class="file-type">ZIP</span><span><strong>TF 字体与词库</strong><small>首次准备 TF 卡 · 已有字体与词库可保留</small></span><span class="download-arrow" aria-hidden="true">↓</span></a><a class="download-row" href="if-ink-OS-v0.1.6-source.zip" download><span class="file-type">ZIP</span><span><strong>对应源码与构建材料</strong><small>v0.1.6 源码、依赖与构建说明</small></span><span class="download-arrow" aria-hidden="true">↓</span></a></div>
+    <div class="download-extras"><a href="表格阅读示例.md" download>Markdown 表格示例 ↓</a><a href="安装说明.md">详细安装说明 ↗</a><a href="SHA256SUMS">SHA256 校验值 ↗</a><a href="许可证.zip" download>完整许可包 ↓</a><a href="https://github.com/yiifanrecyclable/if-ink-OS/tree/v0.1.6">版本源码 ↗</a></div>
     <details class="checksum"><summary>应用镜像 SHA256</summary><code>a21255d274a6378330a4885a59fc42967c7a7505bd8dba00fbd08303440c9604</code><p class="fineprint">在下载包目录中，可用 <code>shasum -a 256 -c SHA256SUMS</code> 校验包内文件。</p></details>
   </section>
 
@@ -122,16 +122,16 @@ python3 -m esptool --chip esp32s3 --port PORT --baud 460800 --before default-res
 
   <section class="section" id="faq" aria-labelledby="faq-title">
     <div class="section-heading"><div><span class="section-number">10 / BEFORE YOU ASK</span><h2 id="faq-title">一些会遇到的问题。</h2></div></div>
-    <div class="faq-list"><details><summary>我的设备可以安装吗？<span aria-hidden="true">＋</span></summary><p>仅适用 Pico RDP-G01-W（ESP32-S3，16 MB Flash）。不要用于其他机型。if-ink OS 是独立衍生固件，首次从原系统迁移，请使用本页在线安装或对应 USB 四段包。</p></details><details><summary>为什么没有在线安装按钮，或找不到串口？<span aria-hidden="true">＋</span></summary><p>请用电脑端 Chrome / Edge 打开 HTTPS 页面。确认设备已唤醒、数据线支持传输，退出 USB 读卡模式并关闭串口监视器等程序。也可换数据线、拔插后重试；工具加载失败时刷新页面，或使用离线 USB 包。</p></details><details><summary>升级后找不到原来的书籍或字体？<span aria-hidden="true">＋</span></summary><p>当前标准目录固定为 <code>books</code>、<code>fonts</code>、<code>markdown</code>。旧自定义目录与文件会保留，但不会自动迁移，请用读卡器或 USB 读卡整理到标准目录。资源包只合并内部文件夹，不复制“TF卡资源”外层目录。</p></details><details><summary>坚果云连接时，该填哪种密码？<span aria-hidden="true">＋</span></summary><p>填写坚果云第三方应用密码，不是主账户密码；收件文件夹也需预先创建。设备通过文件页列出内容并按需下载。固件与插件发布包均不会预置你的账号。</p></details><details><summary>Markdown 能直接读取任意网页或复杂表格吗？<span aria-hidden="true">＋</span></summary><p>文档阅读使用支持的 Markdown 子集。标准管道表格可换行与分页；HTML、嵌套或合并单元格表格不在支持范围。支持文档内的本地 PNG/JPEG 插图，需使用兼容附件路径；推荐用 Send to E-ink Reader 0.1.8 开启图片发送，默认 684×1216、16 灰阶。表内图片、远程图片和 HTML 图片不在支持范围。</p></details><details><summary>配置备份能带走所有资料吗？<span aria-hidden="true">＋</span></summary><p>配置备份不复制书籍、文档、字体、图片和 TF 卡长期阅读归档。完整备份请另外复制卡内文件，包含隐藏目录 <code>.readpico/reading</code>。配置内含连接密码，不宜公开分享。</p></details><details><summary>本页的展示能说明真机刷新与续航表现吗？<span aria-hidden="true">＋</span></summary><p>图片用于展示界面与功能，静态展示不能作为墨水屏刷新速度、残影、休眠或续航的测试依据。0.1.5 已完成构建与宿主检查，新增功能的最终显示及休眠效果仍需实体设备验证。</p></details></div>
+    <div class="faq-list"><details><summary>我的设备可以安装吗？<span aria-hidden="true">＋</span></summary><p>仅适用 Pico RDP-G01-W（ESP32-S3，16 MB Flash）。不要用于其他机型。if-ink OS 是独立衍生固件，首次从原系统迁移，请使用本页在线安装或对应 USB 四段包。</p></details><details><summary>为什么没有在线安装按钮，或找不到串口？<span aria-hidden="true">＋</span></summary><p>请用电脑端 Chrome / Edge 打开 HTTPS 页面。确认设备已唤醒、数据线支持传输，退出 USB 读卡模式并关闭串口监视器等程序。也可换数据线、拔插后重试；工具加载失败时刷新页面，或使用离线 USB 包。</p></details><details><summary>升级后找不到原来的书籍或字体？<span aria-hidden="true">＋</span></summary><p>当前标准目录固定为 <code>books</code>、<code>fonts</code>、<code>markdown</code>。旧自定义目录与文件会保留，但不会自动迁移，请用读卡器或 USB 读卡整理到标准目录。资源包只合并内部文件夹，不复制“TF卡资源”外层目录。</p></details><details><summary>坚果云连接时，该填哪种密码？<span aria-hidden="true">＋</span></summary><p>填写坚果云第三方应用密码，不是主账户密码；收件文件夹也需预先创建。设备通过文件页列出内容并按需下载。固件与插件发布包均不会预置你的账号。</p></details><details><summary>Markdown 能直接读取任意网页或复杂表格吗？<span aria-hidden="true">＋</span></summary><p>文档阅读使用支持的 Markdown 子集。标准管道表格可换行与分页；HTML、嵌套或合并单元格表格不在支持范围。支持文档内的本地 PNG/JPEG 插图，需使用兼容附件路径；推荐用 Send to E-ink Reader 0.1.8 开启图片发送，默认 684×1216、16 灰阶。表内图片、远程图片和 HTML 图片不在支持范围。</p></details><details><summary>配置备份能带走所有资料吗？<span aria-hidden="true">＋</span></summary><p>配置备份不复制书籍、文档、字体、图片和 TF 卡长期阅读归档。完整备份请另外复制卡内文件，包含隐藏目录 <code>.readpico/reading</code>。配置内含连接密码，不宜公开分享。</p></details><details><summary>本页的展示能说明真机刷新与续航表现吗？<span aria-hidden="true">＋</span></summary><p>图片用于展示界面与功能，静态展示不能作为墨水屏刷新速度、残影、休眠或续航的测试依据。0.1.6 已完成构建与宿主检查，新增功能的最终显示及休眠效果仍需实体设备验证。</p></details></div>
   </section>
 
   <footer class="section footer" id="opensource" aria-labelledby="opensource-title">
     <span class="section-number">11 / BUILT ON OPEN SOURCE</span><h2 id="opensource-title">向来处致谢。<br>让改进继续。</h2>
     <div class="two-column"><div><p>if-ink OS 基于 <strong>Pico Reader 0.3.3-rc83</strong>，选择性采用后续 rc88 / rc95 / rc97 的阅读、刷新与存储改进，保留自身界面与刷新策略。</p><p>感谢 Pico Reader 原作者及所有上游贡献者。这是独立衍生版本，不是原作者或 MindReset 官方发布。</p><div class="footer-links"><a href="https://kiikoread.com/">Pico Reader 原作者主页 ↗</a><a href="https://wegooo-cell.github.io/read-pico-reader/">原主页地址 ↗</a><a href="https://github.com/wegooo-cell/read-pico-reader">原作者源码仓库 ↗</a></div></div><div><p>保留上游版权及各组件许可。主体使用 <a href="LICENSE">Apache-2.0</a>，epdiy 使用 LGPL-3.0-or-later，其他组件与字体遵循各自许可。对应版本同时提供源码与构建材料。</p><div class="footer-links"><a href="NOTICE.txt">来源说明 ↗</a><a href="许可证.zip" download>完整许可包 ↓</a><a href="https://github.com/yiifanrecyclable/if-ink-OS">if-ink OS 项目仓库 ↗</a></div></div></div>
-    <div class="footer-bottom"><span class="footer-wordmark">if-ink OS<span> / v0.1.5</span></span><span>为 Pico，也为想安静读一会儿的你。</span><a href="#intro">回到顶部 ↑</a></div>
+    <div class="footer-bottom"><span class="footer-wordmark">if-ink OS<span> / v0.1.6</span></span><span>为 Pico，也为想安静读一会儿的你。</span><a href="#intro">回到顶部 ↑</a></div>
   </footer>
 </main>
-<dialog id="showcase-lightbox" aria-label="展示图片原图"><div class="lightbox-toolbar"><span id="lightbox-caption">Pico 功能展示</span><div><a id="lightbox-original" href="./images/showcase/home.png?v=0.1.5-2" target="_blank" rel="noopener">打开原图 ↗</a><button id="lightbox-close" type="button" aria-label="关闭原图预览">关闭 <span aria-hidden="true">×</span></button></div></div><img id="lightbox-image" src="./images/showcase/home.webp?v=0.1.5-2" width="1200" height="1200" alt="Pico 功能展示原图"></dialog>
-<script type="module" src="./webflash/installer.js?v=0.1.5"></script>
+<dialog id="showcase-lightbox" aria-label="展示图片原图"><div class="lightbox-toolbar"><span id="lightbox-caption">Pico 功能展示</span><div><a id="lightbox-original" href="./images/showcase/home.png?v=0.1.6-2" target="_blank" rel="noopener">打开原图 ↗</a><button id="lightbox-close" type="button" aria-label="关闭原图预览">关闭 <span aria-hidden="true">×</span></button></div></div><img id="lightbox-image" src="./images/showcase/home.webp?v=0.1.6-2" width="1200" height="1200" alt="Pico 功能展示原图"></dialog>
+<script type="module" src="./webflash/installer.js?v=0.1.6"></script>
 </body>
 </html>
