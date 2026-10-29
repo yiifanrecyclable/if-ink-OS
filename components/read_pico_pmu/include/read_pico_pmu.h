@@ -193,6 +193,8 @@ typedef enum {
 /// 抽干事件队列，不解释按键（开机丢掉上电/烧录残留）。
 /// / Drain the event queue without interpreting keys (drop boot/flash leftovers).
 void read_pico_pmu_drain_events(void);
+/// 消费唤醒按键的整次按下/松开；松开稳定前不产生新操作。/ Consume the entire wake press/release before accepting new actions.
+void read_pico_pmu_suppress_key_until_release(void);
 /// 抽干事件队列并返回本轮最高优先级按键动作；长按优先于短按。
 /// / Drain the queue and return the highest-priority key action; long wins over short.
 read_pico_pmu_key_action_t read_pico_pmu_take_key_action(void);

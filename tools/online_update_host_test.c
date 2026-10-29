@@ -10,9 +10,12 @@
 #include "../main/ota_online.c"
 #include "cJSON.h"
 static int fault,writes,begins,aborts,ends,boots,stops;
+static unsigned disconnects,eagains,asset_opens,failed_opens;
+static size_t flash_at;
+static uint8_t flashed[32768];
 void app_time_service_stop(void){}
 static bool online=true,boot_switched;
-static uint8_t image[1536];static char manifest[1024];static CC_SHA256_CTX digest;
+static uint8_t image[32768];static char manifest[1024];static CC_SHA256_CTX digest;
 static const esp_app_desc_t current={.magic_word=ESP_APP_DESC_MAGIC_WORD,.version="0.1.0-test.2",.project_name=IF_OTA_PROJECT};
 static esp_partition_t running={.address=0x10000,.size=IF_OTA_MAX_BYTES},target={.address=0x910000,.size=IF_OTA_MAX_BYTES},data={.address=0xd10000,.size=0x2000};
 static void (*pending_worker)(void*);static void *pending_arg;
@@ -37,44 +40,57 @@ const esp_app_desc_t *esp_app_get_description(void){return &current;}
 const esp_partition_t *esp_ota_get_running_partition(void){return &running;}
 const esp_partition_t *esp_ota_get_next_update_partition(void *p){(void)p;return &target;}
 const esp_partition_t *esp_partition_find_first(int type,int sub,const char *label){(void)type;(void)sub;(void)label;return &data;}
-esp_err_t esp_ota_begin(const esp_partition_t *p,size_t size,esp_ota_handle_t *h){assert(p->address!=running.address&&size==sizeof(image));++begins;*h=1;return ESP_OK;}
-esp_err_t esp_ota_write(esp_ota_handle_t h,const void *p,size_t n){assert(h==1&&p&&n);++writes;return fault==6?ESP_FAIL:ESP_OK;}
+esp_err_t esp_ota_begin(const esp_partition_t *p,size_t size,esp_ota_handle_t *h){assert(p->address!=running.address&&size==OTA_WITH_SEQUENTIAL_WRITES);++begins;flash_at=0;*h=1;return ESP_OK;}
+esp_err_t esp_ota_write(esp_ota_handle_t h,const void *p,size_t n){assert(h==1&&p&&n);++writes;if(fault==6)return ESP_FAIL;assert(flash_at+n<=sizeof(flashed));memcpy(flashed+flash_at,p,n);flash_at+=n;return ESP_OK;}
 esp_err_t esp_ota_abort(esp_ota_handle_t h){assert(h);++aborts;return ESP_OK;}
-esp_err_t esp_ota_end(esp_ota_handle_t h){assert(h);++ends;if(fault==12)atomic_store(&s_cancel,true);return fault==7?ESP_FAIL:ESP_OK;}
+esp_err_t esp_ota_end(esp_ota_handle_t h){assert(h);assert(flash_at==sizeof(image));assert(fault==24||!memcmp(flashed,image,sizeof(image)));++ends;if(fault==12)atomic_store(&s_cancel,true);return fault==7?ESP_FAIL:ESP_OK;}
 esp_err_t esp_ota_set_boot_partition(const esp_partition_t *p){assert(p==&target);++boots;if(fault==13)atomic_store(&s_cancel,true);boot_switched=fault!=8;return fault==8?ESP_FAIL:ESP_OK;}
 int psa_crypto_init(void){return 0;}
 int psa_hash_setup(psa_hash_operation_t *op,int alg){(void)alg;op->bytes=0;CC_SHA256_Init(&digest);return 0;}
 int psa_hash_update(psa_hash_operation_t *op,const void *p,size_t n){op->bytes+=n;CC_SHA256_Update(&digest,p,(CC_LONG)n);return 0;}
 int psa_hash_finish(psa_hash_operation_t *op,uint8_t *out,size_t cap,size_t *n){(void)op;assert(cap>=32);CC_SHA256_Final(out,&digest);*n=32;return 0;}
 int psa_hash_abort(psa_hash_operation_t *op){(void)op;return 0;}
-struct FakeHttp {bool feed,redirect,blob;size_t at,length;void *user;int (*event)(esp_http_client_event_t*);};
+struct FakeHttp {bool feed,redirect,blob,partial;size_t at,length,start;void *user;int (*event)(esp_http_client_event_t*);};
 int esp_crt_bundle_attach(void *p){(void)p;return 0;}
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *cfg){
  assert(cfg->disable_auto_redirect&&cfg->crt_bundle_attach&&cfg->timeout_ms==15000);
  struct FakeHttp *h=calloc(1,sizeof(*h));assert(h);h->feed=strstr(cfg->url,"/contents/")!=NULL;
  h->blob=strstr(cfg->url,"/git/blobs/")!=NULL;h->redirect=strstr(cfg->url,"/releases/assets/")!=NULL;
  h->length=h->feed?strlen(manifest):sizeof(image)-(fault==1?10:0)+(fault==2?1:0);
+ if(!h->feed&&!h->redirect)++asset_opens;
  h->user=cfg->user_data;h->event=cfg->event_handler;return h;
 }
-esp_err_t esp_http_client_set_header(esp_http_client_handle_t h,const char *k,const char *v){(void)h;assert(strcmp(k,"Authorization"));if(!strcmp(k,"Accept-Encoding"))assert(!strcmp(v,"identity"));return ESP_OK;}
-esp_err_t esp_http_client_open(esp_http_client_handle_t h,int size){(void)h;assert(!size);return fault==9?ESP_FAIL:ESP_OK;}
+esp_err_t esp_http_client_set_header(esp_http_client_handle_t h,const char *k,const char *v){(void)h;assert(strcmp(k,"Authorization"));if(!strcmp(k,"Accept-Encoding"))assert(!strcmp(v,"identity"));
+ if(!strcmp(k,"Range")&&fault>=18&&fault!=21&&fault!=26){
+  unsigned offset=0;assert(sscanf(v,"bytes=%u-",&offset)==1);h->partial=true;h->start=h->at=offset;
+ }return ESP_OK;}
+esp_err_t esp_http_client_open(esp_http_client_handle_t h,int size){assert(!size);if(!h->feed&&fault==25&&failed_opens++<2)return ESP_FAIL;return fault==9?ESP_FAIL:ESP_OK;}
 int64_t esp_http_client_fetch_headers(esp_http_client_handle_t h){
  if(h->redirect){esp_http_client_event_t e={.event_id=HTTP_EVENT_ON_HEADER,.user_data=h->user,.header_key="Location",.header_value=fault==10?"http://evil.test/file":"https://release-assets.githubusercontent.com/path?sig=ok"};h->event(&e);return 0;}
- return fault==2?0:(int64_t)h->length;
+ if(h->partial){char range[96];snprintf(range,sizeof(range),"bytes %u-%u/%u",(unsigned)h->start+(fault==19?1:0),(unsigned)h->length-1-(fault==22?1:0),(unsigned)h->length);
+ esp_http_client_event_t e={.event_id=HTTP_EVENT_ON_HEADER,.user_data=h->user,.header_key="Content-Range",.header_value=range};h->event(&e);}
+ return fault==2?0:(int64_t)(h->length-h->start);
 }
-int esp_http_client_get_status_code(esp_http_client_handle_t h){return h->blob&&(fault==10||fault==16)?404:h->redirect?302:200;}
-esp_err_t esp_http_client_set_timeout_ms(esp_http_client_handle_t h,int ms){(void)h;assert(ms==5000);return ESP_OK;}
+int esp_http_client_get_status_code(esp_http_client_handle_t h){return h->blob&&(fault==10||fault==16)?404:h->redirect?302:h->partial?206:200;}
+esp_err_t esp_http_client_set_timeout_ms(esp_http_client_handle_t h,int ms){(void)h;assert(ms==15000);return ESP_OK;}
 esp_err_t esp_http_client_set_user_data(esp_http_client_handle_t h,void *p){h->user=p;return ESP_OK;}
 int esp_http_client_read(esp_http_client_handle_t h,char *out,int cap){
  if(fault==11&&!h->feed&&h->at>=288)return -1;
+ if(!h->feed){
+  if(fault==20&&h->at>=288&&eagains++<3)return -ESP_ERR_HTTP_EAGAIN;
+  if(fault>=17&&fault!=20&&h->at>=(fault==26?121u:2048u)&&!disconnects++){return fault==21?0:-1;}
+  if(fault==23&&h->partial)atomic_store(&s_cancel,true);
+ }
  size_t n=h->length-h->at;if(n>(size_t)cap)n=cap;if(n>121)n=121;
  for(size_t i=0;i<n;++i)out[i]=h->feed?manifest[h->at+i]:image[(h->at+i)%sizeof(image)];
+ if(fault==24&&h->partial&&n)out[0]^=1;
  h->at+=n;if(fault==5&&!h->feed&&h->at>288)atomic_store(&s_cancel,true);return (int)n;
 }
 bool esp_http_client_is_complete_data_received(esp_http_client_handle_t h){return h->at==h->length;}
 esp_err_t esp_http_client_close(esp_http_client_handle_t h){(void)h;return ESP_OK;}
 esp_err_t esp_http_client_cleanup(esp_http_client_handle_t h){free(h);return ESP_OK;}
 static void prepare(void){
+ disconnects=eagains=asset_opens=failed_opens=0;
  memset(image,42,sizeof(image));esp_image_header_t header={.magic=ESP_IMAGE_HEADER_MAGIC,.chip_id=ESP_CHIP_ID_ESP32S3};
  esp_image_segment_header_t segment={.data_len=sizeof(image)-32};esp_app_desc_t desc=current;strcpy(desc.version,"0.1.0");
  if(fault==3)strcpy(desc.project_name,"Read_Pico");if(fault==4)header.chip_id=0;
@@ -86,6 +102,10 @@ static void prepare(void){
 static void run_worker(void){assert(pending_worker);void(*fn)(void*)=pending_worker;pending_worker=NULL;fn(pending_arg);if_update_poll();assert(!s_status.busy&&!s_task);}
 static void policy(void){
  assert(if_update_newer("0.1.6","0.1.6-beta3-r2"));
+ assert(if_update_newer("0.1.7","0.1.7-beta-r2"));
+ assert(!if_update_newer("0.1.7-beta-r2","0.1.6"));
+ assert(!if_update_newer("0.1.7","0.1.7-beta-r0"));
+ assert(!if_update_newer("0.1.7","0.1.7-beta-r2junk"));
  assert(!if_update_newer("0.1.6-beta3-r2","0.1.5"));
  assert(!if_update_newer("0.1.6","0.1.6-beta3-r0"));
  assert(!if_update_newer("0.1.6","0.1.6-beta3-r2junk"));
@@ -133,9 +153,18 @@ int main(void){
   if(success)assert(boots==1&&ends==1&&!aborts);
  }
  fault=16;prepare();assert(if_update_check()==ESP_OK);run_worker();assert(if_update_install()==ESP_OK);run_worker();assert(s_status.state==IF_UPDATE_READY);
+ for(fault=17;fault<=26;++fault){
+  begins=writes=aborts=ends=boots=0;boot_switched=false;prepare();
+  assert(if_update_check()==ESP_OK);run_worker();assert(if_update_install()==ESP_OK);run_worker();
+  bool success=fault==17||fault==18||fault==20||fault==21||fault==25||fault==26;
+  assert(boot_switched==success);assert((s_status.state==IF_UPDATE_READY)==success);
+  assert(begins==1);assert(success?ends==1&&aborts==0:aborts==1&&boots==0);
+  if(success)assert(!memcmp(flashed,image,sizeof(image)));
+  if(fault==19||fault==22)assert(asset_opens<=OTA_CONNECTION_LIMIT);
+ }
  fault=0;prepare();assert(if_update_check()==ESP_OK);run_worker();
  target.address=running.address;assert(if_update_install()==ESP_OK);run_worker();assert(s_status.state==IF_UPDATE_FAILED);target.address=0x910000;
  fault=15;online=false;assert(if_update_check()==ESP_ERR_NO_MEM&&!s_status.busy&&!online);
  assert(stops>=20);
- puts("PASS: production updater, real SHA256, stable version/product policy, redirects, confirmation boundary, truncation/overflow/disconnect/hash/identity/chip/write/end/boot failures, cancellation/commit race, slot isolation and WiFi cleanup");
+ puts("PASS: sequential erase, bounded reconnect/200-skip/206-Range/prefix recovery, EAGAIN/EOF and resumed-byte SHA256, production updater, real SHA256, stable version/product policy, redirects, confirmation boundary, truncation/overflow/disconnect/hash/identity/chip/write/end/boot failures, cancellation/commit race, slot isolation and WiFi cleanup");
 }

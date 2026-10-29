@@ -332,6 +332,7 @@ void app_loop_run(const app_loop_config_t* config) {
     bool media_invalidated = false;
     if (initial_media.mounted && !usb_storage_active()) (void)bundled_assets_install();
     s_media_recovery_requested = false;
+    read_pico_pmu_suppress_key_until_release();
     app_lock_ignore_for(APP_LOCK_IGNORE_BOOT_MS);
 
     // The SD probe starts during board setup and is usually ready by the first product frame.

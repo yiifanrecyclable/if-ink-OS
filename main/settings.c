@@ -408,6 +408,21 @@ static esp_err_t wallpaper_store(const char *path) {
     return err;
 }
 void app_settings_set_wallpaper_path(const char* path) { (void)wallpaper_store(path); }
+esp_err_t app_settings_save_wallpaper_path(const char *path) {
+    char old[sizeof(s_wallpaper)];strlcpy(old,s_wallpaper,sizeof(old));
+    esp_err_t err=wallpaper_store(path);
+    if(err!=ESP_OK){
+        (void)wallpaper_store(old);
+        // 提交错误可能发生在写入之后；回读持久路径，不拿旧缓存冒充存储结果。
+        // A commit error may follow a write; read durable state rather than presenting stale cache as storage.
+        nvs_handle_t h;char actual[sizeof(s_wallpaper)];size_t size=sizeof(actual);
+        if(nvs_open(NVS_NS,NVS_READONLY,&h)==ESP_OK){
+            if(nvs_get_str(h,NVS_KEY_WALLPAPER,actual,&size)==ESP_OK&&wallpaper_card_path_valid(actual))strlcpy(s_wallpaper,actual,sizeof(s_wallpaper));
+            nvs_close(h);
+        }
+    }
+    return err;
+}
 esp_err_t app_settings_set_wallpaper_directory(const char *path) {
     if(!wallpaper_card_path_valid(path))return ESP_ERR_INVALID_ARG;
     char directory[288];size_t n=strlen(path);

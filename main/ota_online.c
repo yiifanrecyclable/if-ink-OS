@@ -16,6 +16,7 @@
 #include "esp_ota_ops.h"
 #include "esp_partition.h"
 #include "esp_timer.h"
+#include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -55,7 +56,12 @@ static bool init(void){
     if(!s_finished)s_finished=xSemaphoreCreateBinary();
     return s_lock&&s_finished;
 }
-typedef struct {char location[2048];bool invalid,encoded;} http_headers_t;
+#define OTA_CONNECT_MS 15000
+#define OTA_STALL_US 30000000LL
+#define OTA_TRANSFER_US 600000000LL
+#define OTA_CONNECTION_LIMIT 6
+static const char *TAG = "if_ota";
+typedef struct {char location[2048],range[96];bool invalid,encoded;} http_headers_t;
 static esp_err_t header_event(esp_http_client_event_t *event){
     http_headers_t *h=event->user_data;
     if(event->event_id!=HTTP_EVENT_ON_HEADER||!h)return ESP_OK;
@@ -63,18 +69,22 @@ static esp_err_t header_event(esp_http_client_event_t *event){
         if(strlen(event->header_value)>=sizeof(h->location))h->invalid=true;
         else strcpy(h->location,event->header_value);
     }
+    if(!strcasecmp(event->header_key,"Content-Range")){
+        if(strlen(event->header_value)>=sizeof(h->range))h->invalid=true;
+        else strcpy(h->range,event->header_value);
+    }
     if(!strcasecmp(event->header_key,"Content-Encoding")&&strcasecmp(event->header_value,"identity"))h->encoded=true;
     return ESP_OK;
 }
 static void http_dispose(esp_http_client_handle_t http){if(http){esp_http_client_close(http);esp_http_client_cleanup(http);}}
-static esp_err_t http_open(const char *initial,bool asset,uint32_t limit,esp_http_client_handle_t *out){
-    *out=NULL;char *url=malloc(2048);http_headers_t *headers=calloc(1,sizeof(*headers));
+static esp_err_t http_open(const char *initial,bool asset,uint32_t limit,uint32_t offset,uint32_t *skip,esp_http_client_handle_t *out){
+    *out=NULL;if(skip)*skip=0;char *url=malloc(2048);http_headers_t *headers=calloc(1,sizeof(*headers));
     if(!url||!headers){free(url);free(headers);return ESP_ERR_NO_MEM;}
     ui_snprintf(url,2048,"%s",initial);esp_err_t err=ESP_FAIL;
     for(int redirects=0;redirects<=3&&!atomic_load(&s_cancel);++redirects){
         memset(headers,0,sizeof(*headers));
         esp_http_client_config_t config={.url=url,.crt_bundle_attach=esp_crt_bundle_attach,
-            .disable_auto_redirect=true,.timeout_ms=15000,.buffer_size=4096,.buffer_size_tx=1024,
+            .disable_auto_redirect=true,.timeout_ms=OTA_CONNECT_MS,.buffer_size=4096,.buffer_size_tx=1024,
             .event_handler=header_event,.user_data=headers};
         esp_http_client_handle_t http=esp_http_client_init(&config);
         if(!http){err=ESP_ERR_NO_MEM;break;}
@@ -82,20 +92,32 @@ static esp_err_t http_open(const char *initial,bool asset,uint32_t limit,esp_htt
         esp_http_client_set_header(http,"Accept-Encoding","identity");
         esp_http_client_set_header(http,"Accept",asset&&!strstr(initial,"/git/blobs/")?"application/octet-stream":"application/vnd.github.raw+json");
         esp_http_client_set_header(http,"Cache-Control","no-cache");
+        if(asset&&offset&&offset<limit){
+            char range[40];snprintf(range,sizeof(range),"bytes=%u-",(unsigned)offset);
+            esp_http_client_set_header(http,"Range",range);
+        }
         err=esp_http_client_open(http,0);
         int64_t length=err==ESP_OK?esp_http_client_fetch_headers(http):-1;
         int code=esp_http_client_get_status_code(http);
         if(err==ESP_OK&&length>=0&&!headers->invalid){
-            if(code==200&&!headers->encoded&&(uint64_t)length<=limit){
+            unsigned first=0,last=0,whole=0;int end=0;
+            bool partial=asset&&offset&&offset<limit&&code==206&&
+                sscanf(headers->range,"bytes %u-%u/%u%n",&first,&last,&whole,&end)==3&&
+                headers->range[end]==0&&first==offset&&whole==limit&&last==limit-1&&
+                (!length||(uint64_t)length==limit-offset);
+            if(!headers->encoded&&((code==200&&(uint64_t)length<=limit)||partial)){
+                // 不支持Range的服务可返回200；重连后只跳过已写入前缀，不重复写Flash或累计摘要。
+                // A server may ignore Range with 200; skip the committed prefix without rewriting flash or hashing it twice.
+                if(skip&&code==200)*skip=offset;
                 // 回调所用内存需活到关闭HTTP连接。读取阶段不再接收头事件。
                 // Header userdata must outlive the handle; remove it before releasing the header buffer.
                 esp_http_client_set_user_data(http,NULL);
-                esp_http_client_set_timeout_ms(http,5000);*out=http;break;
+                esp_http_client_set_timeout_ms(http,OTA_CONNECT_MS);*out=http;break;
             }
             if(asset&&(code==301||code==302||code==303||code==307||code==308)&&if_update_redirect_allowed(headers->location)){
                 strcpy(url,headers->location);http_dispose(http);continue;
             }
-            if(code==403||code==429)phase(IF_UPDATE_FAILED,ui_message(UI_MSG("GitHub访问受限，请稍后重试")));
+            if(code==403||code==429)ESP_LOGW(TAG,"GitHub request limited (%d)",code);
             err=ESP_ERR_INVALID_RESPONSE;
         }else if(err==ESP_OK)err=ESP_FAIL;
         http_dispose(http);break;
@@ -104,7 +126,7 @@ static esp_err_t http_open(const char *initial,bool asset,uint32_t limit,esp_htt
     free(headers);free(url);return *out?ESP_OK:err;
 }
 static esp_err_t check_manifest(void){
-    esp_http_client_handle_t http=NULL;esp_err_t err=http_open(IF_OTA_FEED_URL,false,IF_OTA_MANIFEST_LIMIT,&http);
+    esp_http_client_handle_t http=NULL;esp_err_t err=http_open(IF_OTA_FEED_URL,false,IF_OTA_MANIFEST_LIMIT,0,NULL,&http);
     char *json=err==ESP_OK?malloc(IF_OTA_MANIFEST_LIMIT+1):NULL;
     if(err==ESP_OK&&!json)err=ESP_ERR_NO_MEM;
     size_t total=0;int64_t deadline=esp_timer_get_time()+30000000;
@@ -146,50 +168,88 @@ static bool valid_prefix(const uint8_t *bytes){
         memchr(desc.project_name,0,sizeof(desc.project_name))&&memchr(desc.version,0,sizeof(desc.version))&&
         !strcmp(desc.project_name,IF_OTA_PROJECT)&&!strcmp(desc.version,s_candidate.version);
 }
+// 只恢复传输中断；写入/身份/摘要错误仍立即停止，当前启动槽从不被修改。
+// Recover transport interruptions only; flash/identity/hash errors still stop without touching the current boot slot.
+typedef struct {
+    esp_http_client_handle_t http;
+    uint32_t offset,skip;
+    unsigned connections;
+    int64_t deadline,last_data;
+} image_stream_t;
+static esp_err_t stream_connect(image_stream_t *stream){
+    http_dispose(stream->http);stream->http=NULL;
+    while(stream->connections<OTA_CONNECTION_LIMIT&&!atomic_load(&s_cancel)){
+        if(esp_timer_get_time()>=stream->deadline)return ESP_ERR_TIMEOUT;
+        unsigned attempt=stream->connections++;
+        if(attempt)vTaskDelay(pdMS_TO_TICKS(500));
+        const char *url=attempt%2?s_candidate.asset_url:s_candidate.blob_url;
+        esp_err_t err=http_open(url,true,s_candidate.size,stream->offset,&stream->skip,&stream->http);
+        if(err==ESP_OK){stream->last_data=esp_timer_get_time();return ESP_OK;}
+        if(err==ESP_ERR_NO_MEM)return err;
+        ESP_LOGW(TAG,"download connection %u failed (%d), offset=%u",attempt+1,(int)err,(unsigned)stream->offset);
+    }
+    return ESP_FAIL;
+}
+static esp_err_t stream_read(image_stream_t *stream,uint8_t *buffer,size_t capacity,int *out){
+    *out=0;
+    while(!atomic_load(&s_cancel)){
+        if(esp_timer_get_time()>=stream->deadline)return ESP_ERR_TIMEOUT;
+        if(!stream->http){esp_err_t err=stream_connect(stream);if(err!=ESP_OK)return err;}
+        size_t want=stream->skip&&stream->skip<capacity?stream->skip:capacity;
+        int n=esp_http_client_read(stream->http,(char*)buffer,(int)want);
+        if(n>0){
+            stream->last_data=esp_timer_get_time();
+            if(stream->skip){stream->skip-=(uint32_t)n;continue;}
+            stream->offset+=(uint32_t)n;*out=n;return ESP_OK;
+        }
+        if(!n&&esp_http_client_is_complete_data_received(stream->http)&&!stream->skip&&stream->offset==s_candidate.size)return ESP_OK;
+        if(n==-ESP_ERR_HTTP_EAGAIN&&esp_timer_get_time()-stream->last_data<OTA_STALL_US){
+            vTaskDelay(pdMS_TO_TICKS(100));continue;
+        }
+        ESP_LOGW(TAG,"download interrupted (%d), offset=%u; reconnect",n,(unsigned)stream->offset);
+        http_dispose(stream->http);stream->http=NULL;
+    }
+    return ESP_FAIL;
+}
 static esp_err_t install_image(void){
     const esp_partition_t *target=esp_ota_get_next_update_partition(NULL);
     if(!valid_layout(target)){
         phase(IF_UPDATE_FAILED,ui_message(UI_MSG("固件分区不兼容，请使用电脑刷机")));return ESP_ERR_INVALID_STATE;
     }
-    esp_http_client_handle_t http=NULL;esp_ota_handle_t handle=0;bool active=false;
+    esp_ota_handle_t handle=0;bool active=false;
     psa_hash_operation_t hash=PSA_HASH_OPERATION_INIT;
-    // 优先按内容编号直读仓库，绕开不稳定的Release CDN；连接失败时只换源一次。
-    // Prefer repository content by immutable ID over the Release CDN; switch once if opening it fails.
-    esp_err_t err=http_open(s_candidate.blob_url,true,s_candidate.size,&http);
-    if(err!=ESP_OK&&!atomic_load(&s_cancel)){
-        phase(IF_UPDATE_DOWNLOADING,ui_message(UI_MSG("正在切换下载线路…")));
-        err=http_open(s_candidate.asset_url,true,s_candidate.size,&http);
-        if(err==ESP_OK)phase(IF_UPDATE_DOWNLOADING,ui_message(UI_MSG("正在下载并安装…")));
-    }
-    uint8_t *buffer=err==ESP_OK?malloc(8192):NULL;
-    if(err==ESP_OK&&!buffer)err=ESP_ERR_NO_MEM;
+    image_stream_t stream={.deadline=esp_timer_get_time()+OTA_TRANSFER_US};
+    uint8_t *buffer=malloc(8192);
+    esp_err_t err=buffer?ESP_OK:ESP_ERR_NO_MEM;
     const size_t prefix=sizeof(esp_image_header_t)+sizeof(esp_image_segment_header_t)+sizeof(esp_app_desc_t);
-    size_t total=0;int64_t deadline=esp_timer_get_time()+600000000;
+    size_t total=0;
     // 在擦写前先收齐并验证芯片、项目和版本头。/ Collect and verify chip/project/version before erasing flash.
     while(err==ESP_OK&&total<prefix&&!atomic_load(&s_cancel)){
-        if(esp_timer_get_time()>deadline){err=ESP_ERR_TIMEOUT;break;}
-        int n=esp_http_client_read(http,(char*)buffer+total,(int)(prefix-total));
+        int n=0;err=stream_read(&stream,buffer+total,prefix-total,&n);
+        if(err!=ESP_OK)break;
         if(n<=0){err=ESP_ERR_INVALID_SIZE;break;}total+=(size_t)n;
     }
     if(err==ESP_OK&&!atomic_load(&s_cancel)){
         if(!valid_prefix(buffer)){phase(IF_UPDATE_FAILED,ui_message(UI_MSG("升级包身份不匹配，已停止安装")));err=ESP_ERR_INVALID_RESPONSE;}
         else if(psa_crypto_init()!=PSA_SUCCESS||psa_hash_setup(&hash,PSA_ALG_SHA_256)!=PSA_SUCCESS)err=ESP_FAIL;
         else{
-            err=esp_ota_begin(target,s_candidate.size,&handle);active=err==ESP_OK;
+            // 分段擦除避免连接建立后连续擦除整个镜像导致网络长时间停顿。
+            // Erase incrementally rather than stalling an open connection with a whole-image erase.
+            err=esp_ota_begin(target,OTA_WITH_SEQUENTIAL_WRITES,&handle);active=err==ESP_OK;
             if(err==ESP_OK&&psa_hash_update(&hash,buffer,total)!=PSA_SUCCESS)err=ESP_FAIL;
             if(err==ESP_OK)err=esp_ota_write(handle,buffer,total);
         }
     }
     while(err==ESP_OK&&!atomic_load(&s_cancel)){
-        if(esp_timer_get_time()>deadline){err=ESP_ERR_TIMEOUT;break;}
-        int n=esp_http_client_read(http,(char*)buffer,8192);
-        if(n<0){err=ESP_FAIL;break;}
-        if(!n){if(!esp_http_client_is_complete_data_received(http))err=ESP_ERR_INVALID_SIZE;break;}
+        int n=0;err=stream_read(&stream,buffer,8192,&n);
+        if(err!=ESP_OK)break;
+        if(!n||atomic_load(&s_cancel))break;
         if((size_t)n>s_candidate.size-total){err=ESP_ERR_INVALID_SIZE;break;}
         if(psa_hash_update(&hash,buffer,(size_t)n)!=PSA_SUCCESS){err=ESP_FAIL;break;}
-        err=esp_ota_write(handle,buffer,(size_t)n);total+=(size_t)n;progress((uint32_t)total,s_candidate.size);
+        err=esp_ota_write(handle,buffer,(size_t)n);
+        if(err==ESP_OK){total+=(size_t)n;progress((uint32_t)total,s_candidate.size);}
     }
-    http_dispose(http);free(buffer);
+    http_dispose(stream.http);free(buffer);
     if(err==ESP_OK&&!atomic_load(&s_cancel)){
         phase(IF_UPDATE_VERIFYING,ui_message(UI_MSG("正在校验固件完整性…")));
         uint8_t digest[32];size_t n=0;
@@ -202,6 +262,7 @@ static esp_err_t install_image(void){
             if(err==ESP_OK)phase(IF_UPDATE_READY,ui_message(UI_MSG("安装完成，即将重启")));
         }
     }
+    if(err!=ESP_OK)ESP_LOGW(TAG,"installation stopped (%d), received=%u/%u",(int)err,(unsigned)total,(unsigned)s_candidate.size);
     if(active)esp_ota_abort(handle);
     psa_hash_abort(&hash);return err;
 }

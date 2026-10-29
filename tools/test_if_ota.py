@@ -60,6 +60,11 @@ int main(int argc,char **argv){
  candidate(path,"Read_Pico_IF","0.1.6-beta3-r2");assert(pico_ota_inspect(path,&info)==ESP_OK&&info.ready);
  snprintf(current.version,sizeof(current.version),"%s","0.1.6-beta3-r2");
  assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
+ snprintf(current.version,sizeof(current.version),"%s","0.1.6");
+ candidate(path,"Read_Pico_IF","0.1.7-beta");assert(pico_ota_inspect(path,&info)==ESP_OK&&info.ready);
+ snprintf(current.version,sizeof(current.version),"%s","0.1.7-beta");assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
+ candidate(path,"Read_Pico_IF","0.1.7-beta-r2");assert(pico_ota_inspect(path,&info)==ESP_OK&&info.ready);
+ snprintf(current.version,sizeof(current.version),"%s","0.1.7-beta-r2");assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
  puts("PASS IF local upgrade identity, beta3-to-r2, same-version rejection, missing slot, capacity, malformed header and truncation");
 }
 '''

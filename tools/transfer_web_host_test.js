@@ -5,6 +5,7 @@
 const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
+const {webcrypto}=require('node:crypto');
 const html = fs.readFileSync('components/read_pico_transfer/upload.html', 'utf8');
 const source = html.match(/<script>([\s\S]*?)<\/script>/)[1];
 const flush = () => new Promise(resolve => setImmediate(resolve));
@@ -22,10 +23,11 @@ class Element {
   showModal() { this.open = true; }
   close() { this.open = false; }
   focus() {}
-  getContext() { return {setTransform() {}, fillRect() {}, drawImage() {}, fillText() {}}; }
+  setAttribute(key,value) {this[key]=value;}
+  getContext() { return {setTransform() {}, clearRect() {}, fillRect() {}, drawImage() {}, fillText() {},strokeText() {},measureText(text){return {width:text.length*24}},getImageData(){return {data:new Uint8ClampedArray(684*1216*4)}},putImageData:()=>{this.pixelWrites=(this.pixelWrites||0)+1},createImageData(w,h){return {data:new Uint8ClampedArray(w*h*4)}}}; }
   getBoundingClientRect() { return {width: 260}; }
   setPointerCapture() {}
-  toBlob(resolve) { assert.equal(this.width, 684); assert.equal(this.height, 1216); resolve({size: 120000}); }
+  toBlob(resolve) { assert.equal(this.width, 684); assert.ok(this.height===1216||this.height===300); resolve({size: 120000}); }
 }
 
 async function setup({responses = [], confirmations = [true], mode = 'ap'} = {}) {
@@ -41,10 +43,25 @@ async function setup({responses = [], confirmations = [true], mode = 'ap'} = {})
   const document = {
     getElementById(id) { if (!nodes.has(id)) nodes.set(id, new Element()); return nodes.get(id); },
     createElement() { return new Element(); },
-    querySelectorAll(selector) { return selector === '.upload' ? sections : [...nodes.values(), ...sections.flatMap(s => [s.input, s.send])]; },
+    createElementNS() {return new Element();},
+    querySelector(selector) {return sections.find(s=>s.dataset.kind==='file');},
+    querySelectorAll(selector) { return selector === '.upload' ? sections : selector==='[data-protected]' ? [...nodes.values()].flatMap(n=>n.children).flatMap(n=>n.children).flatMap(n=>n.children).filter(n=>n.dataset?.protected==='1') : [...nodes.values(), ...sections.flatMap(s => [s.input, s.send])]; },
   };
-  const state = {gets: [], mutations: [], sent: []};
+  const initial={ok:true,revision:'rev-1',banner:{background:false,image:'',show_date:true,date_y:20,show_text:true,text:'自由阅读',font:'',size:96,align:2,valign:0,text_y:80},wallpaper:'',date:'2026-10-28',date_size:28,date_y:20,text_y:80,fonts:[]};
+  const state = {gets: [], mutations: [], sent: [],appearance:initial,appearancePosts:[]};
   const fetch = async (url, options = {}) => {
+    if(url==='/appearance')return {status:200,json:async()=>structuredClone(state.appearance)};
+    if(url.startsWith('/appearance?op=')){
+      const body=JSON.parse(options.body),op=new URL('http://pico'+url).searchParams.get('op');state.appearancePosts.push({op,body});
+      if(op==='font-release')return {status:200,json:async()=>({ok:true})};
+      if(op==='font-match')return {status:200,json:async()=>({path:''})};
+      if(op==='preview'){const response={status:200,arrayBuffer:async()=>new Uint8Array(102600).buffer};if(state.holdPreview)return new Promise(resolve=>state.resolvePreview=()=>resolve(response));return response;}
+      if(op==='wallpaper')state.appearance.wallpaper=body.path;
+      else {const {revision,sync_font,font_name,...banner}=body;if(sync_font)banner.font='/sdcard/fonts/'+font_name;state.appearance.banner=banner;}
+      state.appearance.revision='rev-'+(state.appearancePosts.length+1);
+      return {status:200,json:async()=>structuredClone(state.appearance)};
+    }
+    if(url.startsWith('/file?'))return {ok:true,status:200,blob:async()=>({size:100})};
     if (url === '/info') return {status: 200, json: async () => ({
       mode, is_flash: false, free_bytes: 100000000, file_limit: 0,
     })};
@@ -80,7 +97,7 @@ async function setup({responses = [], confirmations = [true], mode = 'ap'} = {})
     set src(value) { this.url = value; queueMicrotask(() => this.onload()); }
   }
   const context = vm.createContext({document, fetch, XMLHttpRequest: XHR, TextEncoder, URL,
-    Image: ImageMock, confirm: () => confirmations.length ? confirmations.shift() : true});
+    Image: ImageMock, crypto:webcrypto, setTimeout:()=>1, clearTimeout:()=>{}, confirm: () => confirmations.length ? confirmations.shift() : true});
   context.URL = {createObjectURL: () => 'blob:test', revokeObjectURL() {}};
   vm.runInContext(source, context);
   await flush(); await flush();
@@ -88,18 +105,25 @@ async function setup({responses = [], confirmations = [true], mode = 'ap'} = {})
 }
 
 (async () => {
-  assert.match(html, /浏览 TF 卡/);
+  assert.match(html, /TF 卡文件/);
   assert.doesNotMatch(html, /图片对比|编辑书架名称/);
   let t = await setup();
+  assert.ok(t.nodes.get('bannerZoom').disabled);assert.ok(t.nodes.get('bannerResetCrop').disabled);
+  t.nodes.get('bannerDate').checked=false;t.nodes.get('bannerDate').oninput();assert.ok(t.nodes.get('bannerDateY').disabled);
+  t.nodes.get('bannerDate').checked=true;t.nodes.get('bannerDate').oninput();assert.equal(t.nodes.get('bannerDateY').disabled,false);
+  t.nodes.get('bannerDateY').value='140';t.nodes.get('bannerDateY').onchange();await flush();await flush();
+  assert.equal(t.state.appearancePosts.at(-1).body.date_y,140);
+  assert.match(html,/背景图缩放/);assert.match(html,/日期上下位置/);assert.match(html,/文字上下位置/);
   assert.match(t.nodes.get('storage').textContent, /TF 卡已就绪/);
   assert.equal(t.nodes.get('entries').children.length, 2);
   const folder = t.nodes.get('entries').children[0];
+  assert.equal(folder.children[0].children[1].textContent,'默认书籍文件夹（不可更改）');assert.ok(folder.children[1].children.every(b=>b.disabled));
   folder.children[0].children[0].onclick();
   await flush(); await flush();
   assert.equal(t.nodes.get('path').textContent, '/books');
   assert.match(t.state.gets.at(-1), /path=books/);
   const item = t.nodes.get('entries').children[0];
-  const rename = item.children[1].children[0];
+  const rename = item.children[1].children.find(b=>b.textContent==='重命名');
   rename.onclick();
   t.nodes.get('editorName').value = '新封面.jpg';
   await t.nodes.get('editorConfirm').onclick();
@@ -108,11 +132,11 @@ async function setup({responses = [], confirmations = [true], mode = 'ap'} = {})
   t.nodes.get('editorName').value = '新目录';
   await t.nodes.get('editorConfirm').onclick();
   assert.deepEqual(t.state.mutations[1], {action: 'mkdir', path: 'books', target: 'books/新目录'});
-  item.children[1].children[1].onclick();
+  item.children[1].children.find(b=>b.textContent==='复制').onclick();
   t.nodes.get('editorName').value = '封面副本.jpg';
   await t.nodes.get('editorConfirm').onclick();
   assert.deepEqual(t.state.mutations[2], {action: 'copy', path: 'books/封面.jpg', target: 'books/封面副本.jpg'});
-  item.children[1].children[2].onclick();
+  item.children[1].children.find(b=>b.textContent==='删除').onclick();
   await t.nodes.get('editorConfirm').onclick();
   assert.deepEqual(t.state.mutations[3], {action: 'delete', path: 'books/封面.jpg'});
   for (const [kind, name, endpoint] of [
@@ -183,7 +207,7 @@ async function setup({responses = [], confirmations = [true], mode = 'ap'} = {})
   assert.match(t.state.sent[1].url, /^\/file-upload\?path=.+&overwrite=1$/);
   t = await setup({mode: 'sta'});
   assert.equal(t.nodes.get('entries').children.length, 2);
-  t.nodes.get('entries').children[1].children[1].children[1].onclick();
+  t.nodes.get('entries').children[1].children[1].children.find(b=>b.textContent==='复制').onclick();
   t.nodes.get('editorName').value = 'readme 副本.txt';
   await t.nodes.get('editorConfirm').onclick();
   assert.deepEqual(t.state.mutations[0], {action: 'copy', path: 'readme.txt', target: 'readme 副本.txt'});
@@ -200,7 +224,37 @@ async function setup({responses = [], confirmations = [true], mode = 'ap'} = {})
   const afterDrag = vm.runInContext('[cropX,cropY]', t.context);
   assert.notDeepEqual(afterDrag, beforeDrag);
   await t.nodes.get('wallpaperSend').onclick();
-  assert.match(t.state.sent.at(-1).url, /^\/image-upload\?name=pico-wallpaper-.+&wallpaper=1$/);
-  assert.match(t.nodes.get('wallpaperResult').textContent, /已设为壁纸锁屏/);
-  console.log('transfer web interaction tests passed');
+  assert.match(t.state.sent.at(-1).url, /^\/image-upload\?name=web-wallpaper-/);
+  assert.match(t.nodes.get('wallpaperResult').textContent, /已保存为锁屏壁纸/);
+  assert.equal(t.state.appearancePosts.at(-1).op,'wallpaper');
+  t=await setup();t.nodes.get('bannerContent').value='网页编辑';
+  await vm.runInContext('livePreview()',t.context);assert.equal(t.state.appearancePosts.at(-1).op,'preview');
+  assert.match(t.nodes.get('previewLabel').textContent,/实时设备排版/);assert.equal(t.state.appearance.banner.text,'自由阅读');
+  await t.nodes.get('bannerSave').onclick();assert.equal(t.state.appearance.banner.text,'网页编辑');assert.match(t.nodes.get('bannerResult').textContent,/已保存到设备/);
+  t.nodes.get('bannerContent').value='好'.repeat(64);const posts=t.state.appearancePosts.length;await t.nodes.get('bannerSave').onclick();assert.equal(t.state.appearancePosts.length,posts);
+  vm.runInContext("path='markdown';loadDirectory()",t.context);await flush();await flush();
+  const protectedButtons=t.nodes.get('entries').children[0].children[1].children.filter(x=>x.dataset.protected==='1');assert.equal(protectedButtons.length,3);
+  vm.runInContext('lock(true);lock(false)',t.context);assert.ok(protectedButtons.every(x=>x.disabled));
+  assert.ok(t.nodes.get('entries').children[0].children[1].children.some(x=>x.textContent==='下载'));
+  t=await setup();t.nodes.get('bannerLocalFont').files=[{name:'电脑字体.ttf',size:1024}];await t.nodes.get('bannerLocalFont').onchange();
+  assert.match(t.state.sent.at(-1).url,/^\/font-stage\?name=[a-f0-9]{32}\.ttf$/);
+  assert.match(t.nodes.get('bannerFont').value,/^\/sdcard\/\.web-fonts\//);
+  await vm.runInContext('livePreview()',t.context);assert.equal(t.state.appearancePosts.at(-1).op,'preview');
+  await t.nodes.get('bannerSave').onclick();assert.ok(t.state.appearance.banner.font.startsWith('/sdcard/fonts/'));assert.ok(t.state.appearancePosts.some(p=>p.op==='font-release'));
+  t=await setup({confirmations:[false]});t.nodes.get('bannerLocalFont').files=[{name:'另一字体.ttf',size:1024}];await t.nodes.get('bannerLocalFont').onchange();
+  await t.nodes.get('bannerSave').onclick();assert.equal(t.state.appearance.banner.font,'');
+  await t.nodes.get('bannerCancel').onclick();assert.ok(t.state.appearancePosts.some(p=>p.op==='font-release'));
+  t=await setup();t.state.holdPreview=true;
+  const pending=vm.runInContext('livePreview()',t.context);await flush();
+  const writes=t.nodes.get('bannerPreview').pixelWrites||0;
+  t.nodes.get('bannerContent').value='最新草稿';t.nodes.get('bannerContent').oninput();
+  await vm.runInContext('livePreview()',t.context);assert.equal(t.state.appearancePosts.length,1);
+  t.state.resolvePreview();await pending;
+  assert.equal(t.nodes.get('bannerPreview').pixelWrites||0,writes,'stale response must not paint');
+  t.state.holdPreview=false;await vm.runInContext('livePreview()',t.context);
+  assert.equal(t.nodes.get('bannerPreview').pixelWrites,writes+1);
+  assert.equal(t.state.appearancePosts.at(-1).body.text,'最新草稿');
+  assert.equal(t.state.appearance.banner.text,'自由阅读','preview never persists settings');
+  assert.doesNotMatch(html,/id="bannerConfirm"/);assert.doesNotMatch(source,/ctx.font=px/);
+  console.log('transfer web: legacy uploads/file actions plus two-column native preview/save, wallpaper validation, text bounds, download and protected actions passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

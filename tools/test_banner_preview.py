@@ -55,10 +55,20 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='banner-layers-') as te
     info,text_only=render(events=choose+';'+tap(590,568));assert info['banner_draft'][1]==0
     for frame in (all_on,date_only,text_only):assert any(tone(frame,x,y)==15 for y in range(56,356) for x in range(36,648))
     none=choose+';'+off+';'+tap(590,568);info,black=render(events=none);assert set(banner(black))=={0}
-    # Date arrows change only the independent date position, and clamp at both boundaries.
+    # Short height sliders support absolute taps, dragging, and cancellation without writes.
     base=render(events=choose)[0]['banner_draft'][5]
-    assert render(events=choose+';'+tap(604,640))[0]['banner_draft'][5]==min(260,base+4)
-    assert render(events=choose+';'+tap(516,640))[0]['banner_draft'][5]==max(4,base-4)
+    assert render(events=choose+';'+tap(648,640))[0]['banner_draft'][5]==260
+    assert render(events=choose+';'+tap(216,640))[0]['banner_draft'][5]==4
+    drag=';p,400,640,400,640;m,400,640,560,640'
+    assert render(events=choose+drag)[0]['banner_draft'][5]==base
+    assert render(events=choose+drag+';c,400,640,560,640')[0]['banner_draft'][5]==base
+    info,_=render(events=choose+drag+';r,400,640,560,640')
+    assert info['banner_draft'][5]==212 and info['banner_draft'][12]==render(events=choose)[0]['banner_draft'][12]
+    assert render(events=choose+';'+tap(200,640))[0]['banner_draft'][5]==base
+    assert render(events=choose+';'+off+';'+tap(648,1016))[0]['banner_draft'][12]==render(events=choose)[0]['banner_draft'][12]
+    # Releasing a captured slider over Save must not accidentally persist the draft.
+    render(events=choose+';p,400,640,400,640;m,400,640,500,1098;t,400,640,500,1098')
+    assert not config.exists()
     assert render(events=choose+';'+tap(342,476)+';'+tap(342,240))[0]['banner_draft'][0]==0
     assert not config.exists()
     # Cancel leaves storage untouched; final Save alone commits the complete layered state.
@@ -75,7 +85,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='banner-layers-') as te
         assert ys and min(ys)>=58 and max(ys)<354
         assert min(ys)<=62 if y==0 else max(ys)>=349
         before=info['banner_draft'][12]
-        info,_=render(events=tap(604 if y==0 else 516,1008));after=info['banner_draft'][12]
+        info,_=render(events=tap(648 if y==0 else 216,1016));after=info['banner_draft'][12]
         assert after>before if y==0 else after<before
     # Explicit breaks are preserved in four actual lines at a fitting size, with exact Home/preview output.
     current=list(struct.unpack('<IH6B192s160s288sH2x',saved));current[2]=0;current[3]=0;current[4]=48;current[8]=b'one\ntwo\nthree\nfour';current[-1]=2
@@ -92,4 +102,13 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='banner-layers-') as te
         old[2]=mode;old[3]=0;old[-1]=b'/sdcard/banner pic/\xe5\xb1\xb1\xe6\xb0\xb4\xe7\xa4\xba\xe4\xbe\x8b.png'
         blob=struct.pack('<IH6B192s160s288s',*old);config.write_bytes(blob)
         info,_=render();assert info['banner_draft'][11]==(not mode) and info['banner_draft'][1]==(not mode) and config.read_bytes()==blob
-    print('PASS: independent background/date/text, text/date halos, four alignment icons and full-height text movement, font/size drafts, date arrows, file browsing, Save/Cancel, missing-image fallback and v1 migration.')
+    # Both localized footer capsules share the same width at every system text size.
+    language=out/'nvs/read_pico/language';language.parent.mkdir(parents=True,exist_ok=True);language.write_bytes(b'\x01')
+    for index in range(4):
+        render('settings-5',tap(108+156*index,300))
+        info,frame=render();assert info['system_language']==1
+        left=[x for x in range(60,342) if tone(frame,x,1098)<8]
+        right=[x for x in range(342,624) if tone(frame,x,1098)<8]
+        assert left and right and max(left)-min(left)==max(right)-min(right)
+        assert max(left)<min(right)-16
+    print('PASS: independent background/date/text, text/date halos, four alignment icons and full-height text movement, font/size drafts, short height sliders, file browsing, Save/Cancel, missing-image fallback and v1 migration.')

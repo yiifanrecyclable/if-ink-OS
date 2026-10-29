@@ -8,6 +8,9 @@
 #include "transfer_ui_test_env.h"
 int document_store_import_local(const char *a, const char *b) {(void)a;(void)b;return 0;}
 #include "../main/apps/app_transfer.c"
+void read_pico_transfer_editor_poll(void){}
+esp_err_t transfer_appearance_dispatch(const char *o,const char *j,read_pico_transfer_editor_reply_t *r,read_pico_transfer_cancel_fn c,void *x){(void)o;(void)j;(void)r;(void)c;(void)x;return ESP_OK;}
+bool transfer_appearance_path_writable(const char *p){(void)p;return true;}
 #include <assert.h>
 static bool test_usb_active;
 static esp_err_t test_usb_stop_error;

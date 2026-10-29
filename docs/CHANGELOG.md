@@ -4,6 +4,35 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 2026-10-29 · Codex · if-ink OS v0.1.7
+
+- 首页最近阅读右列移除类别小字，上移并按字体行高自适应显示最多六篇文章；仅保留行间分隔线，空行同样保留。 / Remove the recent-list category caption and use its height for up to six font-adaptive rows.
+
+- Markdown普通插图与前后文字混排，支持同页多图；长图按整页比例显示。取消所有阅读插图的点击放大，图片区域沿用固定阅读操作。 / Flow ordinary Markdown images with text and multiple images per page; retain full-page tall-image previews. Remove image zoom so all image areas follow normal reading interactions.
+
+- 阅读控制面板底部五个英文标签共用最长标签所需的字号，保持大小一致。 / Share one fitting text size across the five English reader footer labels.
+
+- 设备端Banner编辑的日期、文字高度改为标题同行右侧短滑块；英文Cancel和Save胶囊等宽。 / Use short inline date/text height sliders in the device Banner editor and equal-width English Cancel/Save pills.
+
+- 精简英文界面标签：Recent、Wifi、Nutstore、USB；传输入口在大字号下保持英文单行。
+
+## 2026-10-28 · Codex · if-ink OS v0.1.7 beta r2（仅本地测试 / Local only）
+
+- WiFi文件管理中五类固定根目录标注默认用途与“不可更改”，并统一保护目录本身，保留子文件原有操作规则。
+
+- WiFi网页补充背景缩放、日期及文字上下位置说明；未开启项目的详细设置全部收起，松手立即更新真实预览。
+
+- WiFi管理页Banner改为自动真实排版预览，取消手动确认与浏览器替代排版；新增电脑TTF字体暂存、按内容复用及保存前确认同步到fonts。
+
+## 2026-10-28 · Codex · if-ink OS v0.1.7 beta（仅本地测试 / Local only）
+
+- WiFi／热点管理网页改为 if-ink OS 双栏：Banner 与锁屏编辑、拖放裁剪、独立文字和动态日期、设备原生排版确认；新增 TF 文件下载，保留文档事务与目录写保护。个性化保存使用完整快照及版本冲突检查，超时可回读核实，预览不推墨水屏。 / Add a two-column LAN editor with crop/drop, independent Banner text/date, native layout confirmation and file downloads; preserve document transactions/protected paths, snapshot conflict checks and display-free previews.
+
+- 固件信息页的四行正文改为居中对齐。 / Center the four-line firmware information introduction.
+
+- 修复唤醒按键松开事件可能再次触发休眠：开机和唤醒后等待稳定松开，通信或事件确认失败不重复触发电源操作。 / Consume the full wake press/release and require stable release; failed event acknowledgements cannot replay power actions.
+- 在线升级改为分段擦除与有界断线恢复，支持续传及备用线路，仍完整校验镜像后才切换启动槽。进度最多每五秒局部刷新条和数字，阶段变化立即显示，减少下载闪动。 / Use incremental erase and bounded reconnection/range fallback with full validation before activation; throttle bar/count updates to five seconds while showing stage changes immediately.
+
 ## 2026-10-26 · Codex · if-ink OS v0.1.6
 
 - 新增系统语言：中文与English即时切换并保存，用户书名、正文、格言和签名保留原文。 / Add persistent Chinese/English system language selection while preserving user content.

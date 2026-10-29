@@ -58,7 +58,7 @@ typedef struct {
 } home_book_t;
 
 static home_book_t s_current, s_recent[6];
-#define HOME_DOCUMENT_COUNT 4
+#define HOME_DOCUMENT_COUNT 6
 #define HOME_BANNER_HEIGHT 300
 #define HOME_RECORD_HEIGHT 340
 #define HOME_RECENT_HEIGHT 440
@@ -72,7 +72,7 @@ static bool s_has_documents;
 #define HOME_DOCUMENT_WIDTH (648 - HOME_DOCUMENT_X)
 typedef struct {
     int heat_title, week_y, grid_y, col_x, col_step, row_step, month_x;
-    int recent_rule, recent_title, content_y, content_end, rows, row_height;
+    int recent_rule, recent_title, content_y, list_y, content_end, rows, row_height;
 } home_geometry_t;
 static home_geometry_t home_geometry(void) {
     home_geometry_t g={0};
@@ -81,8 +81,13 @@ static home_geometry_t home_geometry(void) {
     g.col_step=62;g.col_x=UI_LOCK_WIDTH/2-3*g.col_step;g.month_x=g.col_x-42;
     g.row_step=52;g.recent_rule=HOME_RECENT_TOP;g.recent_title=HOME_RECENT_TOP+34;
     g.content_y=HOME_RECENT_TOP+84;g.content_end=UI_NAV_TOP-16;
-    g.rows=app_settings_system_font_size()==160?3:4;
-    g.row_height=(g.content_end-g.content_y)/g.rows;
+    // 右列利用标题旁的留白；行数随实际字体行高适配。/ Use the space beside the heading; adapt row count to measured text height.
+    g.list_y=HOME_RECENT_TOP+16;
+    int minimum_row=ui_text_line_height(UI_TEXT_BODY)+38;
+    g.rows=(g.content_end-g.list_y)/minimum_row;
+    if(g.rows>HOME_DOCUMENT_COUNT)g.rows=HOME_DOCUMENT_COUNT;
+    if(g.rows<1)g.rows=1;
+    g.row_height=(g.content_end-g.list_y)/g.rows;
     return g;
 }
 typedef struct {
@@ -536,7 +541,6 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     home_geometry_t g=home_geometry();
     epd_fill_rect((EpdRect){36,g.recent_rule,612,2},0x68,fb);
     ui_text_vc(fb,36,g.recent_title,UI_TEXT_TITLE,UI_MSG("最近阅读"),EPD_DRAW_ALIGN_LEFT,false);
-    ui_text_vc(fb,648,g.recent_title,UI_TEXT_CAPTION,s_has_documents?UI_MSG("markdown文档"):UI_MSG("图书"),EPD_DRAW_ALIGN_RIGHT,false);
     home_book_t *featured=s_current.path[0]?&s_current:&s_recent[0];
     if(featured->path[0]) {
         unsigned pct=featured->has_progress?featured->progress.pct:0;if(pct>100)pct=100;
@@ -556,13 +560,13 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     int title_above=0,title_below=0;
     ui_text_fixed_measure_px(ui_text_effective_px(UI_TEXT_TITLE),UI_MSG("最近阅读"),&title_above,&title_below);
     int divider_top=g.recent_title+(title_above-title_below)/2-title_above;
-    epd_fill_rect((EpdRect){240,divider_top,2,g.content_y+g.rows*g.row_height+1-divider_top},0x68,fb);
-    for(int i=0;i<=g.rows;++i)epd_fill_rect((EpdRect){HOME_DOCUMENT_X,g.content_y+i*g.row_height,HOME_DOCUMENT_WIDTH,1},0x88,fb);
+    epd_fill_rect((EpdRect){240,divider_top,2,g.list_y+g.rows*g.row_height+1-divider_top},0x68,fb);
+    for(int i=1;i<g.rows;++i)epd_fill_rect((EpdRect){HOME_DOCUMENT_X,g.list_y+i*g.row_height,HOME_DOCUMENT_WIDTH,1},0x88,fb);
     for(size_t i=0;i<(size_t)g.rows;++i) {
         if(!recent_list_path(i))break;
         home_book_t *book=s_has_documents?NULL:recent_book_row(i);
         unsigned pct=s_has_documents?s_recent_documents[i].pct:book->progress.pct;
-        int y=g.content_y+(int)i*g.row_height;char name[256];
+        int y=g.list_y+(int)i*g.row_height;char name[256];
         copy_title(name,sizeof(name),s_has_documents?s_recent_documents[i].name:book->title);
         if(s_has_documents){size_t n=strlen(name);if(n>=3)name[n-3]=0;}
         recent_title_layout_t layout=recent_title_layout_role(name,HOME_DOCUMENT_WIDTH-36,UI_TEXT_BODY,1);
@@ -572,7 +576,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         draw_recent_progress(fb,HOME_DOCUMENT_X,top+title_h+6,HOME_DOCUMENT_WIDTH-36,pct);
         ui_text_vc(fb,646,y+g.row_height/2,UI_TEXT_BODY,"›",EPD_DRAW_ALIGN_RIGHT,false);
     }
-    if(!recent_list_path(0))draw_recent_title(fb,s_has_documents?UI_MSG("暂无阅读文档"):UI_MSG("暂无其他阅读图书"),HOME_DOCUMENT_X,g.content_y+g.row_height/2,HOME_DOCUMENT_WIDTH-36,false);
+    if(!recent_list_path(0))draw_recent_title(fb,s_has_documents?UI_MSG("暂无阅读文档"):UI_MSG("暂无其他阅读图书"),HOME_DOCUMENT_X,g.list_y+g.row_height/2,HOME_DOCUMENT_WIDTH-36,false);
     content_banner_config_t banner;content_banner_load(&banner);
     epd_fill_rect((EpdRect){banner.mode?0:36,UI_STATUS_HEIGHT+300,banner.mode?UI_LOCK_WIDTH:612,2},0x68,fb);
     ui_text_vc(fb,36,g.heat_title,UI_TEXT_TITLE,UI_MSG("阅读打卡"),EPD_DRAW_ALIGN_LEFT,false);
@@ -703,7 +707,7 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
     // 只更新续读卡片，不再逐本刷新首页。/ Update only the current-read card, never flash covers one by one.
     if (cover_changed) {
         render(ctx, ctx->fb);
-        int top=home_geometry().content_y;s_area=(EpdRect){28,top,620,UI_NAV_TOP-top};
+        int top=home_geometry().list_y;s_area=(EpdRect){28,top,620,UI_NAV_TOP-top};
         return APP_REDRAW_AREA;
     }
     return APP_REDRAW_NONE;
@@ -720,9 +724,9 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     if (tab >= 0) { ui_nav_request(ctx, tab); return APP_REDRAW_NONE; }
     home_geometry_t g=home_geometry();
     if(ui_rect_hit(history_more_rect(),ev->x0,ev->y0)){history_show();return APP_REDRAW_PAGE;}
-    if (ev->x0 >= HOME_DOCUMENT_X && ev->x0 < 648 && ev->y0 >= g.content_y &&
-        ev->y0 < g.content_y + g.rows*g.row_height) {
-        size_t i = (ev->y0-g.content_y)/g.row_height;
+    if (ev->x0 >= HOME_DOCUMENT_X && ev->x0 < 648 && ev->y0 >= g.list_y &&
+        ev->y0 < g.list_y + g.rows*g.row_height) {
+        size_t i = (ev->y0-g.list_y)/g.row_height;
         const char *path=recent_list_path(i);
         if (path && app_book_request_open_from_home(path))
             ui_nav_request(ctx, 1);

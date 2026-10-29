@@ -383,6 +383,7 @@ void enter_lock_and_sleep(
         if(lock_presented)(void)sleep_resume_save(framebuffer,(size_t)epd_width()*epd_height()/2,(unsigned)epd_get_rotation());
         app_enter_host_sleep(APP_SLEEP_DEEP);
     }
+    read_pico_pmu_suppress_key_until_release();
     read_pico_transfer_resume_after_sleep();
 
     // 保留真实壁纸参考，完整目标绘制后再统一清理；不先擦白却继续拿旧壁纸做差分。

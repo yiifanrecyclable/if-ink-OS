@@ -74,3 +74,5 @@ bool usb_storage_connected(void){return preview_usb;}
 void read_pico_transfer_service_poll(void){}
 esp_err_t read_pico_transfer_start(const read_pico_transfer_cfg_t*c){preview_network.mode=c->mode;preview_network.state=READ_PICO_TRANSFER_READY;preview_network.network_ready=true;snprintf(preview_network.ssid,33,"%s",c->mode==READ_PICO_TRANSFER_MODE_AP?"ReadPico-demo":preview_network.wifi_configured?preview_network.wifi_ssid:"Pico-demo-1");snprintf(preview_network.url,sizeof(preview_network.url),"http://192.0.2.1");return ESP_OK;}
 esp_err_t read_pico_transfer_scan_wifi(read_pico_transfer_network_t out[READ_PICO_TRANSFER_SCAN_MAX],size_t*count){*count=3;for(int i=0;i<3;++i){out[i]=(read_pico_transfer_network_t){.supported=true,.requires_password=true,.rssi=-35-i*12};snprintf(out[i].ssid,33,"Pico-demo-%d",i+1);}return ESP_OK;}
+
+void read_pico_transfer_editor_poll(void) {}

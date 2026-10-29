@@ -21,8 +21,9 @@ static bool version_parts(const char *s, unsigned parts[3], bool *test) {
     // beta仅作为当前版本参与比较，候选测试版仍由调用方拒绝。/ Recognize beta as the installed version; callers still reject prerelease candidates.
     if(!strcmp(s,"-beta")){*test=true;return true;}
     if(!strncmp(s,"-beta",5)){
-        s+=5;if(*s<'1'||*s>'9')return false;
-        while(*s>='0'&&*s<='9')++s;
+        s+=5;
+        if(*s>='1'&&*s<='9'){while(*s>='0'&&*s<='9')++s;}
+        else if(strncmp(s,"-r",2))return false;
         if(!strncmp(s,"-r",2)){
             s+=2;if(*s<'1'||*s>'9')return false;
             while(*s>='0'&&*s<='9')++s;

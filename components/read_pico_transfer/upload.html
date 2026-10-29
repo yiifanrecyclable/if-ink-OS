@@ -1,65 +1,42 @@
 <!doctype html>
-<!--
-SPDX-FileCopyrightText: 2026 mindreset
-SPDX-License-Identifier: Apache-2.0
-中文：TF 卡目录浏览、文件操作与固定目录上传。/ English: SD browsing, file actions, and fixed-destination uploads.
-冻结：上传逐个发送原始文件；设备将所有编辑路径限制在 TF 卡内。
-Frozen: upload raw files one by one; the device confines all edits to the SD card.
+<!-- SPDX-License-Identifier: Apache-2.0
+中文：局域网个性化编辑和TF管理；草稿只在保存时提交。/ English: Local personalization and TF management; drafts commit only on Save.
+Frozen: file writes retain SD/document transaction boundaries; editing never drives the e-paper display.
 -->
-<html lang="zh-CN">
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Pico · TF 卡传输</title>
-<style>
-:root{color-scheme:light;font-family:-apple-system,BlinkMacSystemFont,"Noto Sans SC",system-ui,sans-serif;color:#202221;background:#ededeb}
-*{box-sizing:border-box}body{max-width:760px;margin:0 auto;padding:26px 20px 68px;font-size:16px;line-height:1.55}
-header{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:8px 0 22px}
-h1{font-size:36px;line-height:1.15;letter-spacing:-.03em;margin:0}h2{font-size:23px;line-height:1.25;margin:0 0 9px}
-section{background:#fff;border:1px solid #d2d4d0;border-radius:22px;padding:23px;margin:15px 0}
-.eyebrow,.muted{color:#696d68;font-size:14px}.eyebrow{letter-spacing:.14em;margin:0 0 8px}
-.hint{color:#626762;margin:4px 0 15px}.line{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-#storage{font-weight:600}button,input{font:inherit;max-width:100%}
-button{min-height:42px;padding:8px 15px;border:1px solid #c5c8c4;border-radius:13px;color:#202221;background:#f7f7f5;cursor:pointer}
-button:hover{background:#e8eae7}button:disabled{opacity:.45;cursor:default}
-.primary{background:#303331;color:#fff;border-color:#303331}.primary:hover{background:#484b49}
-.danger{color:#943b34}.tiny{min-height:34px;padding:5px 10px;font-size:14px}
-input[type=file]{width:100%;padding:13px;border:1px dashed #a8ada8;border-radius:13px;background:#fafaf9}
-input[type=text]{width:100%;min-height:44px;padding:9px 12px;border:1px solid #b9bdb9;border-radius:11px}
-.upload h2,.upload .hint{margin-bottom:9px}.upload .send{margin-top:10px}
-.result{min-height:24px;margin:9px 0 0;color:#4f5751;overflow-wrap:anywhere}
-.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:13px 0}#path{font-weight:600;overflow-wrap:anywhere}
-ul{list-style:none;padding:0;margin:0}li{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:60px;padding:11px 0;border-top:1px solid #e1e3df}
-.entry-name{min-width:0;flex:1;overflow-wrap:anywhere}.entry-name small{display:block;color:#6a6e69;font-size:13px}
-.entry-actions{display:flex;flex-wrap:wrap;justify-content:end;gap:6px}.folder{font-weight:600;text-align:left;border:0;background:none;padding:0}.folder:hover{background:none;text-decoration:underline}
-.pages{display:flex;gap:8px;align-items:center;justify-content:end;margin-top:14px}
-dialog{width:min(92vw,420px);border:1px solid #c8cac6;border-radius:20px;padding:22px;background:#fff;color:#202221;box-shadow:0 18px 60px #0003}
-dialog::backdrop{background:#20222175}dialog h2{margin-bottom:10px}dialog p{margin:8px 0 16px;color:#626762;overflow-wrap:anywhere}
-.dialog-actions{display:flex;justify-content:end;gap:8px;margin-top:18px}section[hidden]{display:none}
-.crop-layout{display:flex;align-items:start;gap:22px;flex-wrap:wrap}.crop-preview{display:block;width:min(100%,260px);height:auto;aspect-ratio:684/1216;border:2px solid #626662;border-radius:14px;background:#e2e3e0;touch-action:none;cursor:grab}.crop-preview:active{cursor:grabbing}
-.crop-controls{flex:1;min-width:220px}.crop-controls label{display:block;margin:14px 0 5px;font-weight:600}.crop-controls input[type=range]{width:100%;accent-color:#303331}.crop-controls .primary{margin-top:16px}
-@media(max-width:540px){body{padding:18px 12px 48px;font-size:15px}header{align-items:start}h1{font-size:31px}section{padding:17px;border-radius:19px}.entry-actions{width:100%;justify-content:start}li{flex-wrap:wrap}}
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>if-ink OS</title><style>
+:root{font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#242625;background:#f3f4f2}*{box-sizing:border-box}body{max-width:1560px;margin:auto;padding:28px 32px 60px}h1,h2,h3,p{margin:0}h1{font-size:38px;letter-spacing:-1.5px;font-weight:650}h2{font-size:22px}h3{font-size:17px}header{display:flex;justify-content:space-between;align-items:center;padding-bottom:20px;border-bottom:1px solid #bfc2bc;margin-bottom:24px}.muted,.hint,small{color:#747971;font-size:13px}.layout{display:grid;grid-template-columns:minmax(360px,1fr) minmax(460px,1.25fr);gap:28px;align-items:start}.panel{background:white;padding:24px;border:1px solid #d6d9d2;border-radius:16px;min-width:0}.line{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}.tabs{display:flex;gap:4px;background:#eff0ed;padding:4px;border-radius:25px;margin:20px 0}.tabs button{flex:1;border:0;background:none;border-radius:22px}.tabs button.selected{background:#fff;box-shadow:0 1px 4px #0002}.preview{display:block;width:100%;height:auto;border:1px solid #d2d5cd;background:white;touch-action:none;cursor:grab}.preview:active{cursor:grabbing}.preview-meta{display:flex;justify-content:space-between;gap:8px;margin:8px 0 16px;color:#777d73;font-size:12px}.drop{border:1px dashed #b1b7aa;padding:14px;text-align:center;background:#fafbf9;border-radius:8px;margin:12px 0}.drop.over{background:#edf0e8;border-color:#58634d}input,button,select,textarea{font:inherit}button,.download{cursor:pointer;border:1px solid #bfc5b8;background:white;color:inherit;border-radius:8px;padding:8px 12px;min-height:38px;text-decoration:none;display:inline-block}button:hover,.download:hover{background:#f0f2ec}button:disabled{opacity:.45;cursor:default}.primary{background:#3c4438;color:white;border-color:#3c4438}.primary:hover{background:#515d4b}.danger{color:#924a40}.tiny{font-size:12px;min-height:30px;padding:4px 8px}.controls{margin-top:16px}.setting{padding:13px 0;border-bottom:1px solid #eceee8}.setting input[type=text],textarea,select{width:100%;padding:9px 10px;border:1px solid #ccd0c5;border-radius:6px;background:#fff;margin-top:8px}textarea{resize:vertical;min-height:100px}input[type=range]{width:100%;accent-color:#525f47;margin-top:8px}input[type=file]{max-width:100%;font-size:13px}label.toggle{display:flex;gap:8px;align-items:center}input[type=checkbox]{width:16px;height:16px;accent-color:#434f3a}.number{font-variant-numeric:tabular-nums;color:#747a6d;font-size:13px}section[hidden],[hidden]{display:none!important}.actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px;flex-wrap:wrap}.result{font-size:13px;min-height:24px;margin-top:12px;white-space:pre-wrap;overflow-wrap:anywhere}.crop-layout{display:grid;grid-template-columns:minmax(130px,220px) 1fr;gap:18px;align-items:start;margin-top:16px}.crop-preview{display:block;width:100%;height:auto;border:1px solid #bfc5b8;background:white;touch-action:none;cursor:grab}.crop-controls>*{margin-bottom:12px}.crop-controls label{display:block;font-size:14px}.crop-controls input{width:100%}.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:18px 0}.path{font-size:14px;overflow-wrap:anywhere;flex:1;min-width:100px}ul{margin:0;padding:0;list-style:none}li{display:flex;gap:10px;align-items:center;justify-content:space-between;border-bottom:1px solid #e6e9e1;padding:13px 0;min-width:0}.entry-name{min-width:0;flex:1;overflow-wrap:anywhere}.entry-name small{display:block}.entry-actions{display:flex;gap:5px;justify-content:end;flex-wrap:wrap}.folder{border:0;padding:0;min-height:0;background:none;text-align:left;font-weight:600}.pages{display:flex;justify-content:end;gap:12px;align-items:center;margin:18px 0}.upload{padding:14px 0;border-top:1px solid #e4e7de}.upload h2{font-size:16px;margin-bottom:5px}.upload .send{margin-top:10px}.upload .hint{margin-bottom:10px}.quick{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}.upload .result:empty{display:none}details{border-top:1px solid #d4d9cc;padding-top:16px;margin-top:16px}summary{cursor:pointer;font-size:14px}dialog{max-width:440px;width:90%;border:1px solid #c5cbbc;border-radius:14px;padding:24px}dialog::backdrop{background:#0005}dialog h2{font-size:21px}dialog p{margin:12px 0;color:#747971}dialog input{width:100%;padding:10px;border:1px solid #bdc5b5;border-radius:6px}.dialog-actions{display:flex;justify-content:end;gap:8px;margin-top:18px}.align{display:flex;gap:5px}.align button{width:40px;padding:5px}.align button.selected{background:#58634f;color:white;border-color:#58634f}.align svg{display:block;margin:auto;stroke:currentColor;stroke-width:1.8;fill:none;width:20px;height:20px}.intro{margin-top:5px}
+@media(max-width:980px){body{padding:20px 18px 40px}.layout{grid-template-columns:1fr}.panel{padding:20px}.entry-actions{max-width:60%}header{gap:16px}h1{font-size:32px}}@media(max-width:500px){.entry-actions{max-width:100%}li{flex-wrap:wrap}.crop-layout{grid-template-columns:150px 1fr}.crop-controls{min-width:0}.actions button{flex:1}.line{gap:8px}}
 </style>
-<header><div><p class="eyebrow">PICO / TRANSFER</p><h1>TF 卡传输</h1></div><span class="muted">一次连接一台设备</span></header>
-<section><h2>存储状态</h2><p id="storage" role="status">正在读取设备状态…</p><p class="hint">保持 Pico 停留在传输页面。上传后会保存到对应文件夹。</p></section>
-<section id="browser"><div class="line"><h2>浏览 TF 卡</h2><button id="refresh" class="tiny" type="button">刷新目录</button></div>
-<div class="toolbar"><button id="up" class="tiny" type="button">上一级</button><span id="path">/</span><button id="newFolder" class="tiny" type="button">新建文件夹</button></div>
-<div class="upload" data-kind="file"><p class="hint">先打开目标文件夹，再添加文件。支持任意格式，保留原文件名；同名文件会先询问。</p><input type="file" multiple aria-label="选择任意文件"><button class="primary send" type="button">添加文件到当前目录</button><p class="result" role="status"></p></div>
-<p id="listState" class="hint" role="status"></p><ul id="entries"></ul>
-<div class="pages"><button id="previous" class="tiny" type="button">上一页</button><span id="pageState" class="muted"></span><button id="next" class="tiny" type="button">下一页</button></div></section>
-<section class="upload" data-kind="book"><h2>上传书籍</h2><p class="hint">EPUB、TXT → books。同名文件会先询问。</p><input type="file" accept=".epub,.txt" multiple aria-label="选择书籍"><button class="primary send" type="button">上传到 books</button><p class="result" role="status"></p></section>
-<section class="upload" data-kind="document"><h2>上传文档</h2><p class="hint">Markdown（.md）→ markdown。同名文档会先询问；含插图的笔记建议通过 Ob 插件发送。</p><input type="file" accept=".md" multiple aria-label="选择 Markdown 文档"><button class="primary send" type="button">上传到 markdown</button><p class="result" role="status"></p></section>
-<section class="upload" data-kind="font"><h2>上传字体</h2><p class="hint">TTF、OTF → fonts。上传后可在设备字体设置中选择。</p><input type="file" accept=".ttf,.otf" multiple aria-label="选择字体"><button class="primary send" type="button">上传到 fonts</button><p class="result" role="status"></p></section>
-<section id="wallpaper"><h2>设置锁屏壁纸</h2><p class="hint">选择手机中的图片，拖动裁剪框里的画面，用滑块缩放。上传后自动切换为壁纸锁屏。</p><div class="crop-layout"><canvas id="cropPreview" class="crop-preview" width="342" height="608" aria-label="684 × 1216 锁屏裁剪预览"></canvas><div class="crop-controls"><input id="wallpaperFile" type="file" accept="image/*" aria-label="选择锁屏图片"><label for="cropZoom">缩放图片</label><input id="cropZoom" type="range" min="1" max="3" step="0.01" value="1" aria-label="缩放图片"><p class="muted">输出尺寸：684 × 1216 像素。可在框内拖动调整位置。</p><button id="cropReset" type="button">居中重置</button><button id="wallpaperSend" class="primary" type="button" disabled>裁剪并设为锁屏</button><p id="wallpaperResult" class="result" role="status">请先选择图片</p></div></div></section>
-<section class="upload" data-kind="picture"><h2>上传图片</h2><p class="hint">JPG、JPEG、PNG → pictures。可在设备上选择用作锁屏壁纸。</p><input type="file" accept=".jpg,.jpeg,.png" multiple aria-label="选择图片"><button class="primary send" type="button">上传到 pictures</button><p class="result" role="status"></p></section>
-<dialog id="editor"><h2 id="editorTitle"></h2><p id="editorDescription"></p><input id="editorName" type="text" maxlength="238" aria-label="新名称"><div class="dialog-actions"><button id="editorCancel" type="button">取消</button><button id="editorConfirm" class="primary" type="button">确认</button></div></dialog>
+<header><div><h1>if-ink OS</h1><p class="muted intro">个性化你的阅读器，管理 TF 卡文件</p></div><div><p id="storage" role="status" class="muted">正在连接设备…</p><p class="muted">保持设备停留在 WiFi／热点传输页面</p></div></header>
+<main class="layout"><section class="panel" id="personalization"><div class="line"><h2>个性化</h2><button id="appearanceReload" class="tiny">重新读取</button></div>
+<div class="tabs"><button id="bannerTab" class="selected">首页 Banner</button><button id="wallpaperTab">锁屏壁纸</button></div>
+<section id="bannerEditor"><canvas id="bannerPreview" class="preview" width="684" height="300" aria-label="Banner 684 × 300 编辑预览"></canvas><div class="preview-meta"><span id="previewLabel">正在读取真实排版…</span><span>684 × 300</span></div>
+<div class="setting"><label class="toggle"><input id="bannerBg" type="checkbox">显示背景图</label><div id="backgroundControls" hidden><div id="bannerDrop" class="drop"><input id="bannerFile" type="file" accept="image/*" aria-label="选择 Banner 图片"><p class="hint">拖入图片，或从右侧目录选择；在预览中拖动裁剪</p></div><div class="line"><button id="bannerResetCrop" class="tiny">居中重置</button></div><div class="line" style="margin-top:12px"><label for="bannerZoom">背景图缩放</label><span id="bannerZoomValue" class="number">100%</span></div><input id="bannerZoom" type="range" min="1" max="3" step="0.01" value="1" aria-label="背景图缩放"><p class="hint" id="bannerZoomHint">向右放大；上下位置请在预览中拖动图片</p><small id="bannerImageName">无背景图</small></div></div>
+<div class="setting"><div class="line"><label class="toggle"><input id="bannerDate" type="checkbox">显示日期</label></div><div id="dateControls"><div class="line" style="margin-top:12px"><label for="bannerDateY">日期上下位置</label><span id="dateYValue" class="number"></span></div><input id="bannerDateY" type="range" min="4" max="260" step="1" aria-label="日期上下位置"><p class="hint" id="bannerDateHint">左端靠上，右端靠下；调整后自动更新预览</p></div></div>
+<div class="setting"><label class="toggle"><input id="bannerText" type="checkbox">显示文字</label><div id="textControls"><textarea id="bannerContent" rows="4" aria-label="Banner 文字" placeholder="写下你的文字，最多四行"></textarea><div class="line"><small>最多四行；文字与日期始终保留白色描边</small><small id="textBytes"></small></div><select id="bannerFont" aria-label="选择字体"><option value="">跟随系统字体</option></select><label class="hint" style="display:block;margin-top:12px">从电脑添加 TTF 字体<input id="bannerLocalFont" type="file" accept=".ttf" aria-label="从电脑添加 TTF 字体"></label><small id="bannerFontStatus">电脑字体先暂存用于预览，保存时再同步至 fonts</small><div class="line" style="margin-top:14px"><span>字号</span><span id="sizeValue" class="number"></span></div><input id="bannerSize" type="range" min="48" max="120" step="2" aria-label="文字字号"><div class="line" style="margin-top:12px"><span>对齐方式</span><div class="align" id="bannerAlign"></div></div><div class="line" style="margin-top:12px"><label for="bannerTextY">文字上下位置</label><span id="textYValue" class="number"></span></div><input id="bannerTextY" type="range" min="0" max="296" step="1" aria-label="文字上下位置"><p class="hint">左端靠上，右端靠下；靠近底部时会自动限制位置，保持文字完整</p></div></div>
+<div class="actions"><button id="bannerCancel">取消修改</button><button id="bannerSave" class="primary">保存到设备</button></div><p id="bannerResult" class="result" role="status"></p></section>
+<section id="wallpaper" hidden><p class="hint">拖入图片，在预览中移动并缩放。保存后于下次休眠时显示。</p><div id="wallpaperDrop" class="drop"><input id="wallpaperFile" type="file" accept="image/*" aria-label="选择锁屏图片"><p class="hint">也可在右侧目录选择一张图片</p></div><div class="crop-layout"><canvas id="cropPreview" class="crop-preview" width="342" height="608" aria-label="684 × 1216 锁屏裁剪预览"></canvas><div class="crop-controls"><p class="muted">输出尺寸 684 × 1216</p><label for="cropZoom">缩放图片</label><input id="cropZoom" type="range" min="1" max="3" step="0.01" value="1"><button id="cropReset">居中重置</button><p id="wallpaperCurrent" class="muted"></p><button id="wallpaperSend" class="primary" disabled>保存为锁屏壁纸</button><p id="wallpaperResult" class="result" role="status">请先选择图片</p></div></div></section></section>
+<section class="panel" id="browser"><div class="line"><h2>TF 卡文件</h2><button id="refresh" class="tiny">刷新目录</button></div><div class="quick"><button class="tiny" id="goBooks">books</button><button class="tiny" id="goMarkdown">markdown</button><button class="tiny" id="goPictures">pictures</button><button class="tiny" id="goBanner">banner pic</button><button class="tiny" id="goFonts">fonts</button></div>
+<div class="toolbar"><button id="up" class="tiny">上一级</button><span id="path" class="path">/</span><button id="newFolder" class="tiny">新建文件夹</button></div><p id="listState" class="muted"></p><ul id="entries"></ul><div class="pages"><button id="previous" class="tiny">上一页</button><span id="pageState" class="muted"></span><button id="next" class="tiny">下一页</button></div>
+<section class="upload" data-kind="file" id="fileDrop"><h2>添加到当前目录</h2><p class="hint">选择或拖入文件。覆盖同名文件前会询问。</p><input type="file" multiple aria-label="选择任意文件"><button class="primary send">上传文件</button><p class="result" role="status"></p></section>
+<details><summary>按类型上传到固定目录</summary>
+<section class="upload" data-kind="book"><h2>上传书籍</h2><p class="hint">EPUB、TXT → books</p><input type="file" accept=".epub,.txt" multiple aria-label="选择书籍"><button class="send">上传到 books</button><p class="result" role="status"></p></section>
+<section class="upload" data-kind="document"><h2>上传文档</h2><p class="hint">Markdown → markdown。图文笔记建议通过 Obsidian 插件发送。</p><input type="file" accept=".md" multiple aria-label="选择 Markdown 文档"><button class="send">上传到 markdown</button><p class="result" role="status"></p></section>
+<section class="upload" data-kind="font"><h2>上传字体</h2><p class="hint">TTF、OTF → fonts</p><input type="file" accept=".ttf,.otf" multiple aria-label="选择字体"><button class="send">上传到 fonts</button><p class="result" role="status"></p></section>
+<section class="upload" data-kind="picture"><h2>上传图片</h2><p class="hint">PNG、JPG、JPEG → pictures</p><input type="file" accept=".jpg,.jpeg,.png" multiple aria-label="选择图片"><button class="send">上传到 pictures</button><p class="result" role="status"></p></section></details><p class="hint" style="margin-top:18px">Markdown 文档与附件由系统管理，可下载；改名和删除请在设备内容页操作。</p></section></main>
+<dialog id="editor"><h2 id="editorTitle"></h2><p id="editorDescription"></p><input id="editorName" type="text" maxlength="238" aria-label="新名称"><div class="dialog-actions"><button id="editorCancel">取消</button><button id="editorConfirm" class="primary">确认</button></div></dialog>
 <script>
 const $=id=>document.getElementById(id);
 let policy=null,busy=false,path='',page=0,pages=0,editorAction=null;
 const size=n=>n>=1048576?(n/1048576).toFixed(1)+' MB':n>=1024?Math.ceil(n/1024)+' KB':n+' B';
 const join=(dir,name)=>dir?dir+'/'+name:name;
 async function request(url,options){const response=await fetch(url,{cache:'no-store',...options});let body;try{body=await response.json()}catch{throw Error('设备响应无法解析，请重试')}return {status:response.status,body}}
-function lock(value){busy=value;document.querySelectorAll('button,input[type=file],input[type=range]').forEach(el=>{if(el.id!=='editorCancel')el.disabled=value});if(!value){$('up').disabled=!path;$('previous').disabled=page<=0;$('next').disabled=page+1>=pages;$('wallpaperSend').disabled=!cropImage}}
+function lock(value){busy=value;document.querySelectorAll('button,input[type=file],input[type=range],input[type=checkbox],textarea,select,input[type=text]').forEach(el=>{if(el.id!=='editorCancel')el.disabled=value});if(!value){$('up').disabled=!path;$('previous').disabled=page<=0;$('next').disabled=page+1>=pages;$('wallpaperSend').disabled=!cropImage;document.querySelectorAll('[data-protected]').forEach(el=>el.disabled=el.dataset.protected==='1');updateBannerAvailability()}}
 async function info(){const r=await request('/info');if(r.status!==200)throw Error(r.body.error||'无法读取存储状态');policy=r.body;$('storage').textContent=(policy.is_flash?'未检测到 TF 卡':'TF 卡已就绪')+' · 剩余 '+size(policy.free_bytes);if(policy.is_flash){$('browser').hidden=true;document.querySelectorAll('.upload').forEach(el=>el.hidden=true);$('storage').textContent='未检测到 TF 卡，请插卡后重新进入传输页面'}}
-async function loadDirectory(){if(policy.is_flash)return;const r=await request('/files?'+(path?'path='+encodeURIComponent(path)+'&':'')+'page='+page);if(r.status!==200)throw Error(r.body.error||'目录读取失败');pages=r.body.pages;if(page>=pages&&page){page=0;return loadDirectory()}$('path').textContent='/'+path;$('listState').textContent=r.body.total+' 项';$('pageState').textContent=(pages?page+1:0)+' / '+pages;$('entries').replaceChildren();for(const item of r.body.items){const row=document.createElement('li'),name=document.createElement('div'),actions=document.createElement('div'),detail=document.createElement('small');name.className='entry-name';actions.className='entry-actions';detail.textContent=item.directory?'文件夹':size(item.size);if(item.directory){const open=document.createElement('button');open.className='folder';open.textContent='▱  '+item.name;open.onclick=()=>{path=join(path,item.name);page=0;loadDirectory().catch(showError)};name.append(open)}else{name.textContent=item.name}name.append(detail);for(const action of ['rename','copy','delete']){const button=document.createElement('button');button.className='tiny'+(action==='delete'?' danger':'');button.textContent={rename:'重命名',copy:'复制',delete:'删除'}[action];button.onclick=()=>openEditor(action,item);actions.append(button)}row.append(name,actions);$('entries').append(row)}$('up').disabled=!path;$('previous').disabled=page<=0;$('next').disabled=page+1>=pages}
+// 固定根目录注明用途，子文件夹保留普通说明。/ Describe fixed root roles; keep nested folders ordinary.
+function fixedFolderDescription(relative){const roles=[['books','书籍'],['markdown','文档'],['fonts','字体'],['pictures','图片'],['banner pic','Banner 图片']];const role=roles.find(([root])=>relative.toLowerCase()===root);return role?'默认'+role[1]+'文件夹（不可更改）':''}
+async function loadDirectory(){if(policy.is_flash)return;const r=await request('/files?'+(path?'path='+encodeURIComponent(path)+'&':'')+'page='+page);if(r.status!==200)throw Error(r.body.error||'目录读取失败');pages=r.body.pages;if(page>=pages&&page){page=0;return loadDirectory()}$('path').textContent='/'+path;$('listState').textContent=r.body.total+' 项';$('pageState').textContent=(pages?page+1:0)+' / '+pages;$('entries').replaceChildren();for(const item of r.body.items){const row=document.createElement('li'),name=document.createElement('div'),actions=document.createElement('div'),detail=document.createElement('small');name.className='entry-name';actions.className='entry-actions';const relative=join(path,item.name),fixed=item.directory?fixedFolderDescription(relative):'';detail.textContent=item.directory?(fixed||'文件夹'):size(item.size);if(item.directory){const open=document.createElement('button');open.className='folder';open.textContent='▱  '+item.name;open.onclick=()=>{path=join(path,item.name);page=0;loadDirectory().catch(showError)};name.append(open)}else{name.textContent=item.name}name.append(detail);if(!item.directory){const download=document.createElement('a');download.textContent='下载';download.className='download tiny';download.href='/file?path='+encodeURIComponent(relative);download.download=item.name;actions.append(download);if(/\.(png|jpe?g)$/i.test(item.name)){for(const target of ['banner','wallpaper']){const use=document.createElement('button');use.className='tiny';use.textContent=target==='banner'?'用作 Banner':'用作壁纸';use.onclick=()=>useDeviceImage(target,relative);actions.append(use)}}}for(const action of ['rename','copy','delete']){const button=document.createElement('button');button.className='tiny'+(action==='delete'?' danger':'');button.textContent={rename:'重命名',copy:'复制',delete:'删除'}[action];button.disabled=!!fixed||/^(markdown|\.pico-sync|\.pico-cloud|\.index)(\/|$)/i.test(relative);if(button.disabled){button.title=fixed||'受管文档请在设备内容页操作';button.dataset.protected='1'}button.onclick=()=>openEditor(action,item);actions.append(button)}row.append(name,actions);$('entries').append(row)}$('up').disabled=!path;$('previous').disabled=page<=0;$('next').disabled=page+1>=pages}
 function showError(error){$('listState').textContent=error.message||String(error)}
 function openEditor(action,item){if(busy)return;const source=item?join(path,item.name):path;editorAction={action,source,item};$('editorTitle').textContent={rename:'重命名',copy:'复制',delete:'删除',mkdir:'新建文件夹'}[action];$('editorDescription').textContent=action==='delete'?source+(item.directory?'（会删除其中所有文件）':''):'位置：/'+path;$('editorName').hidden=action==='delete';$('editorName').value=action==='copy'?(item.directory?item.name+' 副本':item.name.replace(/(\.[^.]+)?$/,' 副本$1')):item?item.name:'';$('editorConfirm').textContent=action==='delete'?'确认删除':'保存';$('editorConfirm').classList.toggle('danger',action==='delete');$('editor').showModal();if(action!=='delete')$('editorName').focus()}
 $('editorCancel').onclick=()=>$('editor').close();
@@ -83,7 +60,6 @@ $('cropReset').onclick=resetCrop;
 $('cropPreview').onpointerdown=event=>{if(!cropImage||busy)return;cropPointer={id:event.pointerId,x:event.clientX,y:event.clientY};$('cropPreview').setPointerCapture(event.pointerId)};
 $('cropPreview').onpointermove=event=>{if(!cropPointer||cropPointer.id!==event.pointerId)return;const ratio=cropWidth/$('cropPreview').getBoundingClientRect().width;cropX+=(event.clientX-cropPointer.x)*ratio;cropY+=(event.clientY-cropPointer.y)*ratio;cropPointer.x=event.clientX;cropPointer.y=event.clientY;clampCrop();drawCrop($('cropPreview'))};
 $('cropPreview').onpointerup=$('cropPreview').onpointercancel=()=>{cropPointer=null};
-$('wallpaperSend').onclick=async()=>{if(!cropImage||busy)return;const result=$('wallpaperResult');if(!policy||policy.is_flash){result.textContent='设备未连接或 TF 卡未就绪';return}lock(true);try{result.textContent='正在制作 684 × 1216 壁纸…';const canvas=document.createElement('canvas');canvas.width=cropWidth;canvas.height=cropHeight;drawCrop(canvas);let blob=null;for(const quality of [0.86,0.72,0.56,0.42]){blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/jpeg',quality));if(blob&&blob.size<=2097152)break}if(!blob)throw Error('手机无法生成裁剪图片');if(blob.size>2097152)throw Error('图片仍过大，请换一张图片');if(blob.size>policy.free_bytes)throw Error('TF 卡空间不足');const name='pico-wallpaper-'+Date.now()+'.jpg';const url='/image-upload?name='+encodeURIComponent(name)+'&wallpaper=1';const response=await upload(blob,url,(done,total)=>result.textContent='正在上传壁纸 · '+size(done)+' / '+size(total));if(response.status!==200)throw Error(response.body.error||'壁纸上传失败');result.textContent='已设为壁纸锁屏';await info();if(path==='pictures')await loadDirectory()}catch(error){result.textContent=error.message}finally{lock(false)}};
 drawCrop($('cropPreview'));
 async function sendFiles(section){
  if(busy||!policy||policy.is_flash)return;
@@ -114,5 +90,121 @@ async function sendFiles(section){
 }
 document.querySelectorAll('.upload').forEach(section=>section.querySelector('.send').onclick=()=>sendFiles(section));
 info().then(loadDirectory).catch(error=>$('storage').textContent=error.message+'，请刷新网页重试');
-</script>
-</html>
+
+// 中文：浏览器草稿不落盘，设备确认走同一份原生排版。/ Browser drafts stay local; device confirmation uses production layout.
+let appearance=null,bannerImage=null,bannerPath='',bannerDirty=false,bannerZoom=1,bannerX=0,bannerY=0,bannerPointer=null,bannerAlignment=2;
+const bannerCanvas=$('bannerPreview');
+let previewTimer=null,previewTask=null,previewVersion=0,previewRetry=0,stagedFont=null,backgroundVersion=0;
+function schedulePreview(){clearTimeout(previewTimer);if(!appearance)return;previewTimer=setTimeout(()=>{previewTimer=null;void livePreview()},500)}
+function updateBannerAvailability(){if(!appearance)return;$('backgroundControls').hidden=!$('bannerBg').checked;$('dateControls').hidden=!$('bannerDate').checked;$('textControls').hidden=!$('bannerText').checked;$('bannerZoom').disabled=!$('bannerBg').checked||!bannerImage;$('bannerResetCrop').disabled=!$('bannerBg').checked||!bannerImage;$('bannerDateY').disabled=!$('bannerDate').checked}
+function drawBanner(){
+ updateBannerAvailability();++previewVersion;previewRetry=0;
+ const text=$('bannerContent').value,px=Number($('bannerSize').value)||96;
+ $('textControls').hidden=!$('bannerText').checked;$('sizeValue').textContent=px+' px';$('bannerZoomValue').textContent=Math.round(bannerZoom*100)+'%';$('bannerZoom').disabled=!$('bannerBg').checked||!bannerImage;$('bannerResetCrop').disabled=!$('bannerBg').checked||!bannerImage;$('bannerDateY').disabled=!$('bannerDate').checked;$('bannerZoomHint').textContent=!bannerImage?'选择并开启背景图后可调整缩放':!$('bannerBg').checked?'开启背景图后可调整缩放':'向右放大；上下位置请在预览中拖动图片';$('bannerDateHint').textContent=$('bannerDate').checked?'左端靠上，右端靠下；调整后自动更新预览':'开启日期后可调整上下位置';$('dateYValue').textContent=$('bannerDateY').value+' px';$('textYValue').textContent=$('bannerTextY').value+' px';$('textBytes').textContent=Array.from(text).length+' 字';
+ $('previewLabel').textContent='正在更新真实排版…';schedulePreview();
+}
+async function waitPreview(){clearTimeout(previewTimer);previewTimer=null;if(previewTask)await previewTask}
+async function livePreview(){
+ if(!appearance)return;if(previewTask||busy){schedulePreview();return}
+ const version=previewVersion;busy=true;
+ previewTask=(async()=>{try{
+  bannerDraft();await uploadBannerDraft();if(version!==previewVersion)return;
+  const response=await postAppearance('preview',bannerDraft()),buffer=await response.arrayBuffer();
+  if(version===previewVersion){showDevicePixels(buffer);$('bannerResult').textContent='预览与设备排版一致';previewRetry=0}
+ }catch(e){if(version===previewVersion){$('previewLabel').textContent='预览尚未更新';$('bannerResult').textContent=e.message;if(/正忙|稍后/.test(e.message)&&previewRetry++<3)schedulePreview()}}
+ finally{busy=false;previewTask=null;if(version!==previewVersion)schedulePreview()}})();await previewTask;
+}
+async function releaseFont(){if(!stagedFont)return;const old=stagedFont;await postAppearance('font-release',{path:old.path});if(stagedFont===old){stagedFont=null;const value=$('bannerFont').value;$('bannerFont').replaceChildren(...[...$('bannerFont').children].filter(o=>o.value!==old.path));$('bannerFont').value=value===old.path?'':value}}
+function selectFont(path,name){let option=[...$('bannerFont').children].find(o=>o.value===path);if(!option){option=document.createElement('option');option.value=path;option.textContent=name;$('bannerFont').append(option)}$('bannerFont').value=path}
+$('bannerLocalFont').onchange=async()=>{
+ const file=$('bannerLocalFont').files[0];if(!file)return;
+ await waitPreview();if(busy)return;lock(true);
+ try{if(!/\.ttf$/i.test(file.name)||file.size<=0||file.size>33554432)throw Error('请选择32 MB以内的TTF字体文件');
+  await releaseFont();const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);const token=Array.from(bytes,b=>b.toString(16).padStart(2,'0')).join('');
+  const name=token+'.ttf',r=await upload(file,'/font-stage?name='+name,()=>{});if(r.status!==200)throw Error(r.body.error||'临时字体上传失败');
+  stagedFont={path:'/sdcard/.web-fonts/'+name,name:Array.from(file.name.replace(/[\\/:*?"<>|]/g,'_')).slice(0,22).join('').replace(/\.ttf$/i,'')+'.ttf'};
+  const match=await (await postAppearance('font-match',{path:stagedFont.path})).json();
+  if(match.path){await releaseFont();selectFont(match.path,file.name+'（设备已有）');$('bannerFontStatus').textContent='设备已有相同字体，无需重复同步'}
+  else {selectFont(stagedFont.path,file.name+'（未保存）');$('bannerFontStatus').textContent='已暂存：'+file.name+'；保存时将同步至 fonts'}
+  drawBanner();
+ }catch(e){$('bannerResult').textContent=e.message}finally{lock(false);schedulePreview()}
+};
+function switchPersonalization(target){$('bannerEditor').hidden=target!=='banner';$('wallpaper').hidden=target!=='wallpaper';$('bannerTab').classList.toggle('selected',target==='banner');$('wallpaperTab').classList.toggle('selected',target==='wallpaper')}
+$('bannerTab').onclick=()=>switchPersonalization('banner');$('wallpaperTab').onclick=()=>switchPersonalization('wallpaper');
+function bannerScale(){return bannerImage?Math.max(684/bannerImage.naturalWidth,300/bannerImage.naturalHeight)*bannerZoom:1}
+function clampBanner(){if(!bannerImage)return;bannerX=Math.min(0,Math.max(684-bannerImage.naturalWidth*bannerScale(),bannerX));bannerY=Math.min(0,Math.max(300-bannerImage.naturalHeight*bannerScale(),bannerY))}
+function resetBannerCrop(){if(!bannerImage)return;bannerZoom=1;$('bannerZoom').value='1';bannerX=(684-bannerImage.naturalWidth*bannerScale())/2;bannerY=(300-bannerImage.naturalHeight*bannerScale())/2;clampBanner();drawBanner()}
+for(let i=0;i<4;i++){const button=document.createElement('button');button.type='button';button.setAttribute('aria-label',['左对齐','右对齐','居中','两端对齐'][i]);button.title=['左对齐','右对齐','居中','两端对齐'][i];const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 24 24');for(let row=0;row<4;row++){const line=document.createElementNS('http://www.w3.org/2000/svg','path'),w=i===3||row%2===0?18:12,x=i===1?21-w:i===2?(24-w)/2:3;line.setAttribute('d','M'+x+' '+(4+row*5)+'h'+w);svg.append(line)}button.append(svg);button.onclick=()=>{bannerAlignment=i;updateAlignment();drawBanner()};$('bannerAlign').append(button)}
+function updateAlignment(){[...$('bannerAlign').children].forEach((b,i)=>b.classList.toggle('selected',i===bannerAlignment))}
+function imageFromBlob(blob){return new Promise((resolve,reject)=>{const image=new Image(),url=URL.createObjectURL(blob);image.onload=()=>{URL.revokeObjectURL(url);resolve(image)};image.onerror=()=>{URL.revokeObjectURL(url);reject(Error('此图片无法读取，请选择 PNG 或 JPG 图片'))};image.src=url})}
+async function deviceBlob(relative){const r=await fetch('/file?path='+encodeURIComponent(relative),{cache:'no-store'});if(!r.ok)throw Error('设备文件无法读取，请刷新目录后重试');return r.blob()}
+async function setBannerImage(image,pathName='',dirty=true){bannerImage=image;bannerPath=pathName;bannerDirty=dirty;++backgroundVersion;$('bannerBg').checked=true;$('bannerImageName').textContent=pathName||'新图片（尚未保存）';resetBannerCrop()}
+$('bannerFile').onchange=async()=>{const file=$('bannerFile').files[0];if(!file)return;try{if(file.size>32*1024*1024)throw Error('原图超过 32 MB，请先缩小图片');await setBannerImage(await imageFromBlob(file));$('bannerResult').textContent='在预览中移动、缩放背景图，编辑完成后保存'}catch(e){$('bannerResult').textContent=e.message}};
+$('bannerZoom').oninput=()=>{if(!bannerImage)return;const next=Number($('bannerZoom').value),ratio=next/bannerZoom;bannerX=342-(342-bannerX)*ratio;bannerY=150-(150-bannerY)*ratio;bannerZoom=next;bannerDirty=true;++backgroundVersion;clampBanner();drawBanner()};
+$('bannerResetCrop').onclick=()=>{bannerDirty=true;++backgroundVersion;resetBannerCrop()};
+bannerCanvas.onpointerdown=e=>{if(!bannerImage||busy)return;bannerPointer={id:e.pointerId,x:e.clientX,y:e.clientY};bannerCanvas.setPointerCapture(e.pointerId)};
+bannerCanvas.onpointermove=e=>{if(!bannerPointer||bannerPointer.id!==e.pointerId)return;const ratio=684/bannerCanvas.getBoundingClientRect().width;bannerX+=(e.clientX-bannerPointer.x)*ratio;bannerY+=(e.clientY-bannerPointer.y)*ratio;bannerPointer.x=e.clientX;bannerPointer.y=e.clientY;bannerDirty=true;++backgroundVersion;clampBanner();drawBanner()};bannerCanvas.onpointerup=bannerCanvas.onpointercancel=()=>bannerPointer=null;
+for(const id of ['bannerBg','bannerDate','bannerDateY','bannerText','bannerContent','bannerSize','bannerTextY'])$(id).oninput=drawBanner;
+// 中文：拖动时合并请求，松手或键盘调整结束立即刷新。/ English: debounce dragging, flush immediately on committed changes.
+for(const id of ['bannerZoom','bannerDateY','bannerSize','bannerTextY'])$(id).onchange=()=>{drawBanner();clearTimeout(previewTimer);previewTimer=null;void livePreview()};
+$('bannerFont').onchange=async()=>{drawBanner();await waitPreview();try{if(stagedFont&&$('bannerFont').value!==stagedFont.path)await releaseFont();drawBanner()}catch(e){$('bannerResult').textContent=e.message}};
+function bannerDraft(){
+ const text=$('bannerContent').value;if(new TextEncoder().encode(text).length>191||text.split('\n').length>4)throw Error('文字过长，请缩短内容并保持四行以内');
+ if($('bannerBg').checked&&!bannerImage&&!bannerPath)throw Error('请先选择背景图，或关闭背景图');
+ return {revision:appearance.revision,background:$('bannerBg').checked,image:bannerPath?'/sdcard/'+bannerPath:'',show_date:$('bannerDate').checked,date_y:Number($('bannerDateY').value),show_text:$('bannerText').checked,text,font:$('bannerFont').value,size:Number($('bannerSize').value),align:bannerAlignment,valign:appearance.banner.valign,text_y:Number($('bannerTextY').value)};
+}
+async function getAppearance(){const r=await request('/appearance');if(r.status!==200)throw Error(r.body.error||'读取设置失败');return r.body}
+async function applyAppearance(data,reset=true){
+ appearance=data;$('wallpaperCurrent').textContent=data.wallpaper?'当前：'+data.wallpaper.replace('/sdcard/',''):'当前：系统默认壁纸';
+ if(!reset)return;const cfg=data.banner;$('bannerLocalFont').value='';$('bannerFontStatus').textContent='电脑字体先暂存用于预览，保存时再同步至 fonts';
+ $('bannerBg').checked=cfg.background;$('bannerDate').checked=cfg.show_date;$('bannerText').checked=cfg.show_text;$('bannerContent').value=cfg.text;
+ $('bannerSize').value=cfg.size;$('bannerDateY').value=cfg.date_y===65535?data.date_y:cfg.date_y;$('bannerTextY').value=cfg.text_y===65535?data.text_y:cfg.text_y;bannerAlignment=cfg.align;updateAlignment();
+ $('bannerFont').replaceChildren();const defaultFont=document.createElement('option');defaultFont.value='';defaultFont.textContent='跟随系统字体';$('bannerFont').append(defaultFont);
+ for(const font of data.fonts||[]){const option=document.createElement('option');option.value=font.path;option.textContent=font.name;$('bannerFont').append(option)}if(cfg.font&&!(data.fonts||[]).some(f=>f.path===cfg.font)){const current=document.createElement('option');current.value=cfg.font;current.textContent='当前字体：'+cfg.font.split('/').pop();$('bannerFont').append(current)}$('bannerFont').value=cfg.font;
+ bannerPath=cfg.image?cfg.image.replace(/^\/sdcard\//,''):'';bannerDirty=false;bannerImage=null;$('bannerImageName').textContent=cfg.background?bannerPath:'无背景图';drawBanner();
+ if(cfg.background&&bannerPath){try{bannerImage=await imageFromBlob(await deviceBlob(bannerPath));resetBannerCrop()}catch(e){$('bannerResult').textContent=e.message}}
+}
+async function refreshAppearance(){await waitPreview();if(busy)return;try{lock(true);await releaseFont();await applyAppearance(await getAppearance());$('bannerResult').textContent='已读取设备当前设置'}catch(e){$('bannerResult').textContent=e.message}finally{lock(false)}}
+$('appearanceReload').onclick=refreshAppearance;$('bannerCancel').onclick=async()=>{await waitPreview();if(appearance&&!busy){try{lock(true);await releaseFont();await applyAppearance(appearance);$('bannerResult').textContent='已取消未保存的修改'}catch(e){$('bannerResult').textContent=e.message}finally{lock(false);schedulePreview()}}};
+function canvasBlob(canvas,type='image/png',quality){return new Promise(resolve=>canvas.toBlob(resolve,type,quality))}
+function grayscaleCanvas(canvas){const ctx=canvas.getContext('2d'),pixels=ctx.getImageData(0,0,canvas.width,canvas.height);for(let i=0;i<pixels.data.length;i+=4){const gray=Math.round((pixels.data[i]*0.2126+pixels.data[i+1]*0.7152+pixels.data[i+2]*0.0722)/17)*17;pixels.data[i]=pixels.data[i+1]=pixels.data[i+2]=gray}ctx.putImageData(pixels,0,0)}
+async function uploadBannerDraft(){
+ if(!$('bannerBg').checked||!bannerDirty)return;
+ if(!bannerImage)throw Error('请先选择背景图');const version=backgroundVersion;const canvas=document.createElement('canvas');canvas.width=684;canvas.height=300;
+ const ctx=canvas.getContext('2d');ctx.clearRect(0,0,684,300);ctx.drawImage(bannerImage,bannerX,bannerY,bannerImage.naturalWidth*bannerScale(),bannerImage.naturalHeight*bannerScale());grayscaleCanvas(canvas);
+ const blob=await canvasBlob(canvas);if(!blob||blob.size>2097152)throw Error('图片生成失败或超过 2 MB');
+ const name='web-banner-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.png';
+ const r=await upload(blob,'/banner-upload?name='+encodeURIComponent(name),()=>{});if(r.status!==200)throw Error(r.body.error||'图片上传失败');if(version!==backgroundVersion)return;bannerPath='banner pic/'+name;bannerDirty=false;$('bannerImageName').textContent=bannerPath;
+}
+async function postAppearance(op,payload){
+ const r=await fetch('/appearance?op='+op,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),cache:'no-store'});
+ if(r.status!==200){let error;try{error=await r.json()}catch{error={}}throw Error(error.error||'保存结果未确认，请重新读取设置核实')}
+ return r;
+}
+function showDevicePixels(buffer){
+ const bytes=new Uint8Array(buffer);if(bytes.length!==102600)throw Error('设备预览不完整，请重试');
+ const ctx=bannerCanvas.getContext('2d'),image=ctx.createImageData(684,300);
+ for(let i=0;i<684*300;++i){const gray=((bytes[i>>1]>>(i%2?4:0))&15)*17;image.data[i*4]=image.data[i*4+1]=image.data[i*4+2]=gray;image.data[i*4+3]=255}ctx.putImageData(image,0,0);$('previewLabel').textContent='实时设备排版 · 684 × 300';
+}
+async function submitBanner(op){
+ await waitPreview();if(busy||!appearance)return;let payload=null;try{bannerDraft();if(stagedFont&&$('bannerFont').value===stagedFont.path&&!confirm('此字体将同步至设备的 fonts 文件夹，是否继续保存？')){schedulePreview();return}lock(true);$('bannerResult').textContent=op==='preview'?'正在让设备确认排版…':'正在保存到设备…';await uploadBannerDraft();payload=bannerDraft();if(stagedFont&&payload.font===stagedFont.path){payload.sync_font=true;payload.font_name=stagedFont.name}
+ const response=await postAppearance(op,payload);if(op==='preview'){showDevicePixels(await response.arrayBuffer());$('bannerResult').textContent='排版检查通过，确认满意后可保存'}else{await applyAppearance(await response.json());await releaseFont();$('bannerResult').textContent='已保存到设备，返回首页后即可看到'}
+ }catch(e){$('bannerResult').textContent=e.message;if(/未确认|中断|Failed to fetch|NetworkError/.test(e.message)){try{const current=await getAppearance();const keys=Object.keys(current.banner);if(op==='banner'&&payload&&keys.every(k=>current.banner[k]===payload[k])){await applyAppearance(current);$('bannerResult').textContent='已回读确认：设置保存成功'}else $('bannerResult').textContent+='。请点击“重新读取”，核对设备当前设置'}catch{}}}finally{lock(false)}
+}
+$('bannerSave').onclick=()=>submitBanner('banner');
+$('wallpaperSend').onclick=async()=>{
+ if(!cropImage||busy||!appearance)return;lock(true);const result=$('wallpaperResult');try{
+ result.textContent='正在生成壁纸…';const canvas=document.createElement('canvas');canvas.width=684;canvas.height=1216;drawCrop(canvas);grayscaleCanvas(canvas);
+ let blob;for(const quality of [0.86,0.72,0.56,0.42]){blob=await canvasBlob(canvas,'image/jpeg',quality);if(blob&&blob.size<=2097152)break}if(!blob||blob.size>2097152)throw Error('图片生成失败或超过 2 MB');
+ const name='web-wallpaper-'+Date.now()+'-'+Math.random().toString(36).slice(2,8)+'.jpg',r=await upload(blob,'/image-upload?name='+encodeURIComponent(name),()=>{});
+ if(r.status!==200)throw Error(r.body.error||'图片上传失败');const reply=await postAppearance('wallpaper',{revision:appearance.revision,path:'/sdcard/pictures/'+name});await applyAppearance(await reply.json(),false);result.textContent='已保存为锁屏壁纸，下次休眠时显示';
+ }catch(e){result.textContent=e.message}finally{lock(false)}
+};
+async function useDeviceImage(target,relative){if(busy)return;try{lock(true);const image=await imageFromBlob(await deviceBlob(relative));switchPersonalization(target);if(target==='banner')await setBannerImage(image,relative,false);else{cropImage=image;resetCrop();$('wallpaperSend').disabled=false;$('wallpaperResult').textContent='已选择 '+relative+'，保存前可继续调整裁剪'}}catch(e){$(target==='banner'?'bannerResult':'wallpaperResult').textContent=e.message}finally{lock(false)}}
+function bindDrop(id,input,change){const zone=$(id);zone.ondragover=e=>{e.preventDefault();zone.classList.toggle('over',true)};zone.ondragleave=()=>zone.classList.toggle('over',false);zone.ondrop=e=>{e.preventDefault();zone.classList.toggle('over',false);if(busy||!e.dataTransfer.files.length)return;input.files=e.dataTransfer.files;if(change)change()}}
+bindDrop('bannerDrop',$('bannerFile'),()=>$('bannerFile').onchange());bindDrop('wallpaperDrop',$('wallpaperFile'),()=>$('wallpaperFile').onchange());
+const generalUpload=document.querySelector('.upload[data-kind="file"]');bindDrop('fileDrop',generalUpload.querySelector('input'),null);
+for(const [id,folder] of [['goBooks','books'],['goMarkdown','markdown'],['goPictures','pictures'],['goBanner','banner pic'],['goFonts','fonts']])$(id).onclick=()=>{path=folder;page=0;loadDirectory().catch(showError)};
+refreshAppearance();
+
+</script></html>

@@ -81,7 +81,7 @@ static const char *folder_root(int folder) {
     return s_dir;
 }
 static const char *const transfer_methods[]={UI_MSG("WiFi/热点"),UI_MSG("坚果云同步"),UI_MSG("USB连接")};
-static bool transfer_wrap(int i){return ui_text_fixed_width_px(ui_text_effective_px(UI_TEXT_BODY),transfer_methods[i])>190;}
+static bool transfer_wrap(int i){return app_settings_language()!=APP_LANGUAGE_EN&&ui_text_fixed_width_px(ui_text_effective_px(UI_TEXT_BODY),transfer_methods[i])>190;}
 static int transfer_extra_height(void){
     int lines=1;for(int i=0;i<3;++i)if(transfer_wrap(i))lines=2;
     int bottom=91+78+(lines-1)*ui_text_line_height(UI_TEXT_BODY)+ui_text_line_height(UI_TEXT_BODY)/2+18;
@@ -573,6 +573,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             const char *const first[]={"WiFi/",UI_MSG("坚果云"),"USB"};
             const char *const second[]={UI_MSG("热点"),UI_MSG("同步"),UI_MSG("连接")};
             bool wrap=transfer_wrap(i);int px=ui_text_effective_px(UI_TEXT_BODY);
+            if(app_settings_language()==APP_LANGUAGE_EN)px=ui_text_fit_px(px,transfer_methods[i],190,ui_text_line_height(UI_TEXT_BODY));
             ui_text_fixed_vc(fb,card.x+card.width/2,card.y+78,px,wrap?first[i]:transfer_methods[i],EPD_DRAW_ALIGN_CENTER,false);
             if(wrap)ui_text_fixed_vc(fb,card.x+card.width/2,card.y+78+ui_text_line_height(UI_TEXT_BODY),px,second[i],EPD_DRAW_ALIGN_CENTER,false);
         }

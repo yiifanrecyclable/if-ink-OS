@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix='status56-',dir=R/'build') as tmp:
         assert p.returncode==0,p.stderr
         return json.loads(p.stdout),(out/'frame.bin').read_bytes()
     def tone(data,x,y):return (data[y*342+x//2]>>(4 if x%2 else 0))&15
-    meta,home=frame('baseline-home');g=meta['home_geometry'];assert g[0:4]==[780,85,4,466],g
+    meta,home=frame('baseline-home');g=meta['home_geometry'];assert g[0:4]==[712,81,5,466],g
     assert g[8:]==[440,386,696,730],g
     for y in (356,696):assert all(tone(home,x,y)==6 for x in range(36,648)),y
     assert any(tone(home,x,y)==0 for x in range(606,654) for y in range(19,42))

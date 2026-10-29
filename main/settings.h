@@ -73,6 +73,8 @@ uint8_t app_settings_lock_style(void);
 void app_settings_set_lock_style(uint8_t style);
 const char* app_settings_wallpaper_path(void);
 void app_settings_set_wallpaper_path(const char* path);
+/// 网页保存需要可确认结果；失败尝试恢复原路径。/ Checked web save; attempt to restore the prior path on failure.
+esp_err_t app_settings_save_wallpaper_path(const char *path);
 /// 轮播目录复用壁纸路径字段（末尾斜线），纳入配置备份。/ Store rotation directories with a trailing slash in the backed-up wallpaper path.
 bool app_settings_wallpaper_rotating(void);
 esp_err_t app_settings_set_wallpaper_directory(const char *path);

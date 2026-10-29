@@ -36,6 +36,20 @@ static uint32_t be32(const uint8_t *p) {
 static bool read_exact(FILE *f, void *out, size_t n) {
     return fread(out, 1, n, f) == n;
 }
+bool document_image_dimensions(const char *path, uint32_t *width, uint32_t *height) {
+    uint8_t header[33];struct stat st;FILE *f=fopen(path,"rb");if(!f)return false;
+    bool ok=!fstat(fileno(f),&st)&&S_ISREG(st.st_mode)&&st.st_size>=67&&st.st_size<=IMAGE_MAX_BYTES&&read_exact(f,header,sizeof(header));
+    fclose(f);
+    if(!ok||memcmp(header,"\x89PNG\r\n\x1a\n",8)||be32(header+8)!=13||memcmp(header+12,"IHDR",4)||
+       header[24]!=4||header[25]||header[26]||header[27]||header[28]||
+       (uint32_t)crc32(0,header+12,17)!=be32(header+29))return false;
+    uint32_t w=be32(header+16),h=be32(header+20);
+    if(!w||w>684||!h||(uint64_t)w*h>IMAGE_MAX_PIXELS)return false;
+    if(width)*width=w;
+    if(height)*height=h;
+    return true;
+}
+
 static void put32(uint8_t *p, uint32_t value) {
     p[0] = value >> 24; p[1] = value >> 16; p[2] = value >> 8; p[3] = value;
 }

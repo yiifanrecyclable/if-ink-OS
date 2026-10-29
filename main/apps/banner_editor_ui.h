@@ -48,21 +48,40 @@ static void banner_slider_draw(uint8_t *fb,int y,int value,int minimum,int maxim
 static void banner_toggle_draw(uint8_t *fb,int y,bool on){
     ui_text_vc(fb,648,y,UI_TEXT_BODY,on?UI_MSG("开启"):UI_MSG("关闭"),EPD_DRAW_ALIGN_RIGHT,false);
 }
-static EpdRect banner_arrow_rect(int down,int y){return (EpdRect){480+88*down,y-28,72,56};}
-// 沿线段盖圆点，保证竖直及斜向笔画具有相同粗度和圆头。/ Stamp circles along segments for uniform round-capped vertical and diagonal strokes.
-static void banner_round_stroke(uint8_t *fb,int x,int y,int end_x,int end_y){
-    int dx=abs(end_x-x),sx=x<end_x?1:-1,dy=-abs(end_y-y),sy=y<end_y?1:-1,error=dx+dy;
-    for(;;){
-        epd_fill_circle(x,y,3,UI_GRAY_BLACK,fb);if(x==end_x&&y==end_y)break;
-        int twice=2*error;if(twice>=dy){error+=dy;x+=sx;}if(twice<=dx){error+=dx;y+=sy;}
-    }
+#define BANNER_HEIGHT_LEFT 228
+#define BANNER_HEIGHT_WIDTH 408
+static EpdRect banner_height_rect(int y){return (EpdRect){204,y-30,456,60};}
+static int banner_height_from_x(int x,int minimum,int maximum){
+    if(x<BANNER_HEIGHT_LEFT)x=BANNER_HEIGHT_LEFT;
+    if(x>BANNER_HEIGHT_LEFT+BANNER_HEIGHT_WIDTH)x=BANNER_HEIGHT_LEFT+BANNER_HEIGHT_WIDTH;
+    return minimum+((x-BANNER_HEIGHT_LEFT)*(maximum-minimum)+BANNER_HEIGHT_WIDTH/2)/BANNER_HEIGHT_WIDTH;
 }
-static void banner_arrow_draw(uint8_t *fb,int down,int y){
-    EpdRect box=banner_arrow_rect(down,y);int cx=box.x+36,dir=down?1:-1;
-    epd_draw_circle(cx,y,26,UI_GRAY_BLACK,fb);epd_draw_circle(cx,y,25,UI_GRAY_BLACK,fb);
-    banner_round_stroke(fb,cx,y-14,cx,y+14);
-    banner_round_stroke(fb,cx,y+dir*14,cx-11,y+dir*3);
-    banner_round_stroke(fb,cx,y+dir*14,cx+11,y+dir*3);
+static void banner_height_draw(uint8_t *fb,int kind,int y,int value,int minimum,int maximum){
+    if(s_banner_height_drag==kind)value=s_banner_height_value;
+    int knob=BANNER_HEIGHT_LEFT+(value-minimum)*BANNER_HEIGHT_WIDTH/(maximum-minimum);
+    epd_fill_rect((EpdRect){BANNER_HEIGHT_LEFT-12,y-2,BANNER_HEIGHT_WIDTH+24,4},0xcc,fb);
+    epd_fill_rect((EpdRect){BANNER_HEIGHT_LEFT-12,y-2,knob-BANNER_HEIGHT_LEFT+12,4},0x44,fb);
+    epd_fill_circle(knob,y,12,0x44,fb);
+}
+// 拖动只更新滑块，松手生成真实预览；取消手势不修改草稿。/ Track the thumb during drag; rasterize on release and leave drafts untouched on cancellation.
+static app_redraw_t banner_height_gesture(const ui_gesture_event_t *ev,bool *handled){
+    int kind=s_banner_height_drag;
+    if(!kind&&s_banner_draft.show_date&&ui_rect_hit(banner_height_rect(640),ev->x0,ev->y0))kind=1;
+    if(!kind&&s_banner_draft.show_text&&ui_rect_hit(banner_height_rect(banner_text_row_center(3)),ev->x0,ev->y0))kind=2;
+    *handled=kind!=0;if(!kind)return APP_REDRAW_NONE;
+    s_banner_height_row=kind==1?640:banner_text_row_center(3);
+    if(ev->type==UI_GESTURE_CANCEL){s_banner_height_drag=0;return APP_REDRAW_AREA;}
+    int minimum=kind==1?CONTENT_BANNER_DATE_MIN:0,maximum=kind==1?CONTENT_BANNER_DATE_MAX:CONTENT_BANNER_TEXT_MAX;
+    int value=banner_height_from_x(ev->x,minimum,maximum);
+    if(ev->type==UI_GESTURE_PRESS||ev->type==UI_GESTURE_MOVE){
+        if(s_banner_height_drag==kind&&s_banner_height_value==value)return APP_REDRAW_NONE;
+        s_banner_height_drag=kind;s_banner_height_value=value;return APP_REDRAW_AREA;
+    }
+    bool release=ev->type==UI_GESTURE_TAP||ev->type==UI_GESTURE_SWIPE_L||ev->type==UI_GESTURE_SWIPE_R||ev->type==UI_GESTURE_SWIPE_U||ev->type==UI_GESTURE_SWIPE_D;
+    if(!release)return APP_REDRAW_NONE;
+    s_banner_height_drag=0;content_banner_config_t next=s_banner_draft;
+    if(kind==1)next.date_y=value;else next.text_y=value;
+    (void)banner_preview_apply(&next,kind==2);return APP_REDRAW_PAGE;
 }
 static void banner_caption(uint8_t *fb,int y,const char *value){
     char shown[CONTENT_HOME_QUOTE_BYTES];strlcpy(shown,value,sizeof(shown));int px=ui_text_effective_px(UI_TEXT_CAPTION);
@@ -94,7 +113,7 @@ static void banner_editor_draw(uint8_t *fb){
     banner_heading(fb,568,UI_MSG("日期"));banner_toggle_draw(fb,568,s_banner_draft.show_date);
     if(s_banner_draft.show_date){
         ui_text_vc(fb,36,640,UI_TEXT_BODY,UI_MSG("高度调节"),EPD_DRAW_ALIGN_LEFT,false);
-        banner_arrow_draw(fb,0,640);banner_arrow_draw(fb,1,640);
+        banner_height_draw(fb,1,640,banner_date_y(),CONTENT_BANNER_DATE_MIN,CONTENT_BANNER_DATE_MAX);
     }
     epd_fill_rect((EpdRect){36,688,612,1},UI_GRAY_ITEM_LINE,fb);
     banner_heading(fb,736,UI_MSG("文字"));banner_toggle_draw(fb,736,s_banner_draft.show_text);
@@ -107,7 +126,7 @@ static void banner_editor_draw(uint8_t *fb){
         banner_caption(fb,banner_text_row_center(0),s_banner_draft.text);
         banner_caption(fb,banner_text_row_center(1),s_banner_draft.font[0]?system_font_label(s_banner_draft.font):UI_MSG("跟随系统字体"));
         for(int i=0;i<4;++i)quote_alignment_draw(fb,i,s_banner_draft.align==i);
-        banner_arrow_draw(fb,0,banner_text_row_center(3));banner_arrow_draw(fb,1,banner_text_row_center(3));
+        banner_height_draw(fb,2,banner_text_row_center(3),ui_banner_text_y(&s_banner_draft),0,CONTENT_BANNER_TEXT_MAX);
     }
     if(s_notice[0])ui_text_fixed_vc(fb,36,1060,16,s_notice,EPD_DRAW_ALIGN_LEFT,false);
     for(int i=0;i<2;++i)banner_footer_draw(fb,i);
@@ -156,6 +175,7 @@ static app_redraw_t banner_picker_gesture(app_ctx_t *ctx,const ui_gesture_event_
     return APP_REDRAW_NONE;
 }
 static app_redraw_t banner_editor_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev){
+    bool handled;app_redraw_t redraw=banner_height_gesture(ev,&handled);if(handled)return redraw;
     if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
     int nav=ui_nav_hit(ev->x0,ev->y0);if(nav>=0){ui_nav_request(ctx,nav);return APP_REDRAW_NONE;}
     if(ui_rect_hit(banner_footer(0),ev->x0,ev->y0)){ui_nav_request(ctx,0);return APP_REDRAW_NONE;}
@@ -170,24 +190,12 @@ static app_redraw_t banner_editor_gesture(app_ctx_t *ctx,const ui_gesture_event_
         if(ev->y0<650)next.show_date=!next.show_date;else next.show_text=!next.show_text;
         (void)banner_preview_apply(&next,false);return APP_REDRAW_PAGE;
     }
-    if(s_banner_draft.show_date)for(int i=0;i<2;++i)if(ui_rect_hit(banner_arrow_rect(i,640),ev->x0,ev->y0)){
-        content_banner_config_t next=s_banner_draft;int y=banner_date_y()+(i?4:-4);
-        if(y<CONTENT_BANNER_DATE_MIN)y=CONTENT_BANNER_DATE_MIN;
-        if(y>CONTENT_BANNER_DATE_MAX)y=CONTENT_BANNER_DATE_MAX;
-        next.date_y=y;(void)banner_preview_apply(&next,false);return APP_REDRAW_PAGE;
-    }
     if(!s_banner_draft.show_text)return APP_REDRAW_NONE;
     if(ev->y0>=BANNER_TEXT_ROW_TOP&&ev->y0<BANNER_TEXT_ROW_TOP+BANNER_TEXT_ROW_H){home_quote_editor_open();return APP_REDRAW_PAGE;}
     if(ev->y0>=BANNER_TEXT_ROW_TOP+BANNER_TEXT_ROW_H&&ev->y0<BANNER_TEXT_ROW_TOP+2*BANNER_TEXT_ROW_H){ttf_font_scan();s_font_page=0;s_page=SETTINGS_QUOTE_FONT;s_notice[0]=0;return APP_REDRAW_PAGE;}
     for(int i=0;i<4;++i)if(ui_rect_hit(quote_alignment_rect(i),ev->x0,ev->y0)){
         content_banner_config_t next=s_banner_draft;next.align=i;
         (void)banner_preview_apply(&next,true);return APP_REDRAW_PAGE;
-    }
-    for(int i=0;i<2;++i)if(ui_rect_hit(banner_arrow_rect(i,banner_text_row_center(3)),ev->x0,ev->y0)){
-        content_banner_config_t next=s_banner_draft;int y=ui_banner_text_y(&next)+(i?4:-4);
-        if(y<0)y=0;
-        if(y>CONTENT_BANNER_TEXT_MAX)y=CONTENT_BANNER_TEXT_MAX;
-        next.text_y=y;(void)banner_preview_apply(&next,true);return APP_REDRAW_PAGE;
     }
     return APP_REDRAW_NONE;
 }

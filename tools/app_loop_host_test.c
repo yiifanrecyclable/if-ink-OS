@@ -73,6 +73,7 @@ enum EpdDrawError update_display_fast_page(EpdiyHighlevelState*h) {(void)h;mode+
 enum EpdDrawError update_display_white(EpdiyHighlevelState*h) {(void)h;return 0;}
 bool display_take_white_exit(void) {return false;}
 void rails_idle_check(int64_t n) {(void)n;}
+void read_pico_pmu_suppress_key_until_release(void) {}
 bool read_pico_pmu_ready(void) {return lock_due;}
 read_pico_pmu_key_action_t read_pico_pmu_take_key_action(void) {return READ_PICO_PMU_KEY_SHORT;}
 void enter_lock_and_sleep(EpdiyHighlevelState*h,int64_t*t,void*a,bool reader) {(void)h;(void)t;(void)a;(void)reader;if(idle_minutes)assert(before_locks==idle_locks+1);lock_due=false;++idle_locks;time_offset+=1000000;}

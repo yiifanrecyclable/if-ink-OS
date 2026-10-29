@@ -15,6 +15,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "read_pico_transfer_network.h"
+#include "read_pico_transfer_editor.h"
 
 #define READ_PICO_TRANSFER_PASSWORD "readpico"
 #define READ_PICO_TRANSFER_URL "http://192.168.4.1"
@@ -49,6 +50,8 @@ typedef struct {
     void (*file_moved_cb)(const char *old_path, const char *new_path, uint32_t size); ///< 网页重命名后的进度与字体路径迁移 / Migrate progress and font selection after rename
     void (*directory_deleted_cb)(const char *path); ///< 删除目录后清理目录设置 / Clear directory settings after deletion
     void (*directory_moved_cb)(const char *old_path, const char *new_path); ///< 重命名目录后更新目录设置 / Update directory settings after rename
+    read_pico_transfer_editor_fn editor_cb; ///< UI任务执行网页草稿 / UI task handles web drafts
+    bool (*path_write_allowed_cb)(const char *path); ///< 拒绝修改正在使用的Banner资源 / Protect selected banner resources
     bool (*wallpaper_set_cb)(const char *path); ///< 图片上传完成后设为锁屏壁纸 / Select an uploaded image as lock wallpaper
 } read_pico_transfer_cfg_t;
 

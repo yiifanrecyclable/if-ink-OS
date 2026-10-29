@@ -14,6 +14,7 @@
 #include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -24,6 +25,8 @@ static i2c_master_dev_handle_t s_dev;
 static pmu_snapshot_t s_snap;
 static uint16_t s_seq = 1;
 static bool s_ready;
+static bool s_key_release_pending;
+static int64_t s_key_idle_since_us;
 static uint8_t s_last_payload[PMU_FRAME_PAYLOAD_SIZE];
 static uint8_t s_last_plen;
 
@@ -385,22 +388,43 @@ void read_pico_pmu_drain_events(void) {
     }
 }
 
+// 唤醒按下和松开是一组操作；等松开稳定后才接受下一次电源操作，I2C失败不解除保护。
+// Wake-down and release form one operation; accept new power actions only after stable release, never on I2C failure.
+void read_pico_pmu_suppress_key_until_release(void) {
+    s_key_release_pending = true;
+    s_key_idle_since_us = 0;
+}
+
+static bool key_release_guard(void) {
+    if (!s_key_release_pending) return false;
+    read_pico_pmu_drain_events();
+    if (read_pico_pmu_poll() != ESP_OK || !s_snap.status_ok || (s_snap.key_state & 1) || s_snap.pending_events) {
+        s_key_idle_since_us = 0;
+    } else {
+        int64_t now = esp_timer_get_time();
+        if (!s_key_idle_since_us) s_key_idle_since_us = now;
+        if (now - s_key_idle_since_us >= 150000) s_key_release_pending = false;
+    }
+    return true;
+}
+
 read_pico_pmu_key_action_t read_pico_pmu_take_key_action(void) {
     read_pico_pmu_key_action_t action = READ_PICO_PMU_KEY_NONE;
+    if (key_release_guard()) return action;
     for (int i = 0; i < PMU_EVENT_FIFO_DEPTH; i++) {
         if (read_pico_pmu_poll() != ESP_OK) break;
         if (!s_snap.event_ok || s_snap.pending_events == 0) break;
         uint8_t type = s_snap.event.type;
+        unsigned held = s_snap.event.arg0;
         uint16_t id = s_snap.event.event_id;
+        if (id == 0 || read_pico_pmu_event_ack(id) != ESP_OK) break;
         if (type == PMU_EVT_KEY_SHORT) {
             if (action == READ_PICO_PMU_KEY_NONE) action = READ_PICO_PMU_KEY_SHORT;
-            ESP_LOGI(TAG, "KEY_SHORT id=%u held=%u", (unsigned)id, (unsigned)s_snap.event.arg0);
+            ESP_LOGI(TAG, "KEY_SHORT id=%u held=%u", (unsigned)id, held);
         } else if (type == PMU_EVT_KEY_LONG) {
             action = READ_PICO_PMU_KEY_LONG;
-            ESP_LOGI(TAG, "KEY_LONG id=%u held=%u", (unsigned)id, (unsigned)s_snap.event.arg0);
+            ESP_LOGI(TAG, "KEY_LONG id=%u held=%u", (unsigned)id, held);
         }
-        if (id == 0) break;
-        if (read_pico_pmu_event_ack(id) != ESP_OK) break;
     }
     return action;
 }
@@ -423,6 +447,7 @@ bool read_pico_pmu_take_key_wakeup(void) {
         if (id == 0) break;
         if (read_pico_pmu_event_ack(id) != ESP_OK) break;
     }
+    if (wake) read_pico_pmu_suppress_key_until_release();
     return wake;
 }
 

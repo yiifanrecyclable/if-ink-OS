@@ -173,6 +173,12 @@ static bool sd_relative_valid(const char *relative, bool allow_root) {
 }
 
 // Markdown 的图片归属与事务目录只由文档服务写入。/ Only the document service mutates Markdown ownership and transaction storage.
+// 固定目录本身不可变，子文件仍按原规则管理。/ Fixed roots are immutable; child files retain their existing policies.
+static bool if_fixed_relative(const char *relative){
+    static const char *const roots[]={"books","markdown","fonts","pictures","banner pic"};
+    for(size_t i=0;i<sizeof(roots)/sizeof(roots[0]);++i)if(!strcasecmp(relative,roots[i]))return true;
+    return false;
+}
 static bool if_managed_relative(const char *relative) {
     static const char *const roots[] = {"markdown", ".pico-sync", ".pico-cloud", ".index"};
     for (size_t i = 0; i < sizeof(roots) / sizeof(roots[0]); ++i) {
@@ -492,6 +498,7 @@ static int list_books(const char *root, const char *query, size_t page, transfer
 #include "nvs.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include "transfer_auto_wifi.h"
 
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
@@ -1306,6 +1313,8 @@ static esp_err_t upload_handler(httpd_req_t *req) {
         return respond_error(req, 400);
     int resolved = resolve_mutation_path(s_root, name, path, sizeof(path));
     if (resolved) return respond_error(req, resolved);
+    if(s_cfg.path_write_allowed_cb&&!s_cfg.path_write_allowed_cb(path))
+        return wifi_response(req,"409 Conflict","{\"error\":\"文件正在被首页 Banner 使用，请先更换设置\"}");
     snprintf(part, sizeof(part), "%s.part", path);
     bool overwrite = httpd_query_key_value(query, "overwrite", replace, sizeof(replace)) == ESP_OK && !strcmp(replace, "1");
     portENTER_CRITICAL(&s_lock);
@@ -1331,6 +1340,7 @@ static esp_err_t upload_handler(httpd_req_t *req) {
 }
 
 static esp_err_t media_upload_handler(httpd_req_t *req, const char *root, unsigned kind, size_t limit) {
+    bool quiet=!strcmp(root,"/sdcard/.web-fonts")||!strcmp(root,"/sdcard/banner pic");
     if (!management_request(req)) return wifi_response(req, "403 Forbidden", "{\"error\":\"请从设备显示的地址打开管理页面\"}");
     if (s_cfg.is_flash) return wifi_response(req, "400 Bad Request", "{\"error\":\"请插入 TF 卡后重试\"}");
     char query[512], encoded[361], name[121], path[320], part[328], replace[8];
@@ -1340,31 +1350,31 @@ static esp_err_t media_upload_handler(httpd_req_t *req, const char *root, unsign
     if (mkdir(root, 0775) && errno != EEXIST) return respond_error(req, 507);
     int resolved = resolve_mutation_path(root, name, path, sizeof(path));
     if (resolved) return respond_error(req, resolved);
+    if(s_cfg.path_write_allowed_cb&&!s_cfg.path_write_allowed_cb(path))
+        return wifi_response(req,"409 Conflict","{\"error\":\"文件正在被首页 Banner 使用，请先更换设置\"}");
     snprintf(part, sizeof(part), "%s.part", path);
     bool overwrite = httpd_query_key_value(query, "overwrite", replace, sizeof(replace)) == ESP_OK && !strcmp(replace, "1");
     char wallpaper[8] = {0};
     bool set_wallpaper = kind == 1 && httpd_query_key_value(query, "wallpaper", wallpaper, sizeof(wallpaper)) == ESP_OK && !strcmp(wallpaper, "1");
-    if (set_wallpaper && !s_cfg.wallpaper_set_cb)
-        return wifi_response(req, "503 Service Unavailable", "{\"error\":\"锁屏壁纸设置不可用\"}");
+    if (set_wallpaper)
+        return wifi_response(req, "400 Bad Request", "{\"error\":\"请刷新网页，通过编辑区校验并保存锁屏壁纸\"}");
     portENTER_CRITICAL(&s_lock);
     if (!admission_begin(s_stopping, &s_upload_active)) {
         portEXIT_CRITICAL(&s_lock);
         return wifi_response(req, "503 Service Unavailable", "{\"error\":\"网络正在切换，请稍后重试\"}");
     }
-    s_status.state = READ_PICO_TRANSFER_UPLOADING; s_status.last_error = ESP_OK;
+    if(!quiet){s_status.state = READ_PICO_TRANSFER_UPLOADING; s_status.last_error = ESP_OK;
     memcpy(s_status.cur_name, name, strlen(name) + 1);
-    s_status.cur_bytes = 0; s_status.cur_total = req->content_len;
+    s_status.cur_bytes = 0; s_status.cur_total = req->content_len;}
     portEXIT_CRITICAL(&s_lock);
     file_result_t result = upload_managed(path, part, req->content_len,
-        set_wallpaper && limit > 2u * 1024u * 1024u ? 2u * 1024u * 1024u : limit,
-        s_cfg.free_bytes_cb(s_cfg.free_bytes_ctx), overwrite, s_buffer, 16384, receive_http, req, upload_progress, NULL);
-    bool wallpaper_failed = set_wallpaper && result.status == 200 && result.changed && !s_cfg.wallpaper_set_cb(path);
+        limit,
+        s_cfg.free_bytes_cb(s_cfg.free_bytes_ctx), overwrite, s_buffer, 16384, receive_http, req, quiet?NULL:upload_progress, NULL);
     portENTER_CRITICAL(&s_lock);
     s_upload_active = false;
-    if (result.changed) { s_status.done_count++; s_status.changed_count++; }
+    if (result.changed&&!quiet) { s_status.done_count++; s_status.changed_count++; }
     portEXIT_CRITICAL(&s_lock);
-    if (wallpaper_failed)
-        return wifi_response(req, "500 Internal Server Error", "{\"error\":\"图片已上传，但设置锁屏壁纸失败\"}");
+    if(quiet&&result.status==200)return wifi_response(req,"200 OK","{\"ok\":true}");
     return file_response(req, result, false, path);
 }
 
@@ -1374,6 +1384,19 @@ static esp_err_t image_upload_handler(httpd_req_t *req) {
 
 static esp_err_t font_upload_handler(httpd_req_t *req) {
     return media_upload_handler(req, "/sdcard/fonts", 2, FONT_UPLOAD_LIMIT);
+}
+// 中文：暂存只接受随机令牌命名的TTF，正式目录由UI保存事务决定。/ English: stage token-named TTFs only; UI Save owns installation.
+static esp_err_t font_stage_handler(httpd_req_t *req){
+    if(!management_request(req)||s_cfg.is_flash)return respond_error(req,403);
+    char query[128],name[40];
+    if(httpd_req_get_url_query_str(req,query,sizeof(query))!=ESP_OK||httpd_query_key_value(query,"name",name,sizeof(name))!=ESP_OK||strlen(name)!=36||strcmp(name+32,".ttf"))return respond_error(req,400);
+    for(unsigned i=0;i<32;++i)if(!strchr("0123456789abcdef",name[i]))return respond_error(req,400);
+    if(mkdir("/sdcard/fonts",0775)&&errno!=EEXIST)return respond_error(req,507);
+    DIR *dir=opendir("/sdcard/.web-fonts");struct dirent *entry;unsigned count=0;
+    while(dir&&(entry=readdir(dir)))if(entry->d_name[0]!='.')++count;
+    if(dir)closedir(dir);
+    if(count>=8)return wifi_response(req,"409 Conflict","{\"error\":\"临时字体较多，请取消旧草稿或重新开启传输服务\"}");
+    return media_upload_handler(req,"/sdcard/.web-fonts",2,FONT_UPLOAD_LIMIT);
 }
 
 // 拒绝上传时先消费小请求体，避免 TCP 关闭时丢失 JSON 原因。/ Drain bounded rejected uploads before closing so JSON reasons survive.
@@ -1435,6 +1458,8 @@ static esp_err_t file_upload_handler(httpd_req_t *req) {
     if (if_managed_relative(relative))
         return document_upload_error(req, 403);
     bool overwrite = httpd_query_key_value(query, "overwrite", replace, sizeof(replace)) == ESP_OK && !strcmp(replace, "1");
+    if(s_cfg.path_write_allowed_cb&&!s_cfg.path_write_allowed_cb(path))
+        return wifi_response(req,"409 Conflict","{\"error\":\"文件正在被首页 Banner 使用，请先更换设置\"}");
     const char *name = strrchr(relative, '/'); name = name ? name + 1 : relative;
     portENTER_CRITICAL(&s_lock);
     if (!admission_begin(s_stopping, &s_upload_active)) {
@@ -1726,9 +1751,17 @@ static esp_err_t files_mutation_handler(httpd_req_t *req) {
         cJSON_Delete(json);
         return files_error(req, "400 Bad Request", "{\"error\":\"文件路径过长\"}");
     }
+    if ((strcmp(action->valuestring,"mkdir")&&if_fixed_relative(from->valuestring)) ||
+        (has_target&&if_fixed_relative(to->valuestring))){
+        cJSON_Delete(json);
+        return files_error(req,"403 Forbidden","{\"error\":\"默认文件夹不可更改，请管理文件夹内的文件\"}");
+    }
     if (if_managed_relative(from->valuestring) || (has_target && if_managed_relative(to->valuestring))) {
         cJSON_Delete(json);
         return files_error(req, "403 Forbidden", "{\"error\":\"此目录由文档同步管理；删除文档请在设备内容页操作\"}");
+    }
+    if(strcmp(action->valuestring,"copy")&&strcmp(action->valuestring,"mkdir")&&s_cfg.path_write_allowed_cb&&!s_cfg.path_write_allowed_cb(source)){
+        cJSON_Delete(json);return files_error(req,"409 Conflict","{\"error\":\"资源正在被首页 Banner 使用，请先更换设置\"}");
     }
     bool accepted;
     portENTER_CRITICAL(&s_lock);
@@ -1798,6 +1831,52 @@ static esp_err_t files_mutation_handler(httpd_req_t *req) {
     return files_error(req, "400 Bad Request", "{\"error\":\"当前操作不支持该文件\"}");
 }
 
+// 下载只作为附件输出；不得把用户上传的HTML/SVG作为同源页面执行。
+// Downloads are attachments only; uploaded HTML/SVG must never execute as same-origin pages.
+static bool download_path_public(const char *relative){
+    for(const char *p=relative;*p;++p)if((p==relative||p[-1]=='/')&&*p=='.')return false;
+    const char *ext=strrchr(relative,'.');
+    return !ext||(strcasecmp(ext,".part")&&strcasecmp(ext,".rename-backup"));
+}
+static esp_err_t file_download_handler(httpd_req_t *req){
+    if(!management_request(req))return respond_error(req,403);
+    if(s_cfg.is_flash)return respond_error(req,503);
+    char query[800],encoded[720],relative[240],path[256];
+    if(httpd_req_get_url_query_str(req,query,sizeof(query))!=ESP_OK||
+       httpd_query_key_value(query,"path",encoded,sizeof(encoded))!=ESP_OK||
+       !sd_decode_relative(encoded,relative,false)||!download_path_public(relative)||
+       !sd_absolute(relative,path,sizeof(path)))return respond_error(req,400);
+    portENTER_CRITICAL(&s_lock);bool accepted=admission_begin(s_stopping,&s_upload_active);
+    if(accepted)s_status.state=READ_PICO_TRANSFER_UPLOADING;
+    portEXIT_CRITICAL(&s_lock);
+    if(!accepted)return wifi_response(req,"409 Conflict","{\"error\":\"设备正忙，请稍后重试\"}");
+    FILE *file=fopen(path,"rb");struct stat st;
+    if(!file||fstat(fileno(file),&st)||!S_ISREG(st.st_mode)){
+        if(file)fclose(file);
+        portENTER_CRITICAL(&s_lock);s_upload_active=false;portEXIT_CRITICAL(&s_lock);
+        return respond_error(req,404);
+    }
+    httpd_resp_set_type(req,"application/octet-stream");httpd_resp_set_hdr(req,"Content-Disposition","attachment");
+    httpd_resp_set_hdr(req,"X-Content-Type-Options","nosniff");httpd_resp_set_hdr(req,"Content-Security-Policy","sandbox");
+    httpd_resp_set_hdr(req,"Cache-Control","no-store");
+    esp_err_t result=ESP_OK;size_t n;uint64_t sent=0;
+    while((n=fread(s_buffer,1,16384,file))>0){
+        if(receive_stopped(NULL)){result=ESP_FAIL;break;}
+        if((result=httpd_resp_send_chunk(req,s_buffer,n))!=ESP_OK)break;
+        sent+=n;
+    }
+    if(ferror(file)||sent!=(uint64_t)st.st_size)result=ESP_FAIL;
+    if(fclose(file))result=ESP_FAIL;
+    if(result==ESP_OK)result=httpd_resp_send_chunk(req,NULL,0);
+    portENTER_CRITICAL(&s_lock);s_upload_active=false;portEXIT_CRITICAL(&s_lock);set_error(ESP_OK);
+    return result;
+}
+static esp_err_t banner_upload_handler(httpd_req_t *req){
+    return media_upload_handler(req,"/sdcard/banner pic",1,2u*1024u*1024u);
+}
+
+#include "transfer_editor_http.h"
+
 /* ---- 生命周期 / Lifecycle ---- */
 bool read_pico_transfer_try_stop_if_idle(void) {
     portENTER_CRITICAL(&s_lock);
@@ -1834,6 +1913,7 @@ void read_pico_transfer_resume_after_sleep(void) {
 
 void read_pico_transfer_stop(void) {
     portENTER_CRITICAL(&s_lock); s_stopping = true; portEXIT_CRITICAL(&s_lock);
+    editor_cancel_pending();
     if (s_http) { httpd_stop(s_http); s_http = NULL; }
     if (s_started) { esp_wifi_stop(); s_started = false; }
     if (s_events) { esp_event_handler_instance_unregister(WIFI_EVENT, ESP_EVENT_ANY_ID, s_events); s_events = NULL; }
@@ -1928,7 +2008,7 @@ esp_err_t read_pico_transfer_start(const read_pico_transfer_cfg_t *cfg) {
     // File metadata and wallpaper settings access NVS; the HTTP stack must remain readable while caches are disabled.
     // 在无线电启动前预留网页任务，避免 WiFi 内存碎片导致任务创建失败。
     // Reserve the HTTP task before starting the radio to avoid WiFi heap fragmentation.
-    http.stack_size = 12288; http.max_uri_handlers = 17; http.max_open_sockets = 3;
+    http.stack_size = 12288; http.max_uri_handlers = 24; http.max_open_sockets = 3;
     http.recv_wait_timeout = 15;
     http.send_wait_timeout = 15;
     http.task_caps = MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT;
@@ -1946,9 +2026,14 @@ esp_err_t read_pico_transfer_start(const read_pico_transfer_cfg_t *cfg) {
     const httpd_uri_t routes[] = {
         { .uri = "/", .method = HTTP_GET, .handler = index_handler },
         { .uri = "/info", .method = HTTP_GET, .handler = info_handler },
+        { .uri = "/appearance", .method = HTTP_GET, .handler = editor_handler },
+        { .uri = "/appearance", .method = HTTP_POST, .handler = editor_handler },
+        { .uri = "/file", .method = HTTP_GET, .handler = file_download_handler },
+        { .uri = "/banner-upload", .method = HTTP_PUT, .handler = banner_upload_handler },
         { .uri = "/upload", .method = HTTP_PUT, .handler = upload_handler },
         { .uri = "/image-upload", .method = HTTP_PUT, .handler = image_upload_handler },
         { .uri = "/font-upload", .method = HTTP_PUT, .handler = font_upload_handler },
+        { .uri = "/font-stage", .method = HTTP_PUT, .handler = font_stage_handler },
         { .uri = "/file-upload", .method = HTTP_PUT, .handler = file_upload_handler },
         { .uri = "/document-upload", .method = HTTP_PUT, .handler = document_upload_handler },
         { .uri = "/files", .method = HTTP_GET, .handler = files_list_handler },

@@ -56,6 +56,7 @@ void simulator_files(uint8_t *fb,int view,int folder,const char *dir,const char 
 const char *simulator_book_path(void);
 bool simulator_document_zoom(void);
 bool simulator_document_image_ready(void);
+bool simulator_reader_image_slot(unsigned i,int *x,int *y,int *w,int *h);
 unsigned simulator_reader_progress(void);
 bool simulator_markdown_committed(void);
 unsigned simulator_markdown_size(unsigned index);
@@ -252,12 +253,29 @@ static int reading(const char *path, int wanted, int px, size_t *pages) {
     return 0;
 }
 static void json_string(const char *s){putchar('"');for(;*s;++s){unsigned char c=*s;if(c=='"'||c=='\\')putchar('\\');if(c<32)printf("\\u%04x",c);else putchar(c);}putchar('"');}
+#include "transfer_appearance.h"
+static bool preview_editor_cancelled(void *context){(void)context;return getenv("PICO_SIM_EDITOR_CANCEL")!=NULL;}
 int main(int argc, char **argv) {
     if (argc < 10||argc>12) { fprintf(stderr, "render screen book page px frame list mask days font [events]\n"); return 2; }
     memset(fb, 0xff, sizeof(fb));
     app_settings_init();
     if (ttf_font_open(argv[9]) != ESP_OK) return 3;
     app_font_activate_system();
+    if(!strcmp(argv[1],"web-document")){
+        int result=document_store_import_local(argv[2],argv[3]);printf("{\"status\":%d,\"error\":%d}\n",result==ESP_OK?200:422,result);return 0;
+    }
+    if(!strcmp(argv[1],"web-appearance")){
+        read_pico_transfer_editor_reply_t reply={0};
+        const char *operation=getenv("PICO_SIM_EDITOR_OP"),*body=getenv("PICO_SIM_EDITOR_JSON");
+        char saved_font[TTF_FONT_PATH_MAX];snprintf(saved_font,sizeof(saved_font),"%s",ttf_font_path());int saved_weight=ttf_get_weight();
+        int result=transfer_appearance_dispatch(operation?operation:"get",body?body:"",&reply,preview_editor_cancelled,NULL);
+        bool font_restored=!strcmp(saved_font,ttf_font_path())&&saved_weight==ttf_get_weight();
+        FILE *out=fopen(argv[5],"wb");if(!out){free(reply.data);return 4;}
+        bool written=!reply.size||fwrite(reply.data,1,reply.size,out)==reply.size;
+        if(fclose(out))written=false;
+        printf("{\"status\":%d,\"pixels\":%s,\"size\":%zu,\"error\":%d}\n",reply.status,reply.pixels?"true":"false",reply.size,result);
+        free(reply.data);return written&&font_restored?0:4;
+    }
     int px = atoi(argv[4]);
     if (px < 28 || px > 72) return 2;
     char items[8][260]; int count;
@@ -309,6 +327,7 @@ int main(int argc, char **argv) {
     printf(",\"markdown_committed\":%s,\"markdown_sizes\":[%u,%u,%u,%u]",simulator_markdown_committed()?"true":"false",simulator_markdown_size(0),simulator_markdown_size(1),simulator_markdown_size(2),simulator_markdown_size(3));
     extern int simulator_reader_layout(void),simulator_reader_tap_layout(void),simulator_markdown_slider_y(unsigned);
     printf(",\"reader_layout\":%d,\"reader_tap_layout\":%d,\"markdown_slider_y\":[%d,%d,%d,%d],\"markdown_font_path\":",simulator_reader_layout(),simulator_reader_tap_layout(),simulator_markdown_slider_y(0),simulator_markdown_slider_y(1),simulator_markdown_slider_y(2),simulator_markdown_slider_y(3));json_string(content_markdown_font());
+    printf(",\"reader_images\":[");for(unsigned i=0;i<128;++i){int x,y,w,h;if(!simulator_reader_image_slot(i,&x,&y,&w,&h))break;if(i)printf(",");printf("[%d,%d,%d,%d]",x,y,w,h);}printf("]");
     printf(",\"quote_settings_committed\":%s,\"quote_size\":%d",app_device_settings_quote_committed()?"true":"false",app_device_settings_quote_size());printf(",\"home_quote_requested\":%s",app_device_settings_home_quote_requested()?"true":"false");printf(",\"cloud_settings_requested\":%s",app_device_settings_cloud_requested()?"true":"false");printf(",\"cloud_command\":%d,\"cloud_index\":%d,\"cloud_page\":%d",simulator_cloud_command,simulator_cloud_index,simulator_cloud_page);printf(",\"toc_jump\":%s,\"system_view\":%d,\"transfer_mode\":%d,\"transfer_entry\":%d,\"files_dir\":",simulator_toc_jump?"true":"false",simulator_system_view,simulator_transfer_mode,simulator_transfer_entry());json_string(simulator_files_dir);printf(",\"document_zoom\":%s,\"image_top\":%u,\"toc_count\":%zu,\"document_image_ready\":%s,\"reader_progress\":%u",simulator_document_zoom()?"true":"false",simulator_document_image_top(),book_navigation_count(),simulator_document_image_ready()?"true":"false",simulator_reader_progress());
     extern unsigned simulator_reader_binding(unsigned);
     extern unsigned simulator_reader_perf(unsigned);

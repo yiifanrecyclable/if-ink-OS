@@ -46,9 +46,17 @@ static void simulator_reader_raw(app_ctx_t *ctx,char type,unsigned x,unsigned y)
 extern int simulator_route,simulator_book_view,simulator_reader_panel,simulator_reader_page,simulator_reader_px;
 extern bool simulator_reader_fullscreen,simulator_toc_jump;
 unsigned simulator_reader_progress(void){return percent(s_page);}
-bool simulator_document_image_ready(void){return book_kind()==BOOK_KIND_MARKDOWN&&s_inline_gray&&book_layout_page_image(s_page)==s_inline_index;}
-bool simulator_document_zoom(void){return s_document_zoom;}
-unsigned simulator_document_image_top(void){return s_zoom_top;}
+bool simulator_document_image_ready(void){
+    if(book_kind()!=BOOK_KIND_MARKDOWN)return false;
+    for(int i=0;i<s_page_image_count;++i)if(s_page_images[i].gray)return true;
+    return s_inline_gray&&book_layout_page_image(s_page)==s_inline_index;
+}
+bool simulator_reader_image_slot(unsigned i,int *x,int *y,int *w,int *h){
+    if(!reader_image_slot(s_page,(int)i,NULL,y,w,h))return false;
+    EpdRect body=body_rect();*x=body.x+(body.width-*w)/2;*y+=body.y;return true;
+}
+bool simulator_document_zoom(void){return false;}
+unsigned simulator_document_image_top(void){return 0;}
 size_t simulator_document_count(void){return s_document_count;}
 bool simulator_document_starred_only(void){return s_document_starred_only;}
 bool simulator_document_menu(void){return s_document_menu;}

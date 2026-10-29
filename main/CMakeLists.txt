@@ -73,6 +73,7 @@ idf_component_register(
         "apps/app_device_settings.c"
         "apps/app_image.c"
         "apps/app_transfer.c"
+        "apps/transfer_appearance.c"
         "apps/app_cloud.c"
         "apps/usb_storage.c"
         "book/book_store.c"

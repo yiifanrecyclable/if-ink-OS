@@ -33,6 +33,8 @@ enum {ESP_OK, ESP_ERR_NOT_FOUND, ESP_FAIL};
 typedef enum {APP_REDRAW_NONE, APP_REDRAW_AREA, APP_REDRAW_PAGE, APP_REDRAW_FULL} app_redraw_t;
 enum {TRANSFER_NETWORKS, TRANSFER_PASSWORD, TRANSFER_HOME, READ_PICO_TRANSFER_MODE_STA, UI_INPUT_ENGLISH};
 #define NETWORK_ROWS 4
+#define UI_MSG(x) (x)
+#define ui_snprintf snprintf
 typedef struct {char ssid[33]; bool supported, requires_password;} network_t;
 static network_t s_selected, s_networks[8];
 static bool s_forget_confirm, s_session_started, s_saved_configured, s_network_connect_pending, s_scan_pending;

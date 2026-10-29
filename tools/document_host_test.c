@@ -53,6 +53,9 @@ int main(void){
     const char *a_path=DOCUMENT_ROOT"/unittest-A.md",*z_path=DOCUMENT_ROOT"/unittest-Z.md";write_text(a_path,"# A");write_text(z_path,"# Z");assert(document_store_set_flags(z_path,true,false)==ESP_OK);
     document_entry_t *items=NULL;size_t n=0,ai=SIZE_MAX,zi=SIZE_MAX;assert(document_store_scan(&items,&n)==ESP_OK);for(size_t i=0;i<n;i++){if(!strcmp(items[i].path,a_path))ai=i;if(!strcmp(items[i].path,z_path))zi=i;}assert(zi<ai);free(items);
     assert(!unlink(z_path));assert(document_store_scan(&items,&n)==ESP_OK);free(items);assert(access(DOCUMENT_ROOT"/.index/unittest-Z.md.prefs",F_OK));assert(document_store_delete(a_path)==ESP_OK);
+    uint32_t probe_w=0,probe_h=0;unsigned probe_decodes=document_image_decode_count();
+    assert(document_image_dimensions(DOCUMENT_ROOT"/attachments/长图示例-test.png",&probe_w,&probe_h));
+    assert(probe_w==684&&probe_h==5000&&document_image_decode_count()==probe_decodes);
     document_image_t image;assert(document_image_open(DOCUMENT_ROOT"/attachments/长图示例-test.png",&image));assert(image.width==684&&image.height==5000);
     uint8_t *a=malloc(684*1216),*b=malloc(684*1216);assert(a&&b);assert(document_image_sample(&image,0,1216,684,1216,a));assert(document_image_sample(&image,1000,1216,684,1216,b));assert(memcmp(a,b,684*1216));free(a);free(b);
     for(unsigned filter=0;filter<5;filter++){char p[288];snprintf(p,sizeof(p),DOCUMENT_ROOT"/attachments/unittest-filter%u.png",filter);assert(document_image_open(p,&image));uint8_t out[17*25];assert(document_image_sample(&image,0,25,17,25,out));for(unsigned y=0;y<25;y++)for(unsigned x=0;x<17;x++)assert(out[y*17+x]==((x*3+y*5)%16)*17);}
@@ -70,7 +73,7 @@ int main(void){
     // Changing bytes at the same path must never reuse a prior content cache.
     copy("plugins/obsidian-pico/tests/fixtures/sample-image.png",cached_source);
     assert(document_image_open(cached_source,&image));assert(strcmp(image.cache,cache_path));
-    copy("plugins/obsidian-pico/tests/fixtures/sample-image.png",old);FILE *f=fopen(old,"r+b");assert(f);assert(!fseek(f,29,SEEK_SET));int v=fgetc(f);assert(v!=EOF);assert(!fseek(f,29,SEEK_SET));fputc(v^1,f);fclose(f);assert(!document_image_open(old,&image));unlink(old);
+    copy("plugins/obsidian-pico/tests/fixtures/sample-image.png",old);FILE *f=fopen(old,"r+b");assert(f);assert(!fseek(f,29,SEEK_SET));int v=fgetc(f);assert(v!=EOF);assert(!fseek(f,29,SEEK_SET));fputc(v^1,f);fclose(f);assert(!document_image_dimensions(old,&probe_w,&probe_h));assert(!document_image_open(old,&image));unlink(old);
     // 网页 MD 入库保留日期/置顶，无变化保留进度，错误不覆盖旧正文。
     // Web imports preserve date/pin and no-op web_progress; rejected input leaves the old body intact.
     const char *dest=DOCUMENT_ROOT "/web.md",*stage=DOCUMENT_ROOT "/web-input.tmp";

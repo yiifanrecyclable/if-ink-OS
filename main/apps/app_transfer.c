@@ -50,6 +50,7 @@
 #include "ui_nav.h"
 #include "ui_wifi_qr.h"
 #include "usb_storage.h"
+#include "transfer_appearance.h"
 
 static const char* TAG = "transfer_page";
 static book_store_root_t s_root;
@@ -130,13 +131,6 @@ static void transfer_file_moved(const char *old_path, const char *new_path, uint
     if (!strcmp(app_settings_wallpaper_path(), old_path)) app_settings_set_wallpaper_path(new_path);
 }
 
-static bool transfer_set_wallpaper(const char *path) {
-    if (strncmp(path, "/sdcard/pictures/", 17)) return false;
-    app_settings_set_wallpaper_path(path);
-    if (strcmp(app_settings_wallpaper_path(), path)) return false;
-    app_settings_set_lock_style(1);
-    return app_settings_lock_style() == 1;
-}
 
 void app_transfer_request_method_picker(void) {
     s_usb_requested = s_hotspot_requested = s_wifi_upload_requested = s_wifi_setup_requested = false;
@@ -739,6 +733,7 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
 
 static void on_enter(app_ctx_t* ctx) {
     (void)ctx;
+    if(!usb_storage_active())transfer_appearance_cleanup();
     display_set_bulk_io(true);
     s_media_lost = false;
     memset(&s_status, 0, sizeof(s_status));
@@ -820,6 +815,7 @@ static void stop_session(void) {
     // 停服后读最终计数，保留本页跨模式文件变更的记录。
     // Join reception before reading counts and retain file changes across mode switches.
     read_pico_transfer_stop();
+    transfer_appearance_cleanup();
     read_pico_transfer_get_status(&s_status);
     if (s_session_started && s_status.changed_count) s_any_changed = true;
     s_session_started = false;
@@ -878,6 +874,7 @@ static void transfer_on_exit(app_ctx_t* ctx) {
 }
 
 static app_redraw_t on_tick(app_ctx_t* ctx) {
+    read_pico_transfer_editor_poll();
     if (s_usb_entry) {
         if (!s_usb_start_pending) {
             bool connected = usb_storage_connected();
@@ -913,7 +910,8 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
                 .file_moved_cb = transfer_file_moved,
                 .directory_deleted_cb = transfer_directory_deleted,
                 .directory_moved_cb = transfer_directory_moved,
-                .wallpaper_set_cb = transfer_set_wallpaper,
+                .wallpaper_set_cb = NULL,
+                .editor_cb = transfer_appearance_dispatch, .path_write_allowed_cb = transfer_appearance_path_writable,
                 .title_get_cb = NULL, .title_set_cb = NULL};
             err = read_pico_transfer_start(&cfg);
             s_session_started = err == ESP_OK;

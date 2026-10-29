@@ -43,20 +43,41 @@ with tempfile.TemporaryDirectory(prefix='md-images-', dir=ROOT/'build') as direc
     for name in ('普通图', '长图'):
         state, preview = frame(name)
         assert state['document_image_ready'] and not state['document_zoom'], state
-        zoom, enlarged = frame(name, tap(342,600))
-        assert zoom['document_zoom'] and not zoom['document_image_ready'], zoom
-        assert enlarged != preview
-        if name == '长图':
-            moved, _ = frame(name, tap(342,600)+';k,2,0,0,0')
-            assert moved['document_zoom'] and moved['image_top'] > 0
-        returned, returned_frame = frame(name, tap(342,600)+';k,1,0,0,0')
+        slots=state['reader_images'];x,y,w,h=slots[0];image_tap=tap(x+w//2,y+h//2)
+        clicked, panel_frame = frame(name, image_tap)
+        assert not clicked['document_zoom'] and clicked['reader_panel']==1 and clicked['reader_page']==state['reader_page']
+        returned, returned_frame = frame(name, 'k,1,0,0,0', panel=1)
         assert not returned['document_zoom'] and returned['document_image_ready']
         assert returned_frame == preview
         assert frame(name)[0]['document_image_ready']
-        assert frame(name, 'k,2,0,0,0')[0]['reader_page'] == 1
+        if state['pages']>1:assert frame(name, 'k,2,0,0,0')[0]['reader_page'] == 1
+        else:assert name=='普通图' and state['pages']==1
+    # 普通图前后文字、同页两图与各自点击区域。/ Text around images, two images per page and independent hit regions.
+    (card/'markdown/attachments/另一图.png').write_bytes(png(240,160))
+    (card/'markdown/混排.md').write_text('上方正文。\n\n![一](attachments/普通图.png)\n\n图间正文。\n\n![二](attachments/另一图.png)\n\n下方继续阅读。')
+    mixed,mixed_frame=frame('混排');assert mixed['pages']==1 and len(mixed['reader_images'])==2
+    boxes=mixed['reader_images'];assert boxes[0][1]>56 and boxes[1][1]>boxes[0][1]+boxes[0][3]
+    def dark(frame,x,y):return ((frame[y*342+x//2]>>(4 if x%2 else 0))&15)<8
+    assert any(dark(mixed_frame,x,y) for y in range(boxes[-1][1]+boxes[-1][3]+24,1000) for x in range(40,640))
+    for x,y,w,h in boxes:
+        press=tap(x+w//2,y+h//2);state,_=frame('混排',press)
+        assert not state['document_zoom'] and state['reader_panel']==1
+        state,returned=frame('混排','k,1,0,0,0',panel=1)
+        assert not state['document_zoom'] and returned==mixed_frame
+    # 宽图区域仍遵循左中右点击与实体键翻页。/ Wide images retain fixed tap zones and physical page turns.
+    (card/'markdown/attachments/宽图.png').write_bytes(png(684,200))
+    (card/'markdown/操作测试.md').write_text('![宽图](attachments/宽图.png)\n\n'+('后续正文。\n\n'*150))
+    wide,_=frame('操作测试');x,y,w,h=wide['reader_images'][0];assert wide['pages']>1
+    next_page,_=frame('操作测试',tap(x+w-20,y+h//2))
+    assert next_page['reader_page']==1 and not next_page['document_zoom']
+    back,_=frame('操作测试',tap(x+w-20,y+h//2)+';'+tap(100,500))
+    assert back['reader_page']==0
+    middle,_=frame('操作测试',tap(x+w//2,y+h//2));assert middle['reader_panel']==1
+    assert frame('混排',tap(342,1000))[0]['reader_panel']==1
+    assert frame('混排')[1]==mixed_frame
     # 图文操作后仍可读取相同的纯文字页及其书签/进度状态。
     # Text remains identical after image operations, with unchanged bookmark/position semantics.
     after, unchanged = frame('纯文本', page=1)
     assert after['reader_offset'] == plain['reader_offset'] and not after['document_image_ready']
     assert unchanged == original
-print('PASS: text-only turns/panel/bookmarks are unchanged; ordinary/tall image preview, zoom, key segments, return and repeated cache opens work under FAT semantics.')
+print('PASS: text-only turns/panel/bookmarks are unchanged; ordinary/tall image previews, fixed tap zones, physical turns, panel return and repeated cache opens work under FAT semantics.')

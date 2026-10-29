@@ -32,11 +32,17 @@ static void reader_control_footer(uint8_t *fb){
     static const char *const labels[]={UI_MSG("目录"),UI_MSG("书签"),UI_MSG("文字"),UI_MSG("版式"),UI_MSG("更多")};
     static const ui_icon_t icons[]={UI_ICON_LIST,UI_ICON_BOOKMARK,UI_ICON_TYPE,UI_ICON_SLIDERS_HORIZONTAL,UI_ICON_SETTINGS};
     int selected=s_view==TOC?0:reader_panel_tab();
+    int label_px=reader_px(UI_TEXT_BODY);
+    // 英文入口共用最小适配字号，避免长短标签视觉大小不一。/ Share the smallest fitting English size across all footer labels.
+    if(ui_i18n_english())for(int i=0;i<5;++i){
+        int fit=ui_text_fit_px(UI_TEXT_BODY,labels[i],tool_rect(i).width-12,48);
+        if(fit<label_px)label_px=fit;
+    }
     epd_fill_rect((EpdRect){0,1096,684,120},UI_GRAY_WHITE,fb);ui_hairline(fb,1096,0,684,UI_GRAY_SECTION_LINE);
     for(int i=0;i<5;++i){EpdRect r=tool_rect(i);bool on=i==selected;
         if(on)epd_fill_rect((EpdRect){r.x+r.width/2-22,1104,44,5},0x44,fb);
         ui_draw_icon(fb,r.x+r.width/2,1131,36,icons[i],UI_GRAY_BLACK);
-        ui_text_fixed_vc(fb,r.x+r.width/2,1183,ui_i18n_english()?ui_text_fit_px(UI_TEXT_BODY,labels[i],r.width-12,48):reader_px(UI_TEXT_BODY),labels[i],EPD_DRAW_ALIGN_CENTER,false);
+        ui_text_fixed_vc(fb,r.x+r.width/2,1183,label_px,labels[i],EPD_DRAW_ALIGN_CENTER,false);
     }
 }
 static void reader_control_header(uint8_t *fb,const char *title){

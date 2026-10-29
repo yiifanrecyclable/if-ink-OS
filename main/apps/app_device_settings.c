@@ -118,6 +118,8 @@ static bool s_upgrade_confirm, s_local_pending, s_upgrade_restart;
 static pico_ota_info_t s_local_update;
 static bool s_online_pending, s_online_confirm;
 static uint32_t s_online_seen;
+static if_update_status_t s_online_drawn;
+static bool s_online_drawn_valid,s_online_progress_only;
 static int64_t s_online_drawn_at, s_online_reboot_at;
 static char s_upgrade_notice[96];
 static void upgrade_open(void) {
@@ -153,6 +155,7 @@ static uint8_t *s_quote_preview;
 static content_banner_config_t s_banner_draft;
 static int s_quote_px;
 static bool s_quote_dragging,s_quote_preview_attempted,s_quote_committed;
+static int s_banner_height_drag,s_banner_height_value,s_banner_height_row;
 bool app_device_settings_quote_committed(void){return s_quote_committed;}
 int app_device_settings_quote_size(void){return s_quote_px?s_quote_px:content_home_quote_size();}
 static void quote_preview_clear(void){free(s_quote_preview);s_quote_preview=NULL;s_quote_preview_attempted=false;}
@@ -176,7 +179,10 @@ static bool quote_preview_prepare(int px,bool validate){content_banner_config_t 
 static int banner_text_row_center(int i){return BANNER_TEXT_ROW_TOP+i*BANNER_TEXT_ROW_H+BANNER_TEXT_ROW_H/2;}
 static EpdRect quote_alignment_rect(int i){return (EpdRect){368+72*i,banner_text_row_center(2)-28,64,56};}
 static EpdRect banner_footer(int i){
-    int width=ui_text_fixed_width_px(ui_text_effective_px(UI_TEXT_BODY),i?UI_MSG("保存"):UI_MSG("取消"))+BANNER_FOOTER_TRACKING+80;
+    int px=ui_text_effective_px(UI_TEXT_BODY);
+    int width=ui_text_fixed_width_px(px,UI_MSG("保存")),cancel_width=ui_text_fixed_width_px(px,UI_MSG("取消"));
+    if(width<cancel_width)width=cancel_width;
+    width+=BANNER_FOOTER_TRACKING+80;
     if(width<156)width=156;
     return (EpdRect){(i?466:218)-width/2,1070,width,56};
 }
@@ -587,7 +593,7 @@ static void firmware_info_draw(uint8_t *fb) {
     static const char *const features[]={UI_MSG("为Obsidian用户打造的Pico系统"),UI_MSG("搭配Send to E-ink Reader插件"),UI_MSG("以及坚果云服务"),UI_MSG("实现更自由便携的阅读体验")};
     int body_px=ui_text_effective_px(UI_TEXT_BODY);
     for(int i=0;i<4;++i){int px=ui_text_fit_px(UI_TEXT_BODY,features[i],612,ui_text_line_height(UI_TEXT_BODY));if(px<body_px)body_px=px;}
-    for(int i=0;i<4;++i)ui_text_fixed_vc(fb,36,UI_PAGE_Y(424+82*i),body_px,features[i],EPD_DRAW_ALIGN_LEFT,false);
+    for(int i=0;i<4;++i)ui_text_fixed_vc(fb,342,UI_PAGE_Y(424+82*i),body_px,features[i],EPD_DRAW_ALIGN_CENTER,false);
     settings_divider(fb,UI_PAGE_Y(802),36,612);
     ui_text_vc(fb,36,UI_PAGE_Y(858),UI_TEXT_CAPTION,UI_MSG("基于 kiikoread"),EPD_DRAW_ALIGN_LEFT,false);
     if(s_notice[0])ui_text_vc(fb,342,UI_PAGE_Y(950),UI_TEXT_CAPTION,s_notice,EPD_DRAW_ALIGN_CENTER,false);
@@ -596,8 +602,8 @@ static void firmware_info_draw(uint8_t *fb) {
     ui_nav_draw(fb,3);
 }
 
-// 进度只使用灰阶差分，最多每秒一次，不以下载次数触发整屏强刷。
-// Progress uses grayscale differences at most once a second, without periodic full-screen wipes.
+// 进度最多五秒更新一次，仅重绘条和数字；阶段变化及时显示。
+// Progress changes at most once per five seconds within the bar/count area; stage changes remain immediate.
 static void online_close(void){
     if_update_close();
     if_update_status_t status;if_update_get_status(&status);
@@ -609,20 +615,44 @@ static void online_text(uint8_t *fb,int y,const char *text){
     int px=ui_text_fit_px(UI_TEXT_CAPTION,text,612,60);
     ui_text_fixed_vc(fb,342,y,px,text,EPD_DRAW_ALIGN_CENTER,false);
 }
+static EpdRect online_progress_rect(void){return (EpdRect){36,UI_PAGE_Y(620),612,164};}
+static void online_progress_draw(uint8_t *fb,const if_update_status_t *status){
+    epd_fill_rect(online_progress_rect(),0xff,fb);
+    int filled=status->total?(int)((uint64_t)status->received*588/status->total):0;
+    if(filled>588)filled=588;
+    epd_fill_rect((EpdRect){48,UI_PAGE_Y(648),588,6},0xd0,fb);
+    if(filled)epd_fill_rect((EpdRect){48,UI_PAGE_Y(648),filled,6},0x44,fb);
+    char text[64]="";
+    if(status->total)ui_snprintf(text,sizeof(text),"%u%% · %u / %u KB",
+        (unsigned)((uint64_t)status->received*100/status->total),(unsigned)(status->received/1024),(unsigned)((status->total+1023)/1024));
+    online_text(fb,716,text);
+}
+static void online_remember(const if_update_status_t *status){
+    s_online_drawn=*status;s_online_drawn_valid=true;s_online_seen=status->revision;
+}
+static bool online_stage_changed(const if_update_status_t *status){
+    return !s_online_drawn_valid||status->state!=s_online_drawn.state||status->busy!=s_online_drawn.busy||
+        status->total!=s_online_drawn.total||strcmp(status->message,s_online_drawn.message)||
+        strcmp(status->current,s_online_drawn.current)||strcmp(status->version,s_online_drawn.version);
+}
+static app_redraw_t online_status_redraw(int64_t now_ms,const if_update_status_t *status){
+    bool stage_changed=online_stage_changed(status);
+    unsigned percent=status->total?(unsigned)((uint64_t)status->received*100/status->total):0;
+    unsigned drawn=s_online_drawn.total?(unsigned)((uint64_t)s_online_drawn.received*100/s_online_drawn.total):0;
+    if(stage_changed||(status->revision!=s_online_seen&&percent!=drawn&&now_ms-s_online_drawn_at>=5000)){
+        s_online_progress_only=!stage_changed;
+        s_online_drawn_at=now_ms;return APP_REDRAW_AREA;
+    }
+    return APP_REDRAW_NONE;
+}
 static void online_draw(uint8_t *fb){
     if_update_status_t status;if_update_get_status(&status);
     back_header(fb,UI_MSG("在线升级"));
     row(fb,UI_PAGE_Y(210),UI_MSG("当前版本"),status.current);
     row(fb,UI_PAGE_Y(330),UI_MSG("可用版本"),status.version[0]?status.version:"—");
     online_text(fb,530,s_online_confirm?UI_MSG("确认安装这个版本？"):status.message);
-    int filled=status.total?(int)((uint64_t)status.received*588/status.total):0;
-    if(filled>588)filled=588;
-    epd_fill_rect((EpdRect){48,UI_PAGE_Y(648),588,6},0xd0,fb);
-    if(filled)epd_fill_rect((EpdRect){48,UI_PAGE_Y(648),filled,6},0x44,fb);
-    char progress_text[64]="";
-    if(status.total)ui_snprintf(progress_text,sizeof(progress_text),"%u%% · %u / %u KB",
-        (unsigned)((uint64_t)status.received*100/status.total),(unsigned)(status.received/1024),(unsigned)((status.total+1023)/1024));
-    online_text(fb,716,progress_text);
+    online_progress_draw(fb,&status);
+    online_remember(&status);
     online_text(fb,846,UI_MSG("安装期间请保持供电"));
     if(s_online_confirm){
         ui_draw_button(fb,(EpdRect){36,UI_PAGE_Y(990),294,88},UI_MSG("取消"),false);
@@ -950,9 +980,9 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         int title_px=ui_text_fit_px(UI_TEXT_TITLE,"if-ink OS",196,48);
         ui_text_fixed_vc(fb,36,center,title_px,"if-ink OS",EPD_DRAW_ALIGN_LEFT,false);
         int version_x=36+ui_text_fixed_width_px(title_px,"if-ink OS")+12;
-        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.1.6",156,48);
-        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.1.6",EPD_DRAW_ALIGN_LEFT,false);
-        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.1.6")-24;
+        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.1.7",156,48);
+        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.1.7",EPD_DRAW_ALIGN_LEFT,false);
+        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.1.7")-24;
         const char *slogan=UI_MSG("支持md文档的Pico固件");
         int slogan_px=ui_text_fit_px(UI_TEXT_CAPTION,slogan,width,48);
         ui_text_fixed_vc_gray(fb,648,center,slogan_px,slogan,EPD_DRAW_ALIGN_RIGHT,8,15);
@@ -987,7 +1017,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
                   reading_icons, reading_labels, reading_values, SETTINGS_DISPLAY_ROWS);
     const char *device_labels[] = {UI_MSG("日期与时间"), UI_MSG("系统语言"), UI_MSG("关机与休眠"), UI_MSG("电池管理"), UI_MSG("保存与恢复"), UI_MSG("固件信息"), UI_MSG("BOOT 刷机")};
     const char *device_values[] = {UI_MSG("设置  ›"), app_settings_language()==APP_LANGUAGE_EN?"English":"中文", app_settings_staged_shutdown() ? UI_MSG("先浅后深  ›") : UI_MSG("彻底断电  ›"),
-                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), "v0.1.6  ›", UI_MSG("电脑刷机  ›")};
+                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), "v0.1.7  ›", UI_MSG("电脑刷机  ›")};
     static const int device_icons[] = {6, 17, 9, 13, 8, 14, 16};
     setting_group(fb, SETTINGS_DEVICE_Y - 34, UI_MSG("系统与设备"), SETTINGS_DEVICE_Y,
                   device_icons, device_labels, device_values, SETTINGS_DEVICE_ROWS);
@@ -998,7 +1028,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
 
 static void on_enter(app_ctx_t *ctx) {
     (void)ctx;
-    quote_preview_clear();content_banner_load(&s_banner_draft);s_quote_px=s_banner_draft.quote_px;s_quote_dragging=false;s_quote_committed=false;
+    quote_preview_clear();content_banner_load(&s_banner_draft);s_quote_px=s_banner_draft.quote_px;s_quote_dragging=false;s_banner_height_drag=0;s_quote_committed=false;
     s_notice[0] = 0;
     s_page = s_cloud_requested?SETTINGS_CLOUD:SETTINGS_MAIN;s_cloud_requested=false;s_cloud_editor=0;
     s_main_scroll = s_font_page = s_wallpaper_page = s_cloud_scroll = 0;
@@ -1009,7 +1039,7 @@ static void on_enter(app_ctx_t *ctx) {
     s_config_confirm = false;
     s_boot_pending = s_local_pending = s_upgrade_restart = false;
     s_upgrade_confirm = false;
-    s_online_pending=s_online_confirm=false;s_online_seen=0;s_online_drawn_at=s_online_reboot_at=0;
+    s_online_pending=s_online_confirm=false;s_online_seen=0;s_online_drawn_valid=s_online_progress_only=false;s_online_drawn_at=s_online_reboot_at=0;
     s_home_quote_editor=false;
     if(s_home_quote_requested){s_home_quote_requested=false;s_page=SETTINGS_HOME_QUOTE;quote_preview_prepare(s_quote_px,false);}
 }
@@ -1022,10 +1052,7 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
             if(!s_online_reboot_at)s_online_reboot_at=ctx->now_ms+1500;
             else if(ctx->now_ms>=s_online_reboot_at){esp_restart();return APP_REDRAW_NONE;}
         }
-        if(status.revision!=s_online_seen&&(!status.busy||ctx->now_ms-s_online_drawn_at>=1000)){
-            s_online_seen=status.revision;s_online_drawn_at=ctx->now_ms;return APP_REDRAW_AREA;
-        }
-        return APP_REDRAW_NONE;
+        return online_status_redraw(ctx->now_ms,&status);
     }
     if(s_page==SETTINGS_HOME_QUOTE&&!s_quote_preview&&!s_quote_preview_attempted){quote_preview_prepare(s_banner_draft.quote_px,false);return APP_REDRAW_PAGE;}
     (void)ctx;
@@ -1308,7 +1335,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     if (s_page == SETTINGS_FIRMWARE_INFO) {
         if (ui_rect_hit(firmware_update_rect(0),ev->x0,y)) {
             s_page=SETTINGS_ONLINE_UPDATE;s_online_pending=true;s_online_confirm=false;
-            s_online_seen=0;s_online_drawn_at=s_online_reboot_at=0;
+            s_online_seen=0;s_online_drawn_valid=s_online_progress_only=false;s_online_drawn_at=s_online_reboot_at=0;
             return APP_REDRAW_PAGE;
         }
         if (ui_rect_hit(firmware_update_rect(1),ev->x0,y)) {
@@ -1531,10 +1558,10 @@ static app_redraw_t on_key(app_ctx_t *ctx, int key) {
     return APP_REDRAW_NONE;
 }
 static void settings_exit(app_ctx_t *ctx) {
-    (void)ctx; online_close();quote_preview_clear();s_quote_dragging=false;ui_text_input_clear(&s_text_input);memset(s_editor,0,sizeof(s_editor));
+    (void)ctx; online_close();quote_preview_clear();s_quote_dragging=false;s_banner_height_drag=0;ui_text_input_clear(&s_text_input);memset(s_editor,0,sizeof(s_editor));
 }
 static void on_before_lock(app_ctx_t *ctx) {
-    (void)ctx; online_close();s_quote_dragging=false;
+    (void)ctx; online_close();s_quote_dragging=false;s_banner_height_drag=0;
     // 锁屏保留普通草稿；密码清除内容、光标及显示状态，唤醒后可重新输入。
     // Keep ordinary drafts across lock; wipe secret text, cursor and reveal state together.
     if (s_page == SETTINGS_TEXT_EDIT && s_text_input.secret) ui_text_input_clear(&s_text_input);
@@ -1542,8 +1569,20 @@ static void on_before_lock(app_ctx_t *ctx) {
 static bool no_menu_handle(app_ctx_t *ctx) { (void)ctx; return false; }
 static bool settings_present(app_ctx_t *ctx, app_redraw_t redraw) {
     if(redraw==APP_REDRAW_AREA&&s_page==SETTINGS_ONLINE_UPDATE){
+        if_update_status_t status;if_update_get_status(&status);
+        bool progress_only=s_online_progress_only&&!online_stage_changed(&status);
+        if(progress_only){online_progress_draw(ctx->fb,&status);online_remember(&status);}
+        else render(ctx,ctx->fb);
+        // 阶段变化及时显示；普通进度只更新条和数字，不触碰标题、提示或底栏。
+        // Show stage changes promptly; ordinary progress updates only the bar/count, leaving header, hints and footer untouched.
+        EpdRect area=progress_only?online_progress_rect():(EpdRect){0,UI_PAGE_Y(190),UI_LOCK_WIDTH,UI_NAV_TOP-UI_PAGE_Y(190)};
+        guard_draw_result(ctx->hl,update_display_natural_area(ctx->hl,area));
+        s_online_progress_only=false;
+        return true;
+    }
+    if(redraw==APP_REDRAW_AREA&&s_page==SETTINGS_HOME_QUOTE){
         render(ctx,ctx->fb);
-        guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,(EpdRect){0,UI_PAGE_Y(190),UI_LOCK_WIDTH,UI_NAV_TOP-UI_PAGE_Y(190)}));
+        guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,banner_height_rect(s_banner_height_row)));
         return true;
     }
     if(redraw==APP_REDRAW_AREA&&s_page==SETTINGS_QUOTE_FONT){render(ctx,ctx->fb);guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,(EpdRect){0,190,UI_LOCK_WIDTH,160}));return true;}

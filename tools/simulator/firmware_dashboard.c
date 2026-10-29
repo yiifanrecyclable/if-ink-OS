@@ -18,7 +18,7 @@ void simulator_dashboard(uint8_t *fb,const uint32_t *days,const char *events){
 
 int simulator_home_geometry(int item) {
  home_geometry_t g=home_geometry();
- const int values[]={g.content_y,g.row_height,g.rows,g.grid_y,g.col_x,g.col_step,g.row_step,g.month_x,g.week_y,g.heat_title,g.recent_rule,g.recent_title};
+ const int values[]={g.list_y,g.row_height,g.rows,g.grid_y,g.col_x,g.col_step,g.row_step,g.month_x,g.week_y,g.heat_title,g.recent_rule,g.recent_title};
  return item>=0 && item<(int)(sizeof(values)/sizeof(values[0]))?values[item]:0;
 }
 

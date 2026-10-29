@@ -137,10 +137,11 @@ static void wifi_event(void *arg,esp_event_base_t base,int32_t id,void *data){(v
 static int cleanup_interrupted(const char *root,unsigned *removed,unsigned *restored){assert(root);*removed=*restored=0;return 0;}
 static esp_err_t httpd_start(httpd_handle_t *out,const httpd_config_t *cfg){assert(cfg);*out=(void*)1;return ESP_OK;}
 static void httpd_stop(httpd_handle_t h){assert(h);}
+static void editor_cancel_pending(void){}
 static esp_err_t httpd_register_uri_handler(httpd_handle_t h,const httpd_uri_t *uri){assert(h&&uri->handler);return ESP_OK;}
 static int fake_handler(void *p){(void)p;return 0;}
 '''
-    handlers=('index','info','upload','image_upload','font_upload','file_upload','document_upload','files_list','files_mutation','books','clock','titles','wifi')
+    handlers=('editor','file_download','banner_upload','index','info','upload','image_upload','font_upload','font_stage','file_upload','document_upload','files_list','files_mutation','books','clock','titles','wifi')
     prelude+=''.join(f'#define {name}_handler fake_handler\n' for name in handlers)
     prelude+='\n'.join(function(marker) for marker in (
         'void read_pico_transfer_get_status(', 'static void publish_credentials(', 'esp_err_t read_pico_transfer_forget_wifi(', 'static void set_error(',
