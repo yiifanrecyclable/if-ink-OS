@@ -10,13 +10,17 @@
 #include "../main/ota_online.c"
 #include "cJSON.h"
 static int fault,writes,begins,aborts,ends,boots,stops;
+static unsigned display_flash_depth;
+void display_flash_begin(void){assert(!display_flash_depth);++display_flash_depth;}
+void display_flash_end(void){assert(display_flash_depth==1);--display_flash_depth;}
 static unsigned disconnects,eagains,asset_opens,failed_opens;
 static size_t flash_at;
 static uint8_t flashed[32768];
 void app_time_service_stop(void){}
 static bool online=true,boot_switched;
 static uint8_t image[32768];static char manifest[1024];static CC_SHA256_CTX digest;
-static const esp_app_desc_t current={.magic_word=ESP_APP_DESC_MAGIC_WORD,.version="0.1.0-test.2",.project_name=IF_OTA_PROJECT};
+static esp_app_desc_t current={.magic_word=ESP_APP_DESC_MAGIC_WORD,.version="0.1.0-test.2",.project_name=IF_OTA_PROJECT};
+static if_update_channel_t requested_channel;
 static esp_partition_t running={.address=0x10000,.size=IF_OTA_MAX_BYTES},target={.address=0x910000,.size=IF_OTA_MAX_BYTES},data={.address=0xd10000,.size=0x2000};
 static void (*pending_worker)(void*);static void *pending_arg;
 static struct {int token;} sems[8];static int sem_count;
@@ -40,11 +44,11 @@ const esp_app_desc_t *esp_app_get_description(void){return &current;}
 const esp_partition_t *esp_ota_get_running_partition(void){return &running;}
 const esp_partition_t *esp_ota_get_next_update_partition(void *p){(void)p;return &target;}
 const esp_partition_t *esp_partition_find_first(int type,int sub,const char *label){(void)type;(void)sub;(void)label;return &data;}
-esp_err_t esp_ota_begin(const esp_partition_t *p,size_t size,esp_ota_handle_t *h){assert(p->address!=running.address&&size==OTA_WITH_SEQUENTIAL_WRITES);++begins;flash_at=0;*h=1;return ESP_OK;}
-esp_err_t esp_ota_write(esp_ota_handle_t h,const void *p,size_t n){assert(h==1&&p&&n);++writes;if(fault==6)return ESP_FAIL;assert(flash_at+n<=sizeof(flashed));memcpy(flashed+flash_at,p,n);flash_at+=n;return ESP_OK;}
-esp_err_t esp_ota_abort(esp_ota_handle_t h){assert(h);++aborts;return ESP_OK;}
-esp_err_t esp_ota_end(esp_ota_handle_t h){assert(h);assert(flash_at==sizeof(image));assert(fault==24||!memcmp(flashed,image,sizeof(image)));++ends;if(fault==12)atomic_store(&s_cancel,true);return fault==7?ESP_FAIL:ESP_OK;}
-esp_err_t esp_ota_set_boot_partition(const esp_partition_t *p){assert(p==&target);++boots;if(fault==13)atomic_store(&s_cancel,true);boot_switched=fault!=8;return fault==8?ESP_FAIL:ESP_OK;}
+esp_err_t esp_ota_begin(const esp_partition_t *p,size_t size,esp_ota_handle_t *h){assert(display_flash_depth==1);assert(p->address!=running.address&&size==OTA_WITH_SEQUENTIAL_WRITES);++begins;flash_at=0;*h=1;return fault==27?ESP_FAIL:ESP_OK;}
+esp_err_t esp_ota_write(esp_ota_handle_t h,const void *p,size_t n){assert(display_flash_depth==1);assert(h==1&&p&&n);++writes;if(fault==6)return ESP_FAIL;assert(flash_at+n<=sizeof(flashed));memcpy(flashed+flash_at,p,n);flash_at+=n;return ESP_OK;}
+esp_err_t esp_ota_abort(esp_ota_handle_t h){assert(display_flash_depth==1);assert(h);++aborts;return ESP_OK;}
+esp_err_t esp_ota_end(esp_ota_handle_t h){assert(display_flash_depth==1);assert(h);assert(flash_at==sizeof(image));assert(fault==24||!memcmp(flashed,image,sizeof(image)));++ends;if(fault==12)atomic_store(&s_cancel,true);return fault==7?ESP_FAIL:ESP_OK;}
+esp_err_t esp_ota_set_boot_partition(const esp_partition_t *p){assert(display_flash_depth==1);assert(p==&target);++boots;if(fault==13)atomic_store(&s_cancel,true);boot_switched=fault!=8;return fault==8?ESP_FAIL:ESP_OK;}
 int psa_crypto_init(void){return 0;}
 int psa_hash_setup(psa_hash_operation_t *op,int alg){(void)alg;op->bytes=0;CC_SHA256_Init(&digest);return 0;}
 int psa_hash_update(psa_hash_operation_t *op,const void *p,size_t n){op->bytes+=n;CC_SHA256_Update(&digest,p,(CC_LONG)n);return 0;}
@@ -55,6 +59,7 @@ int esp_crt_bundle_attach(void *p){(void)p;return 0;}
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *cfg){
  assert(cfg->disable_auto_redirect&&cfg->crt_bundle_attach&&cfg->timeout_ms==15000);
  struct FakeHttp *h=calloc(1,sizeof(*h));assert(h);h->feed=strstr(cfg->url,"/contents/")!=NULL;
+ if(h->feed)requested_channel=strstr(cfg->url,"/beta.json")?IF_UPDATE_BETA:IF_UPDATE_STABLE;
  h->blob=strstr(cfg->url,"/git/blobs/")!=NULL;h->redirect=strstr(cfg->url,"/releases/assets/")!=NULL;
  h->length=h->feed?strlen(manifest):sizeof(image)-(fault==1?10:0)+(fault==2?1:0);
  if(!h->feed&&!h->redirect)++asset_opens;
@@ -75,6 +80,7 @@ int esp_http_client_get_status_code(esp_http_client_handle_t h){return h->blob&&
 esp_err_t esp_http_client_set_timeout_ms(esp_http_client_handle_t h,int ms){(void)h;assert(ms==15000);return ESP_OK;}
 esp_err_t esp_http_client_set_user_data(esp_http_client_handle_t h,void *p){h->user=p;return ESP_OK;}
 int esp_http_client_read(esp_http_client_handle_t h,char *out,int cap){
+ assert(display_flash_depth==0);
  if(fault==11&&!h->feed&&h->at>=288)return -1;
  if(!h->feed){
   if(fault==20&&h->at>=288&&eagains++<3)return -ESP_ERR_HTTP_EAGAIN;
@@ -89,16 +95,18 @@ int esp_http_client_read(esp_http_client_handle_t h,char *out,int cap){
 bool esp_http_client_is_complete_data_received(esp_http_client_handle_t h){return h->at==h->length;}
 esp_err_t esp_http_client_close(esp_http_client_handle_t h){(void)h;return ESP_OK;}
 esp_err_t esp_http_client_cleanup(esp_http_client_handle_t h){free(h);return ESP_OK;}
-static void prepare(void){
+static void prepare_for(const char *channel,const char *version){
+ assert(display_flash_depth==0);
  disconnects=eagains=asset_opens=failed_opens=0;
  memset(image,42,sizeof(image));esp_image_header_t header={.magic=ESP_IMAGE_HEADER_MAGIC,.chip_id=ESP_CHIP_ID_ESP32S3};
- esp_image_segment_header_t segment={.data_len=sizeof(image)-32};esp_app_desc_t desc=current;strcpy(desc.version,"0.1.0");
+ esp_image_segment_header_t segment={.data_len=sizeof(image)-32};esp_app_desc_t desc=current;strcpy(desc.version,version);
  if(fault==3)strcpy(desc.project_name,"Read_Pico");if(fault==4)header.chip_id=0;
  memcpy(image,&header,sizeof(header));memcpy(image+sizeof(header),&segment,sizeof(segment));memcpy(image+sizeof(header)+sizeof(segment),&desc,sizeof(desc));
  unsigned char sha[32];CC_SHA256(image,sizeof(image),sha);char hex[65];for(int i=0;i<32;++i)sprintf(hex+2*i,"%02x",sha[i]);
  if(fault==14)hex[0]=hex[0]=='0'?'1':'0';
- snprintf(manifest,sizeof(manifest),"{\"schema\":1,\"product\":\"if-ink-os\",\"project\":\"Read_Pico_IF\",\"layout\":\"if-16m-ota-v1\",\"channel\":\"stable\",\"available\":true,\"version\":\"0.1.0\",\"size\":%zu,\"sha256\":\"%s\",\"asset_id\":\"1234\",\"blob_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",sizeof(image),hex);
+ snprintf(manifest,sizeof(manifest),"{\"schema\":1,\"product\":\"if-ink-os\",\"project\":\"Read_Pico_IF\",\"layout\":\"if-16m-ota-v1\",\"channel\":\"%s\",\"available\":true,\"version\":\"%s\",\"size\":%zu,\"sha256\":\"%s\",\"asset_id\":\"1234\",\"blob_sha\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",channel,version,sizeof(image),hex);
 }
+static void prepare(void){prepare_for("stable","0.1.0");}
 static void run_worker(void){assert(pending_worker);void(*fn)(void*)=pending_worker;pending_worker=NULL;fn(pending_arg);if_update_poll();assert(!s_status.busy&&!s_task);}
 static void policy(void){
  assert(if_update_newer("0.1.6","0.1.6-beta3-r2"));
@@ -136,8 +144,48 @@ static void policy(void){
  char *text=cJSON_PrintUnformatted(o);assert(if_update_parse_manifest(text,strlen(text),&candidate)&&!candidate.available);free(text);cJSON_Delete(o);
 
 }
+static void channels(void){
+ assert(if_update_candidate_allowed("0.1.8-beta.1","0.1.7",IF_UPDATE_BETA));
+ assert(if_update_candidate_allowed("0.1.8-beta.10","0.1.8-beta.2",IF_UPDATE_BETA));
+ assert(!if_update_candidate_allowed("0.1.8-beta.2","0.1.8-beta.10",IF_UPDATE_BETA));
+ assert(!if_update_candidate_allowed("0.1.8-beta.2","0.1.8-beta.2",IF_UPDATE_BETA));
+ assert(!if_update_candidate_allowed("0.1.8-beta.1","0.1.8",IF_UPDATE_BETA));
+ assert(if_update_candidate_allowed("0.1.8-beta.1","0.1.8-beta-r2",IF_UPDATE_BETA));
+ assert(if_update_candidate_allowed("0.1.8-beta3-r2","0.1.8-beta3",IF_UPDATE_BETA));
+ assert(if_update_candidate_allowed("0.1.7","0.1.8-beta.1",IF_UPDATE_STABLE));
+ assert(!if_update_newer("0.1.7","0.1.8-beta.1"));
+ assert(!if_update_candidate_allowed("0.1.7","0.1.8",IF_UPDATE_STABLE));
+ assert(!if_update_candidate_allowed("0.1.7","0.1.7",IF_UPDATE_STABLE));
+ assert(!if_update_candidate_allowed("0.1.7","0.1.8-beta.1",IF_UPDATE_BETA));
+ assert(!if_update_candidate_allowed("0.1.8-beta.1","0.1.7",IF_UPDATE_STABLE));
+ const char *invalid[]={"0.1.8-beta.0","0.1.8-beta.01","0.1.8-beta.1junk","0.1.8-beta.100000","0.1.8-test.2","0.1.8-alpha.1"};
+ for(unsigned i=0;i<sizeof(invalid)/sizeof(*invalid);++i)assert(!if_update_candidate_allowed(invalid[i],"0.1.7",IF_UPDATE_BETA));
+ if_update_candidate_t candidate;
+ prepare_for("beta","0.1.8-beta.1");
+ assert(if_update_parse_manifest_channel(manifest,strlen(manifest),IF_UPDATE_BETA,&candidate)&&candidate.channel==IF_UPDATE_BETA);
+ assert(!if_update_parse_manifest(manifest,strlen(manifest),&candidate));
+ prepare_for("stable","0.1.8-beta.1");assert(!if_update_parse_manifest_channel(manifest,strlen(manifest),IF_UPDATE_STABLE,&candidate));
+ prepare_for("beta","0.1.8");assert(!if_update_parse_manifest_channel(manifest,strlen(manifest),IF_UPDATE_BETA,&candidate));
+ const char *disabled="{\"schema\":1,\"product\":\"if-ink-os\",\"project\":\"Read_Pico_IF\",\"layout\":\"if-16m-ota-v1\",\"channel\":\"beta\",\"available\":false}";
+ assert(if_update_parse_manifest_channel(disabled,strlen(disabled),IF_UPDATE_BETA,&candidate)&&!candidate.available);
+ prepare_for("beta","0.1.8-beta.1");
+ assert(if_update_check_channel(IF_UPDATE_BETA)==ESP_OK);
+ assert(if_update_check_channel(IF_UPDATE_STABLE)==ESP_ERR_INVALID_STATE&&s_status.channel==IF_UPDATE_BETA);
+ run_worker();assert(requested_channel==IF_UPDATE_BETA&&s_status.state==IF_UPDATE_AVAILABLE);
+ assert(if_update_install()==ESP_OK);run_worker();assert(s_status.state==IF_UPDATE_READY);
+ // 切换通道后禁止复用旧候选，即便服务器错误返回了另一通道清单。
+ // Switching invalidates old candidates even if the server mistakenly returns the other channel's manifest.
+ prepare_for("stable","0.1.8");assert(if_update_check_channel(IF_UPDATE_BETA)==ESP_OK);run_worker();
+ assert(s_status.state==IF_UPDATE_FAILED&&!s_candidate.available&&if_update_install()==ESP_ERR_INVALID_STATE);
+ strcpy(current.version,"0.1.8-beta.1");prepare_for("stable","0.1.7");
+ assert(if_update_check()==ESP_OK);run_worker();
+ assert(requested_channel==IF_UPDATE_STABLE&&s_status.state==IF_UPDATE_AVAILABLE&&s_status.return_to_stable);
+ assert(if_update_install()==ESP_OK);run_worker();assert(s_status.state==IF_UPDATE_READY);
+ assert(if_update_check_channel((if_update_channel_t)99)==ESP_ERR_INVALID_ARG);
+ strcpy(current.version,"0.1.0-test.2");prepare();
+}
 int main(void){
- assert(init());prepare();policy();
+ assert(init());prepare();policy();channels();
  for(fault=0;fault<=14;++fault){
   begins=writes=aborts=ends=boots=0;boot_switched=false;online=false;prepare();
   assert(if_update_check()==ESP_OK);run_worker();
@@ -164,7 +212,10 @@ int main(void){
  }
  fault=0;prepare();assert(if_update_check()==ESP_OK);run_worker();
  target.address=running.address;assert(if_update_install()==ESP_OK);run_worker();assert(s_status.state==IF_UPDATE_FAILED);target.address=0x910000;
+ fault=27;begins=writes=aborts=ends=boots=0;boot_switched=false;prepare();
+ assert(if_update_check()==ESP_OK);run_worker();assert(if_update_install()==ESP_OK);run_worker();
+ assert(s_status.state==IF_UPDATE_FAILED&&begins==1&&!writes&&!aborts&&!boots&&display_flash_depth==0);
  fault=15;online=false;assert(if_update_check()==ESP_ERR_NO_MEM&&!s_status.busy&&!online);
- assert(stops>=20);
+ assert(stops>=20);assert(display_flash_depth==0);
  puts("PASS: sequential erase, bounded reconnect/200-skip/206-Range/prefix recovery, EAGAIN/EOF and resumed-byte SHA256, production updater, real SHA256, stable version/product policy, redirects, confirmation boundary, truncation/overflow/disconnect/hash/identity/chip/write/end/boot failures, cancellation/commit race, slot isolation and WiFi cleanup");
 }

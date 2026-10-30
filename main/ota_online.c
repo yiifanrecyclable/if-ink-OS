@@ -5,6 +5,7 @@
 #include "ui/ui_i18n.h"
 
 #include "ota_online.h"
+#include "display_io.h"
 #include "time_service.h"
 #include "ota_online_policy.h"
 #include "cloud_sync.h"
@@ -126,7 +127,9 @@ static esp_err_t http_open(const char *initial,bool asset,uint32_t limit,uint32_
     free(headers);free(url);return *out?ESP_OK:err;
 }
 static esp_err_t check_manifest(void){
-    esp_http_client_handle_t http=NULL;esp_err_t err=http_open(IF_OTA_FEED_URL,false,IF_OTA_MANIFEST_LIMIT,0,NULL,&http);
+    if_update_channel_t channel=s_status.channel;
+    const char *feed=channel==IF_UPDATE_BETA?IF_OTA_BETA_FEED_URL:IF_OTA_FEED_URL;
+    esp_http_client_handle_t http=NULL;esp_err_t err=http_open(feed,false,IF_OTA_MANIFEST_LIMIT,0,NULL,&http);
     char *json=err==ESP_OK?malloc(IF_OTA_MANIFEST_LIMIT+1):NULL;
     if(err==ESP_OK&&!json)err=ESP_ERR_NO_MEM;
     size_t total=0;int64_t deadline=esp_timer_get_time()+30000000;
@@ -141,12 +144,14 @@ static esp_err_t check_manifest(void){
     http_dispose(http);
     if(err==ESP_OK&&!atomic_load(&s_cancel)){
         json[total]=0;
-        if(!if_update_parse_manifest(json,total,&s_candidate))err=ESP_ERR_INVALID_RESPONSE;
+        if(!if_update_parse_manifest_channel(json,total,channel,&s_candidate))err=ESP_ERR_INVALID_RESPONSE;
         else{
+            bool allowed=s_candidate.available&&if_update_candidate_allowed(s_candidate.version,esp_app_get_description()->version,channel);
+            bool returning=allowed&&channel==IF_UPDATE_STABLE&&!if_update_newer(s_candidate.version,esp_app_get_description()->version);
             xSemaphoreTake(s_lock,portMAX_DELAY);ui_snprintf(s_status.version,sizeof(s_status.version),"%s",s_candidate.version);
-            s_status.total=s_candidate.size;xSemaphoreGive(s_lock);
-            phase(s_candidate.available&&if_update_newer(s_candidate.version,esp_app_get_description()->version)?IF_UPDATE_AVAILABLE:IF_UPDATE_CURRENT,
-                  !s_candidate.available?ui_message(UI_MSG("暂未发布在线升级版本")):if_update_newer(s_candidate.version,esp_app_get_description()->version)?ui_message(UI_MSG("发现新版本，请确认后安装")):ui_message(UI_MSG("当前无需升级")));
+            s_status.total=s_candidate.size;s_status.return_to_stable=returning;xSemaphoreGive(s_lock);
+            phase(allowed?IF_UPDATE_AVAILABLE:IF_UPDATE_CURRENT,
+                  !s_candidate.available?ui_message(UI_MSG("此通道暂未发布版本")):returning?ui_message(UI_MSG("可切回稳定版，版本号将降低")):allowed?ui_message(UI_MSG("发现新版本，请确认后安装")):ui_message(UI_MSG("当前无需升级")));
         }
     }
     free(json);return err;
@@ -235,9 +240,12 @@ static esp_err_t install_image(void){
         else{
             // 分段擦除避免连接建立后连续擦除整个镜像导致网络长时间停顿。
             // Erase incrementally rather than stalling an open connection with a whole-image erase.
-            err=esp_ota_begin(target,OTA_WITH_SEQUENTIAL_WRITES,&handle);active=err==ESP_OK;
+            // Flash擦写会暂停取指；避开LCD扫描，避免欠载触发整屏清理。/ Flash writes pause instruction fetch; avoid scans and their underrun-triggered full cleanup.
+            display_flash_begin();
+            err=esp_ota_begin(target,OTA_WITH_SEQUENTIAL_WRITES,&handle);
+            display_flash_end();active=err==ESP_OK;
             if(err==ESP_OK&&psa_hash_update(&hash,buffer,total)!=PSA_SUCCESS)err=ESP_FAIL;
-            if(err==ESP_OK)err=esp_ota_write(handle,buffer,total);
+            if(err==ESP_OK){display_flash_begin();err=esp_ota_write(handle,buffer,total);display_flash_end();}
         }
     }
     while(err==ESP_OK&&!atomic_load(&s_cancel)){
@@ -246,7 +254,7 @@ static esp_err_t install_image(void){
         if(!n||atomic_load(&s_cancel))break;
         if((size_t)n>s_candidate.size-total){err=ESP_ERR_INVALID_SIZE;break;}
         if(psa_hash_update(&hash,buffer,(size_t)n)!=PSA_SUCCESS){err=ESP_FAIL;break;}
-        err=esp_ota_write(handle,buffer,(size_t)n);
+        display_flash_begin();err=esp_ota_write(handle,buffer,(size_t)n);display_flash_end();
         if(err==ESP_OK){total+=(size_t)n;progress((uint32_t)total,s_candidate.size);}
     }
     http_dispose(stream.http);free(buffer);
@@ -256,14 +264,14 @@ static esp_err_t install_image(void){
         if(total!=s_candidate.size||psa_hash_finish(&hash,digest,sizeof(digest),&n)!=PSA_SUCCESS||n!=32||memcmp(digest,s_candidate.sha256,32)){
             phase(IF_UPDATE_FAILED,ui_message(UI_MSG("下载校验失败，请重试")));err=ESP_ERR_INVALID_RESPONSE;
         }
-        if(err==ESP_OK){err=esp_ota_end(handle);active=false;}
+        if(err==ESP_OK){display_flash_begin();err=esp_ota_end(handle);display_flash_end();active=false;}
         if(err==ESP_OK&&!atomic_load(&s_cancel)){
-            err=esp_ota_set_boot_partition(target);
+            display_flash_begin();err=esp_ota_set_boot_partition(target);display_flash_end();
             if(err==ESP_OK)phase(IF_UPDATE_READY,ui_message(UI_MSG("安装完成，即将重启")));
         }
     }
     if(err!=ESP_OK)ESP_LOGW(TAG,"installation stopped (%d), received=%u/%u",(int)err,(unsigned)total,(unsigned)s_candidate.size);
-    if(active)esp_ota_abort(handle);
+    if(active){display_flash_begin();esp_ota_abort(handle);display_flash_end();}
     psa_hash_abort(&hash);return err;
 }
 static void worker(void *argument){
@@ -290,14 +298,23 @@ void if_update_poll(void){
     }
     if(s_task)read_pico_transfer_service_poll();
 }
-static esp_err_t start(bool install){
+static esp_err_t start(bool install,if_update_channel_t channel){
+    if(channel!=IF_UPDATE_STABLE&&channel!=IF_UPDATE_BETA)return ESP_ERR_INVALID_ARG;
     app_time_service_stop();
     if(!init())return ESP_ERR_NO_MEM;
     if_update_poll();if(s_task)return ESP_ERR_INVALID_STATE;
+    if(!install){
+        // 每次选择都解绑旧清单；失败不能保留另一通道的可安装版本。
+        // Unbind the old manifest on every selection; failures cannot retain another channel's install candidate.
+        xSemaphoreTake(s_lock,portMAX_DELAY);memset(&s_candidate,0,sizeof(s_candidate));
+        s_status.channel=channel;s_status.return_to_stable=false;s_status.version[0]=0;s_status.received=s_status.total=0;
+        xSemaphoreGive(s_lock);
+    }
     cloud_status_t cloud;cloud_get_status(&cloud);
     if(cloud.busy||usb_storage_active()){phase(IF_UPDATE_FAILED,ui_message(UI_MSG("请先结束同步或USB连接")));return ESP_ERR_INVALID_STATE;}
     if(strcmp(esp_app_get_description()->project_name,IF_OTA_PROJECT)){phase(IF_UPDATE_FAILED,ui_message(UI_MSG("当前系统不支持此更新源")));return ESP_ERR_INVALID_STATE;}
-    if(install&&(s_status.state!=IF_UPDATE_AVAILABLE||!s_candidate.available||!if_update_newer(s_candidate.version,esp_app_get_description()->version)))return ESP_ERR_INVALID_STATE;
+    if(install&&(s_status.state!=IF_UPDATE_AVAILABLE||!s_candidate.available||s_candidate.channel!=channel||
+        !if_update_candidate_allowed(s_candidate.version,esp_app_get_description()->version,channel)))return ESP_ERR_INVALID_STATE;
     read_pico_transfer_status_t network;read_pico_transfer_get_status(&network);
     if(network.state==READ_PICO_TRANSFER_STOPPED||(network.state==READ_PICO_TRANSFER_ERROR&&!network.network_ready)){
         if(network.state==READ_PICO_TRANSFER_ERROR&&!read_pico_transfer_try_stop_if_idle()){phase(IF_UPDATE_FAILED,ui_message(UI_MSG("请先结束传输后重试")));return ESP_ERR_INVALID_STATE;}
@@ -320,8 +337,9 @@ static esp_err_t start(bool install){
     }
     return ESP_OK;
 }
-esp_err_t if_update_check(void){return start(false);}
-esp_err_t if_update_install(void){return start(true);}
+esp_err_t if_update_check(void){return if_update_check_channel(IF_UPDATE_STABLE);}
+esp_err_t if_update_check_channel(if_update_channel_t channel){return start(false,channel);}
+esp_err_t if_update_install(void){return start(true,s_status.channel);}
 void if_update_close(void){
     atomic_store(&s_cancel,true);
     if(s_task){xSemaphoreTake(s_finished,portMAX_DELAY);s_task=NULL;}

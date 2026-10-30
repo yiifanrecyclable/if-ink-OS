@@ -10,6 +10,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='bundled-assets-') as d
     work=Path(d);(work/'build/simulator').mkdir(parents=True)
     shutil.copyfile(ROOT/'main/bundled_assets.c',work/'bundled_assets.c')
     (work/'assets').mkdir();header=(ROOT/'main/assets/bundled_banner.h').read_text();(work/'assets/bundled_banner.h').write_text(header)
+    wallpaper_header=(ROOT/'main/assets/bundled_wallpaper.h').read_text();(work/'assets/bundled_wallpaper.h').write_text(wallpaper_header)
     (work/'test.c').write_text('''#include "bundled_assets.h"
 #include <stdio.h>
 int main(void){printf("%d\\n",bundled_assets_install());return 0;}
@@ -24,6 +25,9 @@ int main(void){printf("%d\\n",bundled_assets_install());return 0;}
     card=work/'card';card.mkdir();prefs=card/'preferences.backup';prefs.write_bytes(b'unchanged Banner preferences')
     target=card/'banner pic/思考大猩猩.png';partial=card/'banner pic/.思考大猩猩.png.part'
     assert run()==0 and target.read_bytes()==(ROOT/'assets/banner/default-banner.png').read_bytes()
+    wallpaper=card/'pictures/默认壁纸.png'
+    assert wallpaper.read_bytes()==(ROOT/'assets/wallpaper/default-wallpaper.png').read_bytes()
+    wallpaper_before=wallpaper.stat().st_mtime_ns
     before=target.stat().st_mtime_ns;assert run()==0 and target.stat().st_mtime_ns==before
     target.write_bytes(b'user artwork');assert run()==0 and target.read_bytes()==b'user artwork'
     target.unlink();partial.write_bytes(b'interrupted');assert run()==0 and not partial.exists()
@@ -32,5 +36,11 @@ int main(void){printf("%d\\n",bundled_assets_install());return 0;}
     (work/'assets/bundled_banner.h').write_text(header.replace('0x78','0x79',1));build()
     assert run()!=0 and not target.exists() and not partial.exists()
     (work/'assets/bundled_banner.h').write_text(header);build();assert run()==0
+    assert wallpaper.stat().st_mtime_ns==wallpaper_before
+    wallpaper.write_bytes(b'user wallpaper');assert run()==0 and wallpaper.read_bytes()==b'user wallpaper'
+    wallpaper.unlink();(work/'assets/bundled_wallpaper.h').write_text(wallpaper_header.replace('0x78','0x79',1));build()
+    assert run()!=0 and not wallpaper.exists() and not (card/'pictures/.默认壁纸.png.part').exists()
+    (work/'assets/bundled_wallpaper.h').write_text(wallpaper_header);build();assert run()==0
+    assert wallpaper.read_bytes()==(ROOT/'assets/wallpaper/default-wallpaper.png').read_bytes()
     assert prefs.read_bytes()==b'unchanged Banner preferences'
 print('PASS: exact PNG extraction, no-card deferral, no settings changes, existing-file preservation, interrupted retry and corrupt archive rejection')

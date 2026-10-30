@@ -92,6 +92,13 @@ ICONS = (
     "panel-top",         # 首页横幅 / home banner
     "cpu",               # BOOT刷机 / BOOT flashing
     "battery-medium",    # 电池管理 / battery management
+    "layout-grid",       # 应用导航 / applications navigation
+    "layout-grid-circles", # 数字拼豆 / Cyber Beads
+    "hard-drive",        # 存储卡管理 / storage management
+    "arrow-left",        # 拼豆退出 / leave beads
+    "undo-2",            # 拼豆撤回 / undo beads
+    "save",              # 拼豆保存 / save beads
+    "brush-cleaning",    # 清空拼豆 / clear beads
 )
 
 _NUMBER = re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")

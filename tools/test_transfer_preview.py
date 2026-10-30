@@ -25,6 +25,15 @@ with tempfile.TemporaryDirectory(prefix='web-http-',dir=ROOT/'build') as tmp:
    except (urllib.error.URLError,ConnectionError):time.sleep(.05)
   else:raise AssertionError('preview server failed to start')
   assert code==200 and b'<title>if-ink OS</title>' in page
+  assert b'href="/pindou"' in page
+  assert request('/pindou')[0]==200 and request('/pindou/core.mjs')[0]==200
+  raw=bytes([0xff])*(684*1216//2)
+  code,body,_=request('/pindou/save',raw,'POST');assert code==200
+  artwork=json.loads(body);assert artwork['path'].startswith('pictures/pindou/') and artwork['created']
+  code,body,_=request('/pindou/save',raw,'POST');assert code==200 and not json.loads(body)['created']
+  code,saved,_=request(artwork['url']);assert code==200 and saved.startswith(b'\x89PNG')
+  assert struct.unpack_from('>IIBB',saved,16)==(684,1216,4,0)
+  assert request('/pindou/save',b'bad','POST')[0]==400
   code,body,_=request('/appearance');assert code==200;settings=json.loads(body)
   image=png(684,300);code,_,_=request('/banner-upload?name=test.png',image,'PUT');assert code==200
   draft={**settings['banner'],'revision':settings['revision'],'background':True,'image':'/sdcard/banner pic/test.png','font':'','text':'HTTP native preview','size':48,'text_y':100,'date_y':16}

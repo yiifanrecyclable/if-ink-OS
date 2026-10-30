@@ -198,6 +198,10 @@ esp_err_t cst836u_read(cst836u_handle_t h, cst836u_touch_t* touch) {
     memcpy(touch->raw, data, sizeof(data));
     touch->count = data[2] & 0x0F;
 
+    // 零点报告仍可能带有旧按下坐标；点数为零必须松手，不能重放旧槽。
+    // A zero-contact report may retain old down coordinates; never replay those slots.
+    if (touch->count == 0) return ESP_OK;
+
     uint8_t active_n = 0;
     bool have_primary = false;
     for (int i = 0; i < CST836U_MAX_POINTS; i++) {
@@ -213,14 +217,17 @@ esp_err_t cst836u_read(cst836u_handle_t h, cst836u_touch_t* touch) {
             pt->active = false;
             continue;
         }
-        pt->active = event != 1;
-        if (!have_primary) {
+        // 同时检查有效点数与事件；抬起的槽不能成为仍按住手指的主坐标。
+        // Honor the active count as well as events; a lifted slot cannot own the primary coordinates.
+        pt->active = event != 1 && active_n < touch->count;
+        if (pt->active && !have_primary) {
             touch->x = pt->x;
             touch->y = pt->y;
             have_primary = true;
         }
         if (pt->active) active_n++;
     }
+    touch->count = active_n;
     touch->touched = active_n != 0;
     return ESP_OK;
 }

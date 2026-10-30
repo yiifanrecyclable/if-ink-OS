@@ -10,6 +10,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "display_io.h"
 
 #include "epd_highlevel.h"
 #include "epdiy.h"

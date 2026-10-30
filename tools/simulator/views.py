@@ -8,7 +8,7 @@ add('baseline-home','首页','主界面','baseline-home')
 add('settings-31','Banner 背景','设置子页','settings-31')
 add('documents','内容 · 文档','主界面','book-8')
 add('book-0','内容 · 图书','主界面','book-0')
-add('files-home','文件','主界面','files-0',aux=-1)
+add('files-home','应用','主界面','files-0',aux=-1)
 add('settings-0','设置','主界面','settings-0')
 add('cloud-sync','坚果云同步','同步','cloud-0')
 for n,name in enumerate(('WiFi','日期与时间','手动设置时间',None,'系统文字',None,None,None,'锁屏壁纸','预览壁纸','保存与恢复','本地升级','BOOT刷机','关机与休眠',None,None,None,None,'文字编辑','坚果云同步'),1):
@@ -77,3 +77,5 @@ add("wifi-settings-password","无线网络密码","设置子页","transfer-3",au
 
 add("settings-29","轮播文件夹","设置子页","settings-29")
 add("settings-30","固定壁纸","设置子页","settings-30")
+
+add('cyber-beads','数字拼豆 · Cyber Beads','应用','cyber-beads')

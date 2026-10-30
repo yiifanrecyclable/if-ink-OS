@@ -611,6 +611,7 @@ static void online_close(void){
     if(status.state==IF_UPDATE_READY)esp_restart();
 }
 static EpdRect online_action_rect(void){return (EpdRect){36,UI_PAGE_Y(990),612,88};}
+static EpdRect online_channel_rect(void){return (EpdRect){36,UI_PAGE_Y(450),612,SETTINGS_ROW_H};}
 static void online_text(uint8_t *fb,int y,const char *text){
     int px=ui_text_fit_px(UI_TEXT_CAPTION,text,612,60);
     ui_text_fixed_vc(fb,342,y,px,text,EPD_DRAW_ALIGN_CENTER,false);
@@ -632,8 +633,14 @@ static void online_remember(const if_update_status_t *status){
 }
 static bool online_stage_changed(const if_update_status_t *status){
     return !s_online_drawn_valid||status->state!=s_online_drawn.state||status->busy!=s_online_drawn.busy||
+        status->channel!=s_online_drawn.channel||status->return_to_stable!=s_online_drawn.return_to_stable||
         status->total!=s_online_drawn.total||strcmp(status->message,s_online_drawn.message)||
         strcmp(status->current,s_online_drawn.current)||strcmp(status->version,s_online_drawn.version);
+}
+static EpdRect online_update_rect(const if_update_status_t *status,bool progress_only){
+    if(progress_only)return online_progress_rect();
+    int top=!s_online_drawn_valid||status->channel!=s_online_drawn.channel||strcmp(status->current,s_online_drawn.current)||strcmp(status->version,s_online_drawn.version)?UI_PAGE_Y(190):480;
+    return (EpdRect){36,top,612,UI_PAGE_Y(1078)-top};
 }
 static app_redraw_t online_status_redraw(int64_t now_ms,const if_update_status_t *status){
     bool stage_changed=online_stage_changed(status);
@@ -650,7 +657,8 @@ static void online_draw(uint8_t *fb){
     back_header(fb,UI_MSG("在线升级"));
     row(fb,UI_PAGE_Y(210),UI_MSG("当前版本"),status.current);
     row(fb,UI_PAGE_Y(330),UI_MSG("可用版本"),status.version[0]?status.version:"—");
-    online_text(fb,530,s_online_confirm?UI_MSG("确认安装这个版本？"):status.message);
+    row(fb,online_channel_rect().y,UI_MSG("更新通道"),status.channel==IF_UPDATE_BETA?UI_MSG("测试版 ›"):UI_MSG("稳定版 ›"));
+    online_text(fb,530,s_online_confirm?(status.return_to_stable?UI_MSG("确认切回稳定版？"):UI_MSG("确认安装这个版本？")):status.message);
     online_progress_draw(fb,&status);
     online_remember(&status);
     online_text(fb,846,UI_MSG("安装期间请保持供电"));
@@ -658,7 +666,7 @@ static void online_draw(uint8_t *fb){
         ui_draw_button(fb,(EpdRect){36,UI_PAGE_Y(990),294,88},UI_MSG("取消"),false);
         ui_draw_button(fb,(EpdRect){354,UI_PAGE_Y(990),294,88},UI_MSG("确认安装"),false);
     }else ui_draw_button(fb,online_action_rect(),status.state==IF_UPDATE_READY?UI_MSG("立即重启"):
-        status.busy?UI_MSG("取消"):status.state==IF_UPDATE_AVAILABLE?UI_MSG("安装新版本"):UI_MSG("检查更新"),false);
+        status.busy?UI_MSG("取消"):status.state==IF_UPDATE_AVAILABLE?(status.return_to_stable?UI_MSG("切回稳定版"):UI_MSG("安装新版本")):UI_MSG("检查更新"),false);
     ui_nav_draw(fb,3);
 }
 
@@ -980,9 +988,9 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         int title_px=ui_text_fit_px(UI_TEXT_TITLE,"if-ink OS",196,48);
         ui_text_fixed_vc(fb,36,center,title_px,"if-ink OS",EPD_DRAW_ALIGN_LEFT,false);
         int version_x=36+ui_text_fixed_width_px(title_px,"if-ink OS")+12;
-        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.1.7",156,48);
-        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.1.7",EPD_DRAW_ALIGN_LEFT,false);
-        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.1.7")-24;
+        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.2.0 beta",156,48);
+        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.2.0 beta",EPD_DRAW_ALIGN_LEFT,false);
+        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.2.0 beta")-24;
         const char *slogan=UI_MSG("支持md文档的Pico固件");
         int slogan_px=ui_text_fit_px(UI_TEXT_CAPTION,slogan,width,48);
         ui_text_fixed_vc_gray(fb,648,center,slogan_px,slogan,EPD_DRAW_ALIGN_RIGHT,8,15);
@@ -1017,7 +1025,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
                   reading_icons, reading_labels, reading_values, SETTINGS_DISPLAY_ROWS);
     const char *device_labels[] = {UI_MSG("日期与时间"), UI_MSG("系统语言"), UI_MSG("关机与休眠"), UI_MSG("电池管理"), UI_MSG("保存与恢复"), UI_MSG("固件信息"), UI_MSG("BOOT 刷机")};
     const char *device_values[] = {UI_MSG("设置  ›"), app_settings_language()==APP_LANGUAGE_EN?"English":"中文", app_settings_staged_shutdown() ? UI_MSG("先浅后深  ›") : UI_MSG("彻底断电  ›"),
-                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), "v0.1.7  ›", UI_MSG("电脑刷机  ›")};
+                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), "v0.2.0 beta  ›", UI_MSG("电脑刷机  ›")};
     static const int device_icons[] = {6, 17, 9, 13, 8, 14, 16};
     setting_group(fb, SETTINGS_DEVICE_Y - 34, UI_MSG("系统与设备"), SETTINGS_DEVICE_Y,
                   device_icons, device_labels, device_values, SETTINGS_DEVICE_ROWS);
@@ -1190,13 +1198,20 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
             if(tab>=0)ui_nav_request(ctx,tab);else s_page=SETTINGS_FIRMWARE_INFO;
             return APP_REDRAW_PAGE;
         }
+        if(ui_rect_hit(online_channel_rect(),ev->x0,ev->y0)){
+            if_update_status_t status;if_update_get_status(&status);
+            if(status.busy||status.state==IF_UPDATE_READY)return APP_REDRAW_NONE;
+            s_online_pending=s_online_confirm=false;
+            (void)if_update_check_channel(status.channel==IF_UPDATE_STABLE?IF_UPDATE_BETA:IF_UPDATE_STABLE);
+            return APP_REDRAW_AREA;
+        }
         if(ui_rect_hit(online_action_rect(),ev->x0,ev->y0)){
             if_update_status_t status;if_update_get_status(&status);
             if(s_online_confirm){s_online_confirm=false;if(ev->x0>=354)(void)if_update_install();}
             else if(status.busy)online_close();
             else if(status.state==IF_UPDATE_READY){esp_restart();return APP_REDRAW_NONE;}
             else if(status.state==IF_UPDATE_AVAILABLE)s_online_confirm=true;
-            else (void)if_update_check();
+            else (void)if_update_check_channel(status.channel);
             return APP_REDRAW_AREA;
         }
         return APP_REDRAW_NONE;
@@ -1571,11 +1586,11 @@ static bool settings_present(app_ctx_t *ctx, app_redraw_t redraw) {
     if(redraw==APP_REDRAW_AREA&&s_page==SETTINGS_ONLINE_UPDATE){
         if_update_status_t status;if_update_get_status(&status);
         bool progress_only=s_online_progress_only&&!online_stage_changed(&status);
+        EpdRect area=online_update_rect(&status,progress_only);
         if(progress_only){online_progress_draw(ctx->fb,&status);online_remember(&status);}
         else render(ctx,ctx->fb);
         // 阶段变化及时显示；普通进度只更新条和数字，不触碰标题、提示或底栏。
         // Show stage changes promptly; ordinary progress updates only the bar/count, leaving header, hints and footer untouched.
-        EpdRect area=progress_only?online_progress_rect():(EpdRect){0,UI_PAGE_Y(190),UI_LOCK_WIDTH,UI_NAV_TOP-UI_PAGE_Y(190)};
         guard_draw_result(ctx->hl,update_display_natural_area(ctx->hl,area));
         s_online_progress_only=false;
         return true;

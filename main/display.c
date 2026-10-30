@@ -37,6 +37,9 @@ static SemaphoreHandle_t display_guard_begin(void) {
 static void display_guard_end(SemaphoreHandle_t *lock) { xSemaphoreGiveRecursive(*lock); }
 #define DISPLAY_GUARD SemaphoreHandle_t output_guard __attribute__((cleanup(display_guard_end)))=display_guard_begin()
 
+void display_flash_begin(void) { (void)display_guard_begin(); }
+void display_flash_end(void) { xSemaphoreGiveRecursive(s_output_lock); }
+
 static const char* TAG = "read_pico";
 static bool s_bulk_io;
 static bool s_resume_clean;

@@ -4,6 +4,24 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.0 beta · 2026-10-30
+
+- “应用”页统一传输、存储卡、坚果云和数字拼豆入口；增加六阶拼豆、32步撤回、PNG保存和残局恢复。
+- 新增默认壁纸，首次卡就绪时释放到pictures，保留用户自选壁纸及已有同名文件。
+- 增加稳定/测试在线更新通道，包含触控事件与升级闪烁修复、网页壁纸文件名保留等改进；上述硬件修复仍需Beta实机验证。
+
+## 未发布 / Unreleased
+
+- 第三栏改为“应用”，集中WiFi/热点、USB、存储卡管理、坚果云和数字拼豆；存储容量用文字及圆环显示。数字拼豆支持六阶灰度、32步撤回、清空和TF卡PNG导出。 / Replace Files with an Apps hub for WiFi/hotspot, USB, storage, Nutstore and Cyber Beads, with a capacity ring; add six-tone bead drawing, 32-step undo, clearing and SD PNG export.
+
+- 网页锁屏壁纸选择器显式支持JPG等扩展名；裁剪保存保留JPG/JPEG/PNG原文件名及格式，重名追加序号，不覆盖旧图片。 / Explicitly include image extensions in the web wallpaper picker; preserve JPG/JPEG/PNG names and formats after cropping, numbering conflicts without overwriting existing images.
+
+- 在线升级新增稳定版/测试版通道，默认稳定版；两份发布清单独立校验，安装测试版后可明确确认切回较早稳定版。 / Add separate stable/beta update channels, default to stable, validate each feed independently and allow an explicitly confirmed return from beta to an earlier stable release.
+
+- 触控驱动以有效点数约束报点，清除零点报告的残留按下状态；多点抬手后主坐标只选择仍有效的手指，修正后续轻点及底部触控键可能被旧状态阻挡的路径。 / Bound touch reports by their active count, discard stale down slots in zero-contact reports, and choose an active primary finger after multitouch release so stale state cannot block later taps or touch keys.
+
+- 在线升级的Flash擦写与屏幕扫描互斥，降低欠载触发整屏清理的风险；阶段变化仅刷新内容区，保留五秒进度节流。 / Serialize OTA flash mutations with display scans to reduce underrun-triggered full cleanup; bound phase updates and retain five-second progress throttling.
+
 ## 2026-10-29 · Codex · if-ink OS v0.1.7
 
 - 首页最近阅读右列移除类别小字，上移并按字体行高自适应显示最多六篇文章；仅保留行间分隔线，空行同样保留。 / Remove the recent-list category caption and use its height for up to six font-adaptive rows.

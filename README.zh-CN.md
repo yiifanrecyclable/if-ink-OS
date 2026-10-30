@@ -1,6 +1,6 @@
 # if-ink OS
 
-**v0.1.7** · 支持 Markdown 文档的 Pico 固件。仅适用 MindReset Read Pico RDP-G01-W。
+**稳定版 v0.1.7 · 测试版 v0.2.0-beta** · 支持 Markdown 文档的 Pico 固件。仅适用 MindReset Read Pico RDP-G01-W。
 
 [在线刷机与下载](https://yiifanrecyclable.github.io/if-ink-OS/) · [版本与离线包](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.1.7) · [安装说明](docs/安装说明.md) · [构建与重新链接](BUILDING.md)
 

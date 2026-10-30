@@ -34,7 +34,7 @@ static void epd_fill_rect(EpdRect a,int gray,uint8_t *fb){
 }
 static void online_text(uint8_t *fb,int y,const char *text){(void)fb;assert(y==716);++texts;snprintf(shown,sizeof(shown),"%s",text);}
 '''
-unit+='\n'.join(extract(n) for n in ['online_progress_rect','online_progress_draw','online_remember','online_stage_changed','online_status_redraw'])
+unit+='\n'.join(extract(n) for n in ['online_progress_rect','online_progress_draw','online_remember','online_stage_changed','online_update_rect','online_status_redraw'])
 unit+='''
 int main(void){
  if_update_status_t status={.state=IF_UPDATE_DOWNLOADING,.busy=true,.revision=1,.total=100000};
@@ -52,6 +52,12 @@ int main(void){
  assert(online_status_redraw(30001,&status)==APP_REDRAW_AREA&&!s_online_progress_only);online_remember(&status);
  status.state=IF_UPDATE_READY;++status.revision;
  assert(online_status_redraw(30002,&status)==APP_REDRAW_AREA&&!s_online_progress_only);
+ online_remember(&status);
+ EpdRect stage=online_update_rect(&status,false);assert(stage.x==36&&stage.width==612&&stage.y==480&&stage.height==574);
+ strcpy(status.version,"0.1.8");stage=online_update_rect(&status,false);assert(stage.y==166&&stage.height==888);
+ EpdRect progress=online_update_rect(&status,true);assert(progress.y==596&&progress.height==164);
+ online_remember(&status);status.channel=IF_UPDATE_BETA;
+ assert(online_stage_changed(&status));stage=online_update_rect(&status,false);assert(stage.y==166&&stage.height==888);
  memset(pixels,0x5a,sizeof(pixels));status.received=6000;online_progress_draw(pixels,&status);
  assert(fills==3&&texts==1&&!strcmp(shown,"6% · 5 / 98 KB"));
  EpdRect area=online_progress_rect();

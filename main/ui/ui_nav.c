@@ -2,8 +2,8 @@
  * SPDX-FileCopyrightText: 2026 mindreset
  * SPDX-License-Identifier: Apache-2.0
  *
- * 中文：绘制与命中紧凑四栏导航；Lucide 图标表示首页、内容、文件和设置。
- * English: Draw and hit-test compact four-tab navigation with Lucide home, contents, files and settings icons.
+ * 中文：绘制与命中紧凑四栏导航；Lucide 图标表示首页、内容、应用和设置。
+ * English: Draw and hit-test compact four-tab navigation with Lucide home, contents, applications and settings icons.
  */
 #include "ui_nav.h"
 #include "ui_nav_icons.h"
@@ -65,7 +65,7 @@ void ui_nav_draw(uint8_t *fb, int active) {
         bool selected=i==active;
         epd_fill_rect((EpdRect){left,UI_NAV_TOP,width,UI_NAV_HEIGHT},selected?UI_GRAY_WHITE:UI_NAV_INACTIVE_GRAY,fb);
         if(!selected)nav_recess_shadow(fb,left,width,i>0&&i-1==active,i<3&&i+1==active);
-        static const ui_icon_t tabs[]={UI_ICON_HOUSE,UI_ICON_LIBRARY_BIG,UI_ICON_FOLDER_OPEN,UI_ICON_SLIDERS_HORIZONTAL};
+        static const ui_icon_t tabs[]={UI_ICON_HOUSE,UI_ICON_LIBRARY_BIG,UI_ICON_LAYOUT_GRID,UI_ICON_SLIDERS_HORIZONTAL};
         ui_draw_icon(fb,left+width/2,UI_NAV_TOP+UI_NAV_HEIGHT/2,44,tabs[i],selected?UI_GRAY_BLACK:UI_GRAY_WHITE);
     }
     for(int i=1;i<4;++i) {

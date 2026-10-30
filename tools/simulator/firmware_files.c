@@ -10,6 +10,7 @@ extern int simulator_route,simulator_files_view,simulator_files_folder;
 char simulator_files_dir[288];
 int simulator_files_page(void){return s_page;}
 void simulator_files(uint8_t *fb,int view,int folder,const char *dir,const char *events){
+ app_font_activate_system();
  app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);on_tick(&ctx);
  s_folder=folder;if(folder>=0)scan_folder(folder);
  if(dir&&*dir){snprintf(s_dir,sizeof(s_dir),"%s",dir);scan_folder(folder>=0?folder:3);}

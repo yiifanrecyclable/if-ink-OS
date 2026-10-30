@@ -105,6 +105,8 @@ enum EpdDrawError epd_hl_update_screen_from_white(EpdiyHighlevelState* hl, enum 
 }
 
 int main(void) {
+    // OTA使用同一个递归输出锁；嵌套的显示策略调用不能破坏配对。/ OTA shares the recursive output lock; nested display-policy calls keep ownership balanced.
+    display_flash_begin();display_flash_begin();display_set_bulk_io(false);display_flash_end();display_flash_end();
     uint8_t front[FB_BYTES], back[FB_BYTES];
     for (size_t i = 0; i < FB_BYTES; ++i) target[i] = (uint8_t)(i * 37U + 3U);
     memcpy(front, target, FB_BYTES);

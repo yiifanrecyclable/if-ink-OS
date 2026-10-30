@@ -1,6 +1,6 @@
 # if-ink OS
 
-**v0.1.7** — MindReset Read Pico RDP-G01-W 向けの独立ファームウェアです。
+**稳定版 v0.1.7 · 测试版 v0.2.0-beta** — MindReset Read Pico RDP-G01-W 向けの独立ファームウェアです。
 
 [インストールとダウンロード](https://yiifanrecyclable.github.io/if-ink-OS/) · [Release](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.1.7) · [English](README.md) · [简体中文](README.zh-CN.md)
 

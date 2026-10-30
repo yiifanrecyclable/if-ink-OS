@@ -181,6 +181,8 @@ class Preview:
             aux=self.state.get('cloud_page',0)
         elif native.startswith(('files-', 'transfer-')):
             aux = view.get('aux', 0)
+        if native.startswith('image-'):
+            path=self.state.get('root_image_path','') if self.state['root_view'] else self.state.get('image_path','')
         directory = self.state.get('root_dir', '') if self.state['root_view'] else ''
         frame_tmp = BUILD / "frame.next"
         seconds = ",".join(str(max(0, min(int(n), 1440)) * 60) for n in self.state["days"])
@@ -219,7 +221,7 @@ class Preview:
             self.state['firmware_path'] = info['book_path']
         route = info.get('route', -1)
         if route >= 0:
-            target = ('baseline-home', 'book-0', 'files-home', 'settings-0', 'image-list', 'transfer-methods','cloud-sync')[route]
+            target = ('baseline-home', 'book-0', 'files-home', 'settings-0', 'image-list', 'transfer-methods','cloud-sync','cyber-beads')[route]
             if native=='cloud-0' and self.cloud.snapshot()['busy']:
                 self.cloud.request_cancel();self.cloud_pending_view=target;self.state.update(events=[],root_view=None);return self.render()
             if route==3 and info.get('cloud_settings_requested'):
@@ -228,6 +230,8 @@ class Preview:
             if route==6 and not self.cloud.snapshot()['busy']:self.cloud.start()
             if route == 1 and info.get('book_path'):
                 target = 'reader'
+            elif route == 4 and info.get('image_path'):
+                target='image-view';self.state['image_path']=info['image_path']
             elif route == 5:
                 target = {1:'transfer-networks', 2:'transfer-hotspot', 3:'transfer-usb', 4:'wifi-settings'}.get(info.get('transfer_entry'), target)
             # 跨页面指定文件沿用固件保存的阅读位置，其他页面仍从第一页开始。
@@ -281,6 +285,7 @@ class Preview:
             n, mode = info['transfer_view'], info.get('transfer_mode', 0)
             self.state['screen'] = next((v['id'] for v in VIEWS.values() if v['native']==f'transfer-{n}' and ((mode==3 and v['aux']==3) or (mode!=3 and v['aux']!=3 and (n!=1 or v['aux']==mode)))), 'transfer-methods')
         if info.get('image_view', -1) >= 0:
+            self.state['image_path']=info.get('image_path','')
             self.state['screen'] = f"image-{'view' if info['image_view'] else 'list'}"
         if native=='power' and info.get('system_view') in (0,2,3):
             target={0:self.state.get('power_return','baseline-home'),2:'shutdown',3:'restart'}[info['system_view']]
@@ -366,13 +371,13 @@ class Preview:
                 self.state.update(events=[event],root_view=None)
             elif self.cloud.snapshot()['busy']:
                 raise CloudError('同步进行中，请先取消同步。')
-            elif native.startswith(('settings-', 'book-', 'files-', 'transfer-', 'image-')) or native in ('baseline-home','power','menu'):
+            elif native.startswith(('settings-', 'book-', 'files-', 'transfer-', 'image-')) or native in ('baseline-home','power','menu','cyber-beads'):
                 if not self.state['root_view']:
                     self.state.update(root_view=screen, root_page=self.state['page'], root_px=self.state['px'],
                                       root_path=self.state['firmware_path'], root_dir=self.state['files_dir'],
-                                      root_scroll=self.state['scroll'])
+                                      root_scroll=self.state['scroll'],root_image_path=self.state.get('image_path',''))
                     self.capture_origin()
-                if len(self.state['events'])>=500:
+                if len(self.state['events'])>=(4096 if native=='cyber-beads' else 500):
                     raise ValueError('当前模拟会话过长，请重新进入该界面')
                 self.state['events'].append(event)
             elif action=='key':
@@ -416,7 +421,7 @@ class Preview:
             if type(x) is not int or type(y) is not int or not (0 <= x < 684 and 0 <= y < 1216):
                 raise ValueError("坐标无效")
             screen = self.state["screen"]
-            if y >= 1136 and not screen.startswith('reader') and screen != "reading" and screen not in ('power','shutdown','restart'):
+            if y >= 1136 and not screen.startswith('reader') and screen != "reading" and screen not in ('power','shutdown','restart','cyber-beads'):
                 self.state["screen"] = ('baseline-home','book-0','files-home','settings-0')[min(x // 171, 3)]
             elif screen in VIEWS and screen not in ('home','cloud','shelf'):
                 self.baseline_tap(screen,x,y)
@@ -455,7 +460,7 @@ class Preview:
 
     def baseline_tap(self,screen,x,y):
         native = VIEWS.get(screen, {}).get('native', '')
-        if native.startswith(('settings-', 'book-', 'files-', 'transfer-', 'image-')) or native in ('baseline-home', 'power', 'menu'):
+        if native.startswith(('settings-', 'book-', 'files-', 'transfer-', 'image-')) or native in ('baseline-home', 'power', 'menu', 'cyber-beads'):
             # Legacy tap callers use the same production hit testing as pointer gestures.
             self.action({'action':'gesture','type':'t','x':x,'y':y,'xx':x,'yy':y})
             return

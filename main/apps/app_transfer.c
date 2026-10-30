@@ -9,7 +9,7 @@
  * render只画快照；内置存储单文件上限由book_store提供，不格式化TF卡。
  * 上传并发扫描曾欠载，页内增加预填余量；离页停服后恢复，不改波形或像素时钟。
  * 用户要求设备端配网：停服后扫描选网，ASCII密码只在连接保存时写入，离开输入页即清空。
- * 用户验收要求停止后恢复进入传书前的页面或菜单位置；遗忘网络必须确认。
+ * 用户验收要求无线传输停止后恢复进入前的位置；USB返回应用页，遗忘网络必须确认。
  * 用户修订：设置进入的无线网络页退出直接回设置，传书进入维持原路径。
  * 用户要求联网后提供网址二维码；热点用单码切换连接/网页，网络变更清除旧码。
  * 卡失效时停止并汇合接收任务，清除旧容量与二维码；当前请求不得切换存储源。
@@ -19,7 +19,7 @@
  * Render only paints snapshots; book_store defines the flash file limit. Never format the TF card.
  * Concurrent uploads underrun scan queues; increase prefill until service exit without changing waveforms or pixel clocks.
  * User-requested device provisioning scans while stopped; save ASCII passwords only on connect and clear input on leaving the editor.
- * Acceptance requires returning to the page or menu position used to enter transfer; forgetting WiFi requires confirmation.
+ * Wireless transfer returns to its entry origin; USB returns to Apps. Forgetting WiFi requires confirmation.
  * User revision: provisioning opened by Settings returns to Settings; upload provisioning keeps its original route.
  * User-requested URL QR follows network readiness; AP switches one code between joining and browsing, discarding stale codes on changes.
  * Lost media stops and joins reception and clears capacity/QR; never switch storage beneath an active request.
@@ -675,7 +675,7 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
         ui_text(fb, 64,UI_PAGE_Y(802), 21, UI_MSG("1  在电脑上等待复制完成"), EPD_DRAW_ALIGN_LEFT, false);
         ui_text(fb, 64,UI_PAGE_Y(855), 21, UI_MSG("2  安全弹出 SD_CARD，再结束读卡"), EPD_DRAW_ALIGN_LEFT, false);
         ui_fill_round_rect(fb, control_rect(2), 22, s_pressed == 2 ? 0x60 : 0x38);
-        ui_text_vc(fb, 342,UI_PAGE_Y(1014), 24, active ? UI_MSG("结束 USB 读卡") : UI_MSG("返回文件管理"),
+        ui_text_vc(fb, 342,UI_PAGE_Y(1014), 24, UI_MSG("返回"),
                    EPD_DRAW_ALIGN_CENTER, true);
         return;
     }
@@ -984,10 +984,9 @@ static app_redraw_t stop_usb_for_navigation(app_ctx_t *ctx, bool home) {
         }
         s_any_changed = true;
     }
-    if (home) ui_nav_request(ctx, 0);
-    else if (s_direct_entry) ctx->request_return = true;
-    else s_view = TRANSFER_METHODS;
-    return ctx->request_return || home ? APP_REDRAW_NONE : APP_REDRAW_PAGE;
+    // USB先解除磁盘独占并重挂载，再回固定应用入口。/ Release USB ownership and remount before returning to the fixed Apps entry.
+    ui_nav_request(ctx,home?0:2);
+    return APP_REDRAW_NONE;
 }
 
 static app_redraw_t method_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {

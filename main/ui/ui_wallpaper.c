@@ -156,7 +156,11 @@ bool ui_wallpaper_check_directory(uint8_t *fb,const char *directory){
 }
 bool ui_wallpaper_draw_lock(uint8_t *fb){
     EpdRect area={0,0,UI_LOCK_WIDTH,UI_LOCK_HEIGHT};
-    if(!app_settings_wallpaper_rotating()){bool ok=ui_wallpaper_draw(fb,app_settings_wallpaper_path(),area);if(ok)app_settings_note_wallpaper(app_settings_wallpaper_path());return ok;}
+    if(!app_settings_wallpaper_rotating()){
+        const char *path=app_settings_wallpaper_path();
+        if(!path[0])path="/sdcard/pictures/默认壁纸.png";
+        bool ok=ui_wallpaper_draw(fb,path,area);if(ok)app_settings_note_wallpaper(path);return ok;
+    }
     wallpaper_draw_context_t draw={fb,area};char selected[288];
     bool ok=wallpaper_rotation_pick(app_settings_wallpaper_path(),app_settings_wallpaper_last(),esp_random(),rotation_draw,&draw,selected,sizeof(selected));
     if(ok)app_settings_note_wallpaper(selected);

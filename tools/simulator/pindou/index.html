@@ -1,0 +1,43 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0
+中文：独立数字拼豆网页预览；不属于固件或线上刷机页。/ English: Independent bead-app preview, outside firmware and public installer.
+-->
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>数字拼豆 · if-ink OS</title><link rel="stylesheet" href="/pindou/style.css"></head>
+<body>
+<header class="preview-header"><div><span class="brand">if-ink OS</span><span class="subtitle">数字拼豆 · 界面预览</span></div><a href="/">WiFi 管理</a></header>
+<main>
+  <div class="device">
+    <div class="screen">
+      <canvas id="board" width="684" height="1216" aria-label="数字拼豆画布，17列27行，点按放置拼豆；再次点按同色删除"></canvas>
+      <nav id="tools" aria-label="拼豆工具栏">
+        <button id="exit" class="tool" aria-label="退出数字拼豆"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 19-7-7 7-7" />
+  <path d="M19 12H5" />
+</svg></button>
+        <button id="undo" class="tool" aria-label="撤回上一步" title="撤回，最多32步"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 14 4 9l5-5" />
+  <path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11" />
+</svg></button>
+        <div id="palette" role="group" aria-label="六阶灰度拼豆"></div>
+        <button id="clear" class="tool" aria-label="清空画布" title="清空画布"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m16 22-1-4" />
+  <path d="M19 14a1 1 0 0 0 1-1v-1a2 2 0 0 0-2-2h-3a1 1 0 0 1-1-1V4a2 2 0 0 0-4 0v5a1 1 0 0 1-1 1H6a2 2 0 0 0-2 2v1a1 1 0 0 0 1 1" />
+  <path d="M19 14H5l-1.973 6.767A1 1 0 0 0 4 22h16a1 1 0 0 0 .973-1.233z" />
+  <path d="m8 22 1-4" />
+</svg></button>
+        <button id="save" class="tool" aria-label="保存拼豆图片"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z" />
+  <path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7" />
+  <path d="M7 3v4a1 1 0 0 0 1 1h7" />
+</svg></button>
+      </nav>
+      <div id="toast" role="status" hidden></div>
+      <div id="exitDialog" class="veil" role="dialog" aria-modal="true" aria-labelledby="dialogTitle" hidden>
+        <div class="dialog"><h1 id="dialogTitle">作品尚未保存</h1><p id="dialogMessage">保存后再退出吗？</p><button id="saveExit">保存并退出</button><button id="discardExit">不保存退出</button><button id="continue">继续编辑</button></div>
+      </div>
+      <div id="launcher" hidden><span class="launch-brand">if-ink OS</span><h1>数字拼豆</h1><p>六阶灰度，慢慢拼。</p><button id="start">开始拼豆</button></div>
+    </div>
+    <div class="hardware" aria-label="模拟设备按键"><button id="backKey" aria-label="实体返回键">‹</button><button id="homeKey" aria-label="实体Home键">○</button><span aria-hidden="true">›</span></div>
+  </div>
+  <div class="preview-note"><span id="stateLabel">点按放置 · 同色再点移除 · 换色点按替换</span><span>684 × 1216 · 16阶灰度</span></div>
+  <div id="savedFile" hidden><span id="savedName"></span><a id="download" download>下载 PNG</a></div>
+</main>
+<script type="module" src="/pindou/app.js"></script>
+</body></html>

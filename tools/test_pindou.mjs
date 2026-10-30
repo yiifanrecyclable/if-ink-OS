@@ -1,0 +1,38 @@
+/* SPDX-License-Identifier: Apache-2.0
+ * 中文：拼豆纯规则回归，无浏览器和文件写入。/ English: Bead state regressions without browser or file writes.
+ */
+import assert from 'node:assert/strict';
+import {WIDTH,HEIGHT,TOOLBAR_TOP,COLS,ROWS,PITCH,ORIGIN_Y,BEAD_RADIUS,BEAD_GAP,SIGNATURE_GRAY,SIGNATURE_Y,SHADES,UNDO_LIMIT,createBoard,dirty,canSave,select,cellAt,place,markSaved,canUndo,canClear,clearBoard,undo} from './simulator/pindou/core.mjs';
+const b=createBoard();assert.equal(b.cells.length,17*27);assert.equal(SHADES.length,6);
+assert.equal(BEAD_GAP,2);assert.equal(PITCH-BEAD_RADIUS*2,2);
+assert.ok(ORIGIN_Y+(ROWS-1)*PITCH+BEAD_RADIUS<TOOLBAR_TOP);
+assert.ok(SIGNATURE_Y>TOOLBAR_TOP&&SIGNATURE_Y<HEIGHT-16&&SIGNATURE_GRAY>6);
+assert.equal(dirty(b),false);assert.equal(canSave(b),true);
+assert.equal(cellAt(22,24),0);assert.equal(cellAt(662,1064),COLS*ROWS-1);assert.equal(cellAt(662,1104),-1);
+for(const [x,y] of [[-1,24],[WIDTH,24],[22,-1],[22,HEIGHT],[22,TOOLBAR_TOP],[NaN,24]])assert.equal(cellAt(x,y),-1);
+assert.ok(place(b,0));assert.equal(b.cells[0],0);assert.equal(dirty(b),true);
+select(b,3);place(b,0);assert.equal(b.cells[0],3);
+place(b,0);assert.equal(b.cells[0],-1);assert.equal(dirty(b),false);
+place(b,10);markSaved(b);assert.equal(canSave(b),false);assert.equal(dirty(b),false);
+select(b,5);assert.equal(canSave(b),false);assert.equal(dirty(b),false);
+place(b,10);assert.equal(canSave(b),true);assert.equal(b.cells[10],5);
+select(b,3);place(b,10);assert.equal(dirty(b),false);assert.equal(canSave(b),false);
+assert.equal(select(b,-1),false);assert.equal(select(b,6),false);assert.equal(place(b,999),false);
+const history=createBoard();assert.equal(canUndo(history),false);assert.equal(undo(history),false);
+assert.equal(canClear(history),false);assert.equal(clearBoard(history),false);assert.equal(canUndo(history),false);
+place(history,0);select(history,3);place(history,0);place(history,0);
+assert.equal(history.cells[0],-1);undo(history);assert.equal(history.cells[0],3);
+undo(history);assert.equal(history.cells[0],0);undo(history);assert.equal(history.cells[0],-1);
+assert.equal(canUndo(history),false);assert.equal(history.selected,3);
+place(history,0);place(history,1);markSaved(history);assert.equal(dirty(history),false);
+assert.equal(clearBoard(history),true);assert.equal(canClear(history),false);assert.equal(dirty(history),true);
+assert.equal(undo(history),true);assert.equal(history.cells[0],3);assert.equal(history.cells[1],3);
+assert.equal(dirty(history),false);assert.equal(canSave(history),false);
+select(history,1);assert.equal(canSave(history),false);
+const bounded=createBoard();for(let i=0;i<40;i++)place(bounded,i);
+assert.equal(UNDO_LIMIT,32);assert.equal(bounded.history.length,UNDO_LIMIT);
+for(let i=0;i<UNDO_LIMIT;i++)assert.equal(undo(bounded),true);
+assert.equal(undo(bounded),false);
+assert.deepEqual([...bounded.cells].slice(0,8),Array(8).fill(0));
+assert.ok([...bounded.cells].slice(8).every(value=>value===-1));
+console.log('PASS: placement/recolor/toggle, bounds, saved-state comparison, 32-step undo, one-step clear/restore and palette no-op');

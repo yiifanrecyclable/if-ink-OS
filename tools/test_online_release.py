@@ -23,4 +23,19 @@ for key,value in (('draft',True),('prerelease',True),('tag_name','v0.1.1')):
     bad=copy.deepcopy(r);bad[key]=value;reject(b,bad)
 for key,value in (('digest','sha256:'+'0'*64),('size',1234),('name','firmware.zip'),('url','https://api.github.com/repos/other/repo/releases/assets/123')):
     bad=copy.deepcopy(r);bad['assets'][0][key]=value;reject(b,bad)
+def release_for(data,version):
+    release=copy.deepcopy(r);release.update(tag_name='v'+version,prerelease=True)
+    release['assets'][0].update(size=len(data),digest='sha256:'+hashlib.sha256(data).hexdigest())
+    return release
+def reject_beta(data,release):
+    try:m.prepare(data,release,'123','beta')
+    except ValueError:return
+    raise AssertionError('Invalid beta publication accepted')
+for version in ('0.1.8-beta.1','0.1.8-beta.10','0.1.8-beta','0.1.8-beta3-r2'):
+    data=image(version);release=release_for(data,version)
+    feed=m.prepare(data,release,'123','beta');assert feed['channel']=='beta' and feed['version']==version
+    reject(data,release)
+    release['prerelease']=False;reject_beta(data,release)
+for version in ('0.1.8','0.1.8-test.2','0.1.8-beta.0','0.1.8-beta.01','0.1.8-beta.100000','0.1.8-beta.1junk'):
+    data=image(version);reject_beta(data,release_for(data,version))
 print('PASS: stable release gate, raw application identity, chip/ESP checksum/SHA256, tag/asset/digest mismatch and prerelease rejection')

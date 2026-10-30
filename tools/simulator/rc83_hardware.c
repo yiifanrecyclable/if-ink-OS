@@ -21,14 +21,18 @@ esp_err_t read_pico_transfer_import_wifi_backup(const read_pico_transfer_wifi_ba
 #include <stdlib.h>
 static if_update_status_t preview_update;
 void if_update_get_status(if_update_status_t *out){*out=preview_update;strcpy(out->current,"0.1.7");}
-esp_err_t if_update_check(void){
+esp_err_t if_update_check_channel(if_update_channel_t channel){
+    if(channel!=IF_UPDATE_STABLE&&channel!=IF_UPDATE_BETA)return ESP_ERR_INVALID_ARG;
     memset(&preview_update,0,sizeof(preview_update));
+    preview_update.channel=channel;
     const char *mode=getenv("PICO_SIM_OTA_STATE");
     preview_update.state=mode&&!strcmp(mode,"available")?IF_UPDATE_AVAILABLE:IF_UPDATE_CURRENT;
-    if(preview_update.state==IF_UPDATE_AVAILABLE){strcpy(preview_update.version,"0.1.8");preview_update.total=3800000;}
+    if(mode&&!strcmp(mode,"busy")){preview_update.state=IF_UPDATE_DOWNLOADING;preview_update.busy=true;}
+    if(preview_update.state==IF_UPDATE_AVAILABLE){strcpy(preview_update.version,channel==IF_UPDATE_BETA?"0.1.8-beta.1":"0.1.8");preview_update.total=3800000;}
     strcpy(preview_update.message,preview_update.state==IF_UPDATE_AVAILABLE?"发现新版本，请确认后安装":"模拟器仅预览，请在设备检查更新");
     ++preview_update.revision;return ESP_OK;
 }
+esp_err_t if_update_check(void){return if_update_check_channel(IF_UPDATE_STABLE);}
 esp_err_t if_update_install(void){preview_update.state=IF_UPDATE_FAILED;strcpy(preview_update.message,"模拟器不执行固件升级");++preview_update.revision;return ESP_ERR_NOT_SUPPORTED;}
 void if_update_poll(void){}
 void if_update_close(void){}

@@ -7,6 +7,7 @@ import argparse,json,mimetypes,os,shutil,subprocess,threading,uuid
 from http.server import BaseHTTPRequestHandler,ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit,parse_qs,unquote
+from pindou_preview import PindouStore,FRAME_BYTES
 ROOT=Path(__file__).resolve().parents[2]
 LOCK=threading.RLock()
 def main():
@@ -14,6 +15,7 @@ def main():
     session=args.session.resolve();card=session/'card';build=session/'build/simulator';build.mkdir(parents=True,exist_ok=True)
     if not card.is_dir() or not str(session).startswith(str(ROOT/'build')+'/'):raise SystemExit('An existing isolated build session is required')
     for name in ('books','markdown','pictures','banner pic','fonts'):(card/name).mkdir(exist_ok=True)
+    pindou=PindouStore(card)
     def path_for(relative,root=False):
         parts=relative.split('/')
         if not relative and root:return card
@@ -47,7 +49,15 @@ def main():
             try:
                 with LOCK:
                     route,q=self.query()
-                    if route=='/':return self.respond(200,(ROOT/'components/read_pico_transfer/upload.html').read_bytes(),'text/html; charset=utf-8')
+                    if route=='/':
+                        page=(ROOT/'components/read_pico_transfer/upload.html').read_text().replace('</header>','</header><p style="margin:-10px 0 20px"><a class="download tiny" href="/pindou">电子拼豆 · 独立预览</a></p>',1)
+                        return self.respond(200,page.encode(),'text/html; charset=utf-8')
+                    if route in ('/pindou','/pindou/'):
+                        return self.respond(200,(ROOT/'tools/simulator/pindou/index.html').read_bytes(),'text/html; charset=utf-8')
+                    if route in ('/pindou/app.js','/pindou/core.mjs','/pindou/style.css','/pindou/system.ttf'):
+                        asset=ROOT/'main/assets/builtin.ttf' if route.endswith('system.ttf') else ROOT/'tools/simulator/pindou'/route.rsplit('/',1)[1]
+                        kind='font/ttf' if route.endswith('.ttf') else 'text/css' if route.endswith('.css') else 'text/javascript'
+                        return self.respond(200,asset.read_bytes(),kind)
                     if route=='/appearance':return self.respond(*native())
                     if route=='/info':return self.respond(200,{'mode':'sta','is_flash':False,'free_bytes':shutil.disk_usage(card).free,'file_limit':0})
                     if route=='/files':
@@ -63,6 +73,11 @@ def main():
             try:
                 with LOCK:
                     route,q=self.query();length=int(self.headers.get('Content-Length','0'))
+                    if route=='/pindou/save':
+                        origin=self.headers.get('Origin')
+                        if origin and origin!='http://'+self.headers.get('Host',''):return self.respond(403,{'error':'请从本机预览页面保存'})
+                        if length!=FRAME_BYTES:return self.respond(400,{'error':'画面尺寸不正确'})
+                        return self.respond(200,pindou.save(self.rfile.read(length)))
                     if length>3071:return self.respond(400,{'error':'请求过长'})
                     body=json.loads(self.rfile.read(length))
                     if route=='/appearance':return self.respond(*native(q.get('op',''),body))

@@ -48,10 +48,12 @@ int simulator_home_cover_geometry(unsigned part);
 int simulator_settings_geometry(int item);
 int simulator_settings_update_state(void);
 int simulator_settings_update_confirmation(void);
+int simulator_settings_update_channel(void);
 int simulator_document_rows(void);
 const char *simulator_document_page_first(void);
 int simulator_document_row_height(void);
 int simulator_management_rows(void);
+void simulator_pindou(uint8_t *fb,const char *events);
 void simulator_files(uint8_t *fb,int view,int folder,const char *dir,const char *events);
 const char *simulator_book_path(void);
 bool simulator_document_zoom(void);
@@ -74,7 +76,8 @@ unsigned simulator_document_selected_count(void),simulator_content_sort_mode(boo
 #include "ui_font.h"
 int simulator_transfer(uint8_t *fb,int view,int mode,const char *events);
 size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char *path,const char *events);
-void simulator_image(uint8_t *fb,int viewing,const char *events);
+void simulator_image(uint8_t *fb,int viewing,const char *path,const char *events);
+const char *simulator_image_path(void);
 static uint8_t fb[W * H / 2];
 int simulator_route=-1;
 int simulator_transfer_mode;
@@ -298,10 +301,11 @@ int main(int argc, char **argv) {
     }
     else if(!strcmp(argv[1],"cloud-0"))simulator_cloud(fb,argv[2],atoi(argv[3]),argc>=11?argv[10]:"");
     else if(!strncmp(argv[1],"settings",8)){simulator_cloud_load(argv[2]);settings_page=simulator_settings(fb,argv[1][8]=='-'?atoi(argv[1]+9):0,atoi(argv[3]),argc>=11?argv[10]:"");}
+    else if(!strcmp(argv[1],"cyber-beads")) simulator_pindou(fb,argc>=11?argv[10]:"");
     else if(!strncmp(argv[1],"files-",6)) simulator_files(fb,atoi(argv[1]+6),atoi(argv[3]),argc==12?argv[11]:"",argc>=11?argv[10]:"");
     else if(!strncmp(argv[1],"transfer-",9))transfer_view=simulator_transfer(fb,atoi(argv[1]+9),atoi(argv[3]),argc>=11?argv[10]:"");
     else if(!strncmp(argv[1],"book-",5)){pages=simulator_book(fb,atoi(argv[1]+5),atoi(argv[7]),atoi(argv[3]),atoi(argv[4]),argv[2],argc>=11?argv[10]:"");if(!pages)err=1;}
-    else if(!strncmp(argv[1],"image-",6))simulator_image(fb,atoi(argv[1]+6),argc>=11?argv[10]:"");
+    else if(!strncmp(argv[1],"image-",6))simulator_image(fb,atoi(argv[1]+6),argv[2],argc>=11?argv[10]:"");
     else if(!strcmp(argv[1],"menu")){simulator_system_view=4;app_ctx_t ctx={.fb=fb};simulator_replay(&ctx,simulator_system_gesture,simulator_system_key,argc>=11?argv[10]:"");ui_draw_menu_page(fb,NULL,0);}
     else if(!strcmp(argv[1],"power")){simulator_system_view=1;FILE *base=fopen("build/simulator/power-background.bin","rb");if(base){if(fread(fb,1,sizeof(fb),base)!=sizeof(fb))memset(fb,255,sizeof(fb));fclose(base);}else simulator_dashboard(fb,(uint32_t[30]){0},"");app_ctx_t ctx={.fb=fb};simulator_replay(&ctx,simulator_system_gesture,simulator_system_key,argc>=11?argv[10]:"");if(simulator_system_view==1)ui_power_dialog_draw(fb);else if(simulator_system_view>=2)ui_power_final_draw(fb,simulator_system_view==3);}
     else if(!strcmp(argv[1],"lock-default"))ui_draw_full_image(fb,simulator_lock);
@@ -322,6 +326,7 @@ int main(int argc, char **argv) {
     if (failed) return 5;
     printf("{\"pages\":%zu,\"width\":684,\"height\":1216,\"settings_page\":%d,\"transfer_view\":%d,\"route\":%d,\"book_view\":%d,\"reader_panel\":%d,\"reader_fullscreen\":%s,\"reader_page\":%d,\"reader_px\":%d,\"files_view\":%d,\"files_folder\":%d,\"image_view\":%d,\"book_path\":", pages,settings_page,transfer_view,simulator_route,simulator_book_view,simulator_reader_panel,simulator_reader_fullscreen?"true":"false",simulator_reader_page,simulator_reader_px,simulator_files_view,simulator_files_folder,simulator_image_view);
     json_string(simulator_book_path());
+    printf(",\"image_path\":");json_string(simulator_image_path());
     extern int simulator_files_page(void);
     printf(",\"files_page\":%d",simulator_files_page());
     printf(",\"markdown_committed\":%s,\"markdown_sizes\":[%u,%u,%u,%u]",simulator_markdown_committed()?"true":"false",simulator_markdown_size(0),simulator_markdown_size(1),simulator_markdown_size(2),simulator_markdown_size(3));
@@ -346,6 +351,7 @@ int main(int argc, char **argv) {
     printf(",\"ui_body_px\":%d,\"ui_title_px\":%d,\"ui_caption_px\":%d,\"ui_row_height\":%d,\"ui_detail_height\":%d,\"document_rows\":%d,\"document_row_step\":%d,\"management_rows\":%d,\"home_geometry\":[",ui_text_effective_px(UI_TEXT_BODY),ui_text_effective_px(UI_TEXT_TITLE),ui_text_effective_px(UI_TEXT_CAPTION),ui_list_row_height(false),ui_list_row_height(true),simulator_document_rows(),simulator_document_row_height(),simulator_management_rows());
     for(int i=0;i<12;++i){if(i)printf(",");printf("%d",simulator_home_geometry(i));}printf("]");
     printf(",\"update_state\":%d,\"update_confirmation\":%s",simulator_settings_update_state(),simulator_settings_update_confirmation()?"true":"false");
+    printf(",\"update_channel\":%d",simulator_settings_update_channel());
     printf(",\"settings_geometry\":[");for(int i=0;i<14;++i){if(i)printf(",");printf("%d",simulator_settings_geometry(i));}printf("]");
     printf(",\"document_page_first\":");json_string(simulator_document_page_first());
     printf(",\"wallpaper_rotating\":%s,\"wallpaper_path\":",app_settings_wallpaper_rotating()?"true":"false");json_string(app_settings_wallpaper_path());

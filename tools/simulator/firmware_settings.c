@@ -42,6 +42,7 @@ int simulator_settings_geometry(int item) {
 
 int simulator_settings_update_state(void){if_update_status_t status;if_update_get_status(&status);return status.state;}
 int simulator_settings_update_confirmation(void){return s_online_confirm;}
+int simulator_settings_update_channel(void){if_update_status_t status;if_update_get_status(&status);return status.channel;}
 
 int simulator_banner_draft(unsigned part){if(part==12)return ui_banner_text_y(&s_banner_draft);const int values[]={s_banner_draft.mode,s_banner_draft.show_date,s_quote_px,s_banner_draft.align,s_banner_draft.valign,banner_date_y(),s_banner_image_count,s_banner_image_total,font_list_step(),s_banner_image_page,banner_image_rows(),s_banner_draft.show_text};return part<12?values[part]:0;}
 const char *simulator_banner_text(void){return s_banner_draft.text;}

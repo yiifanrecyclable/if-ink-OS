@@ -27,7 +27,7 @@ class Element {
   getContext() { return {setTransform() {}, clearRect() {}, fillRect() {}, drawImage() {}, fillText() {},strokeText() {},measureText(text){return {width:text.length*24}},getImageData(){return {data:new Uint8ClampedArray(684*1216*4)}},putImageData:()=>{this.pixelWrites=(this.pixelWrites||0)+1},createImageData(w,h){return {data:new Uint8ClampedArray(w*h*4)}}}; }
   getBoundingClientRect() { return {width: 260}; }
   setPointerCapture() {}
-  toBlob(resolve) { assert.equal(this.width, 684); assert.ok(this.height===1216||this.height===300); resolve({size: 120000}); }
+  toBlob(resolve,type='image/png') { assert.equal(this.width, 684); assert.ok(this.height===1216||this.height===300); resolve({size: 120000,type}); }
 }
 
 async function setup({responses = [], confirmations = [true], mode = 'ap'} = {}) {
@@ -224,7 +224,7 @@ async function setup({responses = [], confirmations = [true], mode = 'ap'} = {})
   const afterDrag = vm.runInContext('[cropX,cropY]', t.context);
   assert.notDeepEqual(afterDrag, beforeDrag);
   await t.nodes.get('wallpaperSend').onclick();
-  assert.match(t.state.sent.at(-1).url, /^\/image-upload\?name=web-wallpaper-/);
+  assert.equal(t.state.sent.at(-1).url, '/image-upload?name=photo.jpg');
   assert.match(t.nodes.get('wallpaperResult').textContent, /已保存为锁屏壁纸/);
   assert.equal(t.state.appearancePosts.at(-1).op,'wallpaper');
   t=await setup();t.nodes.get('bannerContent').value='网页编辑';
@@ -256,5 +256,28 @@ async function setup({responses = [], confirmations = [true], mode = 'ap'} = {})
   assert.equal(t.state.appearancePosts.at(-1).body.text,'最新草稿');
   assert.equal(t.state.appearance.banner.text,'自由阅读','preview never persists settings');
   assert.doesNotMatch(html,/id="bannerConfirm"/);assert.doesNotMatch(source,/ctx.font=px/);
-  console.log('transfer web: legacy uploads/file actions plus two-column native preview/save, wallpaper validation, text bounds, download and protected actions passed');
+  // 中文：不依赖本地MIME识别；验证原名、真实输出格式、重名序号和失败保留。
+  // English: Verify picker extensions, original names, actual output MIME, numbered conflicts and failure preservation.
+  const wallpaperPicker=html.match(/<input[^>]+id="wallpaperFile"[^>]+>/)[0];
+  assert.match(wallpaperPicker,/accept="[^"]*\.jpg[^"]*\.jpeg[^"]*\.png/);
+  for(const [name,type] of [['雪山.jpg','image/jpeg'],['旅行照片.JPEG','image/jpeg'],['桌面壁纸.PNG','image/png']]){
+    t=await setup();t.nodes.get('wallpaperFile').files=[{name,size:1000}];
+    t.nodes.get('wallpaperFile').onchange();await flush();await t.nodes.get('wallpaperSend').onclick();
+    assert.equal(new URL('http://pico'+t.state.sent[0].url).searchParams.get('name'),name);
+    assert.equal(t.state.sent[0].file.type,type);
+    assert.equal(t.state.appearance.wallpaper,'/sdcard/pictures/'+name);
+  }
+  t=await setup({responses:[{status:409,body:{error:'同名文件已存在'}},{status:409,body:{error:'同名文件已存在'}},{status:200,body:{ok:true}}]});
+  t.nodes.get('wallpaperFile').files=[{name:'雪山.jpg',size:1000}];t.nodes.get('wallpaperFile').onchange();await flush();await t.nodes.get('wallpaperSend').onclick();
+  assert.deepEqual(t.state.sent.map(s=>new URL('http://pico'+s.url).searchParams.get('name')),['雪山.jpg','雪山 (1).jpg','雪山 (2).jpg']);
+  assert.ok(t.state.sent.every(s=>!s.url.includes('overwrite')));
+  assert.equal(t.state.appearance.wallpaper,'/sdcard/pictures/雪山 (2).jpg');
+  t=await setup({responses:[{status:507,body:{error:'存储空间不足'}}]});
+  t.nodes.get('wallpaperFile').files=[{name:'原名.png',size:1000}];t.nodes.get('wallpaperFile').onchange();await flush();await t.nodes.get('wallpaperSend').onclick();
+  assert.equal(t.state.sent.length,1);assert.equal(t.state.appearance.wallpaper,'');
+  assert.ok(!t.state.appearancePosts.some(p=>p.op==='wallpaper'));
+  t=await setup();await vm.runInContext("useDeviceImage('wallpaper','pictures/设备原图.jpg')",t.context);await t.nodes.get('wallpaperSend').onclick();
+  assert.equal(new URL('http://pico'+t.state.sent[0].url).searchParams.get('name'),'设备原图.jpg');
+  assert.equal(t.state.appearance.wallpaper,'/sdcard/pictures/设备原图.jpg');
+  console.log('transfer web: uploads/file actions, native preview/save, wallpaper names/MIME/numbered conflicts, failure preservation, text bounds, download and protected actions passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
