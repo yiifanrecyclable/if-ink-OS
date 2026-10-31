@@ -88,6 +88,7 @@
 #include "book_progress.h"
 #include "book_title.h"
 #include "book_ticket.h"
+#include "operation_log.h"
 #include "book_toc.h"
 #include "app_font_context.h"
 #include "book_source.h"
@@ -1609,6 +1610,7 @@ static bool present(app_ctx_t* ctx, app_redraw_t redraw) {
     }
     if (s_view == SHELF || s_view == MANAGE) prepare_covers(ctx);
     int64_t start = esp_timer_get_time();
+    operation_log_event(OPLOG_PRESENT,0,redraw,s_view,s_water_turn_pending,0);
     if (redraw == APP_REDRAW_PAGE || redraw == APP_REDRAW_FULL) render(ctx, ctx->fb);
     bool prep = kick_prep();
     int64_t drawn = esp_timer_get_time();
@@ -1656,6 +1658,8 @@ static bool present(app_ctx_t* ctx, app_redraw_t redraw) {
           s_view==DOCUMENTS?update_display_navigation_page(ctx->hl,(EpdRect){0},ui_nav_rect()):update_display_fast_page(ctx->hl);
     int64_t displayed = esp_timer_get_time();
     reader_prefetch_end(prep);
+    operation_log_event(OPLOG_PRESENT,1,redraw,s_view,s_water_turn_pending,(int)((esp_timer_get_time()-start)/1000));
+    operation_log_event(OPLOG_PRESENT,2,(int)((drawn-start)/1000),(int)((displayed-drawn)/1000),0,(int)((esp_timer_get_time()-displayed)/1000));
     if (redraw == APP_REDRAW_AREA && s_mode == MODE_DU &&
         !s_reader_cleanup && !image_gray_refresh) {
         s_du_area = s_du_count ? ui_rect_union(s_du_area, s_area) : s_area;
@@ -1737,6 +1741,9 @@ static void flush_ticket_stats(void) {
 }
 static void track_ticket_stats(app_ctx_t* ctx) {
     if (s_view != READING || !s_text) { s_stats_last_ms = ctx->now_ms; return; }
+    // 休眠前将基准清零；唤醒首帧重开活跃窗口，不计算睡眠间隔。
+    // Lock clears the baseline; the first awake tick restarts activity without crediting sleep.
+    if (!s_stats_last_ms) s_stats_activity_ms = ctx->now_ms;
     if (s_stats_last_ms > 0 && ctx->now_ms >= s_stats_last_ms &&
         ctx->now_ms - s_stats_last_ms <= 5000 &&
         ctx->now_ms - s_stats_activity_ms <= 300000 && !s_toolbar) {
@@ -2073,12 +2080,13 @@ static bool open_book(app_ctx_t* ctx, const char* path) {
     app_font_set_document_mode(is_document);
     if(is_document&&!content_markdown_font()[0]){const char *initial=app_settings_font_path();(void)content_markdown_font_set(initial[0]?initial:TTF_FONT_BUILTIN);}
     app_font_activate_reading();
+    // 更新可能使旧监视失效，须在刷新之后重新预留保存对象。/ Refresh can invalidate old watches; reserve after revision validation.
+    if(is_document){bool changed=false;if(document_store_refresh(path,&changed)!=ESP_OK){copy_text(s_message,sizeof(s_message),UI_MSG("文档或插图未完整入库，请检查后重试"));return false;}if(changed)pending_discard(path);}
     if (!pending_reserve(path)) {
         copy_text(s_message, sizeof(s_message), UI_MSG("内存不足，无法打开图书"));
         app_font_activate_system();
         return false;
     }
-    if(is_document){bool changed=false;if(document_store_refresh(path,&changed)!=ESP_OK){copy_text(s_message,sizeof(s_message),UI_MSG("文档或插图未完整入库，请检查后重试"));return false;}if(changed)pending_discard(path);}
     esp_err_t err = book_open(path);
     s_document_mode=is_document;
     if (err != ESP_OK) {
@@ -2525,6 +2533,7 @@ static void manage_apply(app_ctx_t* ctx) {
 
 /* ---- 输入与生命周期 / Input and lifecycle ---- */
 static app_redraw_t turn_page(app_ctx_t* ctx, int dir) {
+    operation_log_event(OPLOG_TURN,dir,(int)s_page,(int)s_chapter,ctx->pressed?1:0,(int)percent(s_page));
     if (!s_text || s_clear_confirm) return APP_REDRAW_NONE;
     if(book_kind()==BOOK_KIND_MARKDOWN&&book_layout_page_count()==1&&dir>0&&!s_document_completed){s_document_completed=true;save_progress();return APP_REDRAW_PAGE;}
     bool text_transition=app_settings_reader_hide_images()||reader_image_slots(s_page)==0;
@@ -2706,6 +2715,7 @@ static app_redraw_t apply_reader_option(app_ctx_t* ctx, int kind) {
 }
 
 static app_redraw_t reader_return(app_ctx_t *ctx, bool home) {
+    track_ticket_stats(ctx);
     save_progress();
     if (home || s_reader_return_home) {
         ui_nav_request(ctx, 0);
@@ -3368,6 +3378,7 @@ static void on_enter(app_ctx_t* ctx) {
     }
 }
 static void book_on_exit(app_ctx_t* ctx) {
+    track_ticket_stats(ctx);
     s_presented_view = -1;
     free(s_editor_cover); s_editor_cover = NULL;
     s_pressed_control = -1;
@@ -3493,6 +3504,7 @@ static app_redraw_t paint_control(app_ctx_t* ctx, EpdRect rect) {
     return APP_REDRAW_AREA;
 }
 static app_redraw_t gesture_event(app_ctx_t* ctx, const ui_gesture_event_t* ev) {
+    if(s_view==READING&&!s_toolbar)operation_log_event(OPLOG_GESTURE,ev->type,ev->x0,ev->y0,(s_reader_multi.active?1:0)|(s_reader_multi.blocked?2:0),(int)ev->hold_ms);
     if(s_sort_open)return ev->type==UI_GESTURE_TAP?content_sort_action(ctx,ev->x0,ev->y0):APP_REDRAW_NONE;
     if(s_view==DOCUMENT_BULK)return document_bulk_action(ctx,ev);
     if(s_view==MANAGE)return ev->type==UI_GESTURE_TAP?manage_action(ctx,ev->x0,ev->y0):APP_REDRAW_NONE;
@@ -3696,8 +3708,10 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
     const cst836u_touch_t *touch=ctx->touch;
     bool multi_enabled=s_view==READING&&!s_toolbar&&!s_clear_confirm&&!ctx->consumed;
     if(multi_enabled&&touch&&touch->count==2)multi_enabled=ui_rect_hit(reader_area(),touch->points[0].x,touch->points[0].y)&&ui_rect_hit(reader_area(),touch->points[1].x,touch->points[1].y);
+    bool was_multi_active=s_reader_multi.active,was_multi_blocked=s_reader_multi.blocked;
     int multi=reader_multi_feed(&s_reader_multi,multi_enabled,touch&&touch->touched,touch?touch->count:0,
         touch?touch->points[0].x:0,touch?touch->points[0].y:0,touch?touch->points[1].x:0,touch?touch->points[1].y:0,ctx->now_ms);
+    if(multi>=0||was_multi_active!=s_reader_multi.active||was_multi_blocked!=s_reader_multi.blocked)operation_log_event(OPLOG_MULTI,s_reader_multi.active,s_reader_multi.blocked,touch?touch->count:0,multi_enabled,multi);
     if(multi>=0){s_stats_activity_ms=ctx->now_ms;return reader_execute_shortcut(ctx,multi);}
 
     if (ctx->consumed) return APP_REDRAW_NONE;

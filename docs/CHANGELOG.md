@@ -4,6 +4,15 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.0 beta r2 / 2026-10-31
+
+- 设置 → 系统与设备新增「记录日志」：两分钟内存采集，结束后保存为 `diagnostics/operation-NNNN.csv`，用于诊断阅读触控；休眠/USB提前结束，不采集正文、文件名、账号、密码，非阅读区隐藏触控坐标。记录容量有界，文件头列出被覆盖条数；失败保留内存，可回设置页重试。尚未改变阅读触控或水波纹行为。
+- 已有WiFi连接下自动校时，持久保存上次网络校准时间，PMU时钟同步失败会重试；没有离线主动联网。
+- 修复长休眠后首屏计时不恢复、文档内容更新后保存对象失效；退出阅读补计时，内部统计存储失败时可回退TF日记录。保存中的历史故障仍需本Beta真机复测。
+- 拼豆5像素定位点、面板安全边距和较深导出水印纳入本次测试版。
+
+Add a bounded two-minute diagnostic capture under Settings → System & device; export to diagnostics after capture, with private text/paths/credentials excluded and non-reader coordinates redacted. Sleep/USB ends capture early, failed export can retry. Reader input/refresh behavior is unchanged. Persist successful online clock calibration and retry PMU writes without starting offline WiFi. Include reading-statistics/progress fixes and bead visual refinements for hardware testing.
+
 ## 0.2.0 beta · 2026-10-30
 
 - “应用”页统一传输、存储卡、坚果云和数字拼豆入口；增加六阶拼豆、32步撤回、PNG保存和残局恢复。

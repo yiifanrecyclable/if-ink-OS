@@ -3,9 +3,9 @@
  * English: Pure bead-preview state rules without DOM, networking or real TF access.
  */
 export const WIDTH=684, HEIGHT=1216, TOOLBAR_TOP=1100;
-export const COLS=17, ROWS=27, PITCH=40, ORIGIN_X=22, ORIGIN_Y=24;
+export const COLS=17, ROWS=27, PITCH=39, ORIGIN_X=30, ORIGIN_Y=34;
 export const BEAD_GAP=2, BEAD_RADIUS=(PITCH-BEAD_GAP)/2;
-export const SIGNATURE_GRAY=11, SIGNATURE_Y=(TOOLBAR_TOP+HEIGHT)/2;
+export const SIGNATURE_GRAY=6, SIGNATURE_Y=(TOOLBAR_TOP+HEIGHT)/2;
 export const SHADES=Object.freeze([13,11,8,5,2,0]);
 export const UNDO_LIMIT=32;
 export function createBoard(){return {cells:new Int8Array(COLS*ROWS).fill(-1),selected:0,saved:null,history:[]};}

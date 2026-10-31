@@ -46,6 +46,7 @@ idf_component_register(
         "bundled_assets.c"
         "settings.c"
         "time_service.c"
+        "operation_log.c"
         "power/battery_history.c"
         "app/app_loop.c"
         "app/app_registry.c"

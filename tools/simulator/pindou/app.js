@@ -9,8 +9,8 @@ const colors=[];
 function gray(level){return `rgb(${level*17},${level*17},${level*17})`;}
 function drawCell(context,index,cells){
   const x=ORIGIN_X+(index%COLS)*PITCH,y=ORIGIN_Y+Math.floor(index/COLS)*PITCH;
-  context.clearRect(x-20,y-20,PITCH,PITCH);context.fillStyle='#fff';context.fillRect(x-20,y-20,PITCH,PITCH);
-  if(cells[index]<0){context.fillStyle='#d4d4d4';context.beginPath();context.arc(x,y,1.5,0,Math.PI*2);context.fill();return;}
+  context.clearRect(x-Math.floor(PITCH/2),y-Math.floor(PITCH/2),PITCH,PITCH);context.fillStyle='#fff';context.fillRect(x-Math.floor(PITCH/2),y-Math.floor(PITCH/2),PITCH,PITCH);
+  if(cells[index]<0){context.fillStyle='#999999';context.beginPath();context.arc(x,y,2.5,0,Math.PI*2);context.fill();return;}
   context.fillStyle=gray(SHADES[cells[index]]);
   context.beginPath();context.arc(x,y,BEAD_RADIUS,0,Math.PI*2);context.fill();
   context.fillStyle='#fff';

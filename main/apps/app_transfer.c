@@ -34,6 +34,7 @@
 #include "book_store.h"
 #include "book_progress.h"
 #include "document_store.h"
+#include "operation_log.h"
 #include "book_title.h"
 #include "display.h"
 #include "e0470_epaper_waveform.h"
@@ -884,6 +885,7 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
         }
         if (s_usb_retry_ms && ctx->now_ms - s_usb_retry_ms < 250) return APP_REDRAW_NONE;
         s_usb_retry_ms = ctx->now_ms;
+        operation_log_finish();
         esp_err_t err = usb_storage_start();
         if (err == ESP_ERR_NOT_FINISHED) return APP_REDRAW_NONE;
         s_usb_start_pending = false;

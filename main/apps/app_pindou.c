@@ -22,17 +22,20 @@ static bool s_toolbar_dirty, s_board_save_pending;
 static char s_notice[160];
 static const uint8_t shades[]={0xdd,0xbb,0x88,0x55,0x22,0x00};
 static EpdRect toolbar(void) { return (EpdRect){0,1100,684,116}; }
-static EpdRect cell_rect(int i) { return (EpdRect){2+(i%17)*40,4+(i/17)*40,40,40}; }
+#define GRID_PITCH 39
+#define GRID_LEFT 11
+#define GRID_TOP 15
+static EpdRect cell_rect(int i) { return (EpdRect){GRID_LEFT+(i%BEADS_COLS)*GRID_PITCH,GRID_TOP+(i/BEADS_COLS)*GRID_PITCH,GRID_PITCH,GRID_PITCH}; }
 static bool any_beads(void) {
     if(s_board)for(int i=0;i<BEADS_COUNT;++i)if(s_board->cells[i]>=0)return true;
     return false;
 }
 static void draw_cell(uint8_t *fb,int i) {
-    EpdRect r=cell_rect(i);int cx=r.x+20,cy=r.y+20;
+    EpdRect r=cell_rect(i);int cx=r.x+GRID_PITCH/2,cy=r.y+GRID_PITCH/2;
     epd_fill_rect(r,UI_GRAY_WHITE,fb);
     int color=s_board?s_board->cells[i]:-1;
-    if(color<0)epd_fill_circle(cx,cy,1,0xdd,fb);
-    else { epd_fill_circle(cx,cy,19,shades[color],fb);epd_fill_circle(cx,cy,7,UI_GRAY_WHITE,fb); }
+    if(color<0)epd_fill_circle(cx,cy,2,0x99,fb);
+    else { epd_fill_circle(cx,cy,18,shades[color],fb);epd_fill_circle(cx,cy,7,UI_GRAY_WHITE,fb); }
 }
 static void draw_tools(uint8_t *fb) {
     epd_fill_rect(toolbar(),UI_GRAY_WHITE,fb);
@@ -84,8 +87,8 @@ static bool save(app_ctx_t *ctx) {
     int previous_dialog=s_dialog;s_dialog=0;s_notice[0]=0;render(ctx,ctx->fb);
     epd_fill_rect(toolbar(),UI_GRAY_WHITE,ctx->fb);
     epd_fill_rect((EpdRect){0,1012,684,88},UI_GRAY_WHITE,ctx->fb);
-    for(int i=0;i<BEADS_COUNT;++i)if(cell_rect(i).y+40>1012)draw_cell(ctx->fb,i);
-    ui_text_fixed_vc_gray(ctx->fb,342,1158,24,"if-ink OS @ Pico",EPD_DRAW_ALIGN_CENTER,11,15);
+    for(int i=0;i<BEADS_COUNT;++i)if(cell_rect(i).y+GRID_PITCH>1012)draw_cell(ctx->fb,i);
+    ui_text_fixed_vc_gray(ctx->fb,342,1158,24,"if-ink OS @ Pico",EPD_DRAW_ALIGN_CENTER,6,15);
     char path[128];bool ok=true;
     if(cyber_beads_can_save(s_board)) {
         ok=beads_png_save(ctx->fb,path,sizeof(path));
@@ -134,8 +137,8 @@ static app_redraw_t on_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev) {
         if(!cyber_beads_can_save(s_board)&&!s_board_save_pending)return APP_REDRAW_NONE;
         save(ctx);return APP_REDRAW_PAGE;
     }
-    if(!s_board||ev->x0<2||ev->y0<4||ev->x0>=682||ev->y0>=1084)return APP_REDRAW_NONE;
-    int index=(ev->y0-4)/40*17+(ev->x0-2)/40;
+    if(!s_board||ev->x0<GRID_LEFT||ev->y0<GRID_TOP||ev->x0>=GRID_LEFT+BEADS_COLS*GRID_PITCH||ev->y0>=GRID_TOP+BEADS_ROWS*GRID_PITCH)return APP_REDRAW_NONE;
+    int index=(ev->y0-GRID_TOP)/GRID_PITCH*BEADS_COLS+(ev->x0-GRID_LEFT)/GRID_PITCH;
     bool tools=!s_board->steps||!any_beads()||!cyber_beads_can_save(s_board);
     bool notice=s_notice[0];s_notice[0]=0;
     cyber_beads_place(s_board,index);tools=tools||!any_beads()||!cyber_beads_can_save(s_board);

@@ -9,7 +9,7 @@ EPOCH=date(1970,1,1)
 def day(d):return (d-EPOCH).days
 with tempfile.TemporaryDirectory(prefix='history-',dir=R/'build') as tmp:
     base=Path(tmp);card=base/'card';card.mkdir();out=base/'build/simulator';out.mkdir(parents=True)
-    env={**os.environ,'PICO_SIM_CARD_ROOT':str(card)}
+    env={**os.environ,'PICO_SIM_CARD_ROOT':str(card),'HISTORY_TEST_CARD':str(card)}
     binary=base/'storage-test'
     flags=['cc','-std=gnu11','-Wall','-Wextra','-Werror','-Wno-unused-parameter','-Wno-unused-function','-fsanitize=address,undefined','-fno-omit-frame-pointer','-ffunction-sections','-fdata-sections','-Dtime=history_test_time','-DPICO_SIM_CARD_PATH="unused"','-include','tools/simulator/fs.h']
     for inc in ('tools/simulator/include','main','main/app','main/book','main/font','main/ui','components/sc7a20h/include','components/read_pico_pmu/include','components/read_pico_transfer/include'):flags+=['-I'+inc]

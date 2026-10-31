@@ -17,7 +17,7 @@ Open that URL; the WiFi preview also links to it. The session must contain an is
 - 保存为684×1216、4位灰度PNG，编辑工具不进入图片，底部署名为 `if-ink OS @ Pico`。
 - 输出在会话模拟卡 `pictures/pindou/pindou-NNNN.png`，先写临时文件再提交，不覆盖旧作品；失败保留当前编辑状态。
 
-17×27 cells with 2px bead gaps, six shades, toggle/recolor by tap, no drag painting. The compact icon toolbar orders Exit, Undo, six shades, Clear and Save. Undo keeps at most 32 records, with index/old-color pairs for normal edits; confirmed clearing is one recoverable step. Saving compares against the last saved model; selecting a shade is not an edit. Exit/Back/Home/Escape share the unsaved prompt, while browser navigation uses its native warning. Exports are full-resolution 4-bit grayscale PNGs with a light gray footer signature instead of the editing toolbar, written transactionally to the isolated session card without overwriting artwork.
+17×27 cells with 2px bead gaps, six shades, toggle/recolor by tap, no drag painting. The compact icon toolbar orders Exit, Undo, six shades, Clear and Save. Undo keeps at most 32 records, with index/old-color pairs for normal edits; confirmed clearing is one recoverable step. Saving compares against the last saved model; selecting a shade is not an edit. Exit/Back/Home/Escape share the unsaved prompt, while browser navigation uses its native warning. Exports are full-resolution 4-bit grayscale PNGs with a mid-gray footer signature instead of the editing toolbar, written transactionally to the isolated session card without overwriting artwork.
 
 核心规则和导出检查 / Core and export checks:
 
@@ -27,8 +27,8 @@ python3 tools/test_pindou_export.py
 python3 tools/test_transfer_preview.py
 ```
 
-真机版使用PSRAM保存固定大小画布和32步撤回；普通编辑只刷新40×40格子，工具状态变化时另刷新底栏。保存逐行压缩为4-bit灰度PNG，目录为 `/sdcard/pictures/pindou`。实体键退出也受未保存提示保护。
-The native app keeps its bounded board and 32-step history in PSRAM, refreshes changed 40×40 cells and updates tools only when needed. PNG export streams rows to `/sdcard/pictures/pindou`; physical-key exit also checks unsaved edits.
+真机版使用PSRAM保存固定大小画布和32步撤回；普通编辑只刷新39×39格子，工具状态变化时另刷新底栏。保存逐行压缩为4-bit灰度PNG，目录为 `/sdcard/pictures/pindou`。实体键退出也受未保存提示保护。
+The native app keeps its bounded board and 32-step history in PSRAM, refreshes changed 39×39 cells and updates tools only when needed. PNG export streams rows to `/sdcard/pictures/pindou`; physical-key exit also checks unsaved edits.
 
 验证：`cc -Imain/apps tools/cyber_beads_host_test.c main/apps/cyber_beads.c -o /tmp/beads-test && /tmp/beads-test`，`bash tools/simulator/build.sh && python3 tools/test_apps_beads.py`。后者使用临时隔离TF卡。
 Validation commands above exercise the production model and isolated native UI/PNG export.

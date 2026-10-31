@@ -2,13 +2,15 @@
  * 中文：拼豆纯规则回归，无浏览器和文件写入。/ English: Bead state regressions without browser or file writes.
  */
 import assert from 'node:assert/strict';
-import {WIDTH,HEIGHT,TOOLBAR_TOP,COLS,ROWS,PITCH,ORIGIN_Y,BEAD_RADIUS,BEAD_GAP,SIGNATURE_GRAY,SIGNATURE_Y,SHADES,UNDO_LIMIT,createBoard,dirty,canSave,select,cellAt,place,markSaved,canUndo,canClear,clearBoard,undo} from './simulator/pindou/core.mjs';
+import {WIDTH,HEIGHT,TOOLBAR_TOP,COLS,ROWS,PITCH,ORIGIN_X,ORIGIN_Y,BEAD_RADIUS,BEAD_GAP,SIGNATURE_GRAY,SIGNATURE_Y,SHADES,UNDO_LIMIT,createBoard,dirty,canSave,select,cellAt,place,markSaved,canUndo,canClear,clearBoard,undo} from './simulator/pindou/core.mjs';
 const b=createBoard();assert.equal(b.cells.length,17*27);assert.equal(SHADES.length,6);
 assert.equal(BEAD_GAP,2);assert.equal(PITCH-BEAD_RADIUS*2,2);
+assert.ok(ORIGIN_X-BEAD_RADIUS>=10);assert.ok(WIDTH-(ORIGIN_X+(COLS-1)*PITCH+BEAD_RADIUS)>=10);
+assert.ok(ORIGIN_Y-BEAD_RADIUS>=15);
 assert.ok(ORIGIN_Y+(ROWS-1)*PITCH+BEAD_RADIUS<TOOLBAR_TOP);
-assert.ok(SIGNATURE_Y>TOOLBAR_TOP&&SIGNATURE_Y<HEIGHT-16&&SIGNATURE_GRAY>6);
+assert.ok(SIGNATURE_Y>TOOLBAR_TOP&&SIGNATURE_Y<HEIGHT-16&&SIGNATURE_GRAY>SHADES[3]&&SIGNATURE_GRAY<SHADES[2]);
 assert.equal(dirty(b),false);assert.equal(canSave(b),true);
-assert.equal(cellAt(22,24),0);assert.equal(cellAt(662,1064),COLS*ROWS-1);assert.equal(cellAt(662,1104),-1);
+assert.equal(cellAt(30,34),0);assert.equal(cellAt(654,1048),COLS*ROWS-1);assert.equal(cellAt(654,1104),-1);
 for(const [x,y] of [[-1,24],[WIDTH,24],[22,-1],[22,HEIGHT],[22,TOOLBAR_TOP],[NaN,24]])assert.equal(cellAt(x,y),-1);
 assert.ok(place(b,0));assert.equal(b.cells[0],0);assert.equal(dirty(b),true);
 select(b,3);place(b,0);assert.equal(b.cells[0],3);

@@ -51,6 +51,21 @@ int main(void){
     assert(book_ticket_recent_days(recent,&end)&&recent[29]==120&&recent[0]==30);
     assert(reading_history_merge(23011,99)); /* 2033-01-01; no fixed retention window. */
     assert(reading_history_read(23011)==99&&reading_history_first(23011)==leapday);
+    /* NVS namespace unavailable: card history still advances and survives recovery. */
+    at(jan1+66);
+    assert(!rename("build/simulator/nvs/rp_ticket","build/simulator/nvs/rp_ticket-old"));
+    FILE *blocked=fopen("build/simulator/nvs/rp_ticket","wb");assert(blocked);fclose(blocked);
+    assert(book_ticket_record(61,1)==ESP_OK);
+    assert(book_ticket_record(62,1)==ESP_OK);
+    assert(reading_history_read(jan1+66)==123);
+    assert(book_ticket_recent_days(recent,&end)&&recent[29]==123);
+    setenv("PICO_SIM_CARD_ROOT","missing-card",1);
+    assert(book_ticket_record(63,1)!=ESP_OK);
+    setenv("PICO_SIM_CARD_ROOT",getenv("HISTORY_TEST_CARD"),1);
+    assert(!remove("build/simulator/nvs/rp_ticket"));
+    assert(!rename("build/simulator/nvs/rp_ticket-old","build/simulator/nvs/rp_ticket"));
+    assert(book_ticket_record(64,1)==ESP_OK);
+    assert(reading_history_read(jan1+66)==187);
     puts("reading history storage: migration, accumulation, 30-day rollover, missing card recovery, torn-copy recovery, leap year and multi-year retention OK");
     return 0;
 }

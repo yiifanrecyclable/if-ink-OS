@@ -54,6 +54,8 @@
 #include "ui_kit.h"
 #include "ui_menu.h"
 #include "ui_gesture.h"
+#include "operation_log.h"
+extern bool app_book_reader_body_visible(void);
 #include "ui_power_dialog.h"
 #include "usb_storage.h"
 
@@ -121,6 +123,7 @@ static void cancel_gesture(app_ctx_t* ctx, const app_desc_t* app, ui_gesture_t* 
         const app_desc_t* requested = ctx->request_app;
         bool menu_requested = ctx->request_menu;
         bool return_requested = ctx->request_return;
+        operation_log_event(OPLOG_CANCEL,3,0,0,0,0);
         app_redraw_t redraw = app->on_gesture(ctx, &event);
         ctx->request_app = requested;
         ctx->request_menu = menu_requested;
@@ -133,8 +136,10 @@ static void cancel_gesture(app_ctx_t* ctx, const app_desc_t* app, ui_gesture_t* 
 
 static void present_page(app_ctx_t* ctx, const app_desc_t* app,
                          ui_gesture_t* gesture, app_redraw_t redraw) {
-    if (redraw == APP_REDRAW_PAGE || redraw == APP_REDRAW_FULL)
+    if (redraw == APP_REDRAW_PAGE || redraw == APP_REDRAW_FULL) {
+        operation_log_event(OPLOG_CANCEL,2,redraw,0,0,0);
         cancel_gesture(ctx, app, gesture);
+    }
     app_present(ctx, app, redraw);
 }
 
@@ -174,6 +179,7 @@ static void menu_feedback(app_ctx_t* ctx, const app_desc_t* current,
 static void switch_to(
     app_ctx_t* ctx, const app_desc_t** current, const app_desc_t* next
 ) {
+    operation_log_event(OPLOG_PAGE,app_index_of(next),0,0,0,0);
     if (next == NULL || next == *current) return;
     if ((*current)->on_exit != NULL) (*current)->on_exit(ctx);
     *current = next;
@@ -270,6 +276,8 @@ static bool poll_media(app_ctx_t* ctx, const app_desc_t* current,
 
 // 返回目标先清成当前主页面，阅读回调再补充文件路径。/ Start with the current root; the reader callback supplies its path.
 static void prepare_lock_resume(app_ctx_t *ctx,const app_desc_t *current){
+    operation_log_event(OPLOG_SLEEP,1,0,0,0,0);
+    operation_log_finish();
     unsigned tab=0;for(unsigned i=0;i<4;++i)if(app_at(i)==current)tab=i;
     sleep_resume_set_target(tab,NULL);
     if(current->on_before_lock)current->on_before_lock(ctx);
@@ -279,6 +287,8 @@ static void prepare_lock_resume(app_ctx_t *ctx,const app_desc_t *current){
 // Save the current page first, then settle a clock-free static frame so shutdown never leaves a misleading frozen time.
 static void run_power_action(app_ctx_t *ctx, const app_desc_t *current, bool restart) {
     if (current->on_before_lock) current->on_before_lock(ctx);
+    operation_log_event(OPLOG_SLEEP,2,restart,0,0,0);
+    operation_log_finish();
     ui_power_final_draw(ctx->fb, restart);
     guard_draw_result(ctx->hl, update_display_full(ctx->hl));
     app_lock_wait_key_idle(800);
@@ -347,7 +357,10 @@ void app_loop_run(const app_loop_config_t* config) {
 
     while (true) {
         cst836u_touch_t touch = { 0 };
+        int64_t input_start=esp_timer_get_time();
         esp_err_t err = cst836u_read(config->tp, &touch);
+        int input_us=(int)(esp_timer_get_time()-input_start);
+        if(err!=ESP_OK||input_us>2000)operation_log_event(OPLOG_READ,err,touch.count,0,0,input_us);
         if (err != ESP_OK) {
             ESP_LOGE(TAG, "CST836U read failed: %s", esp_err_to_name(err));
             memset(&touch, 0, sizeof(touch));
@@ -355,6 +368,7 @@ void app_loop_run(const app_loop_config_t* config) {
 
         const bool pressed = touch.touched && !was_touched;
         const bool released = !touch.touched && was_touched;
+        operation_log_sample(&touch,err,pressed,released,app_book_reader_body_visible());
         debounce_touch(&latest, &touch, released);
         ctx.now_ms = esp_timer_get_time() / 1000;
         if(err==ESP_OK&&(touch.touched||released))last_activity_ms=ctx.now_ms;
@@ -384,7 +398,8 @@ void app_loop_run(const app_loop_config_t* config) {
                 else app_present(&ctx, current, APP_REDRAW_FULL);
                 // 本轮旧输入不再触发动作，下一轮恢复正常事件处理。
                 // Discard this tick's stale input, then resume normal dispatch next tick.
-                vTaskDelay(pdMS_TO_TICKS(LOOP_TICK_MS));
+                operation_log_poll(err==ESP_OK&&!touch.touched&&!usb_storage_active());
+        vTaskDelay(pdMS_TO_TICKS(LOOP_TICK_MS));
                 continue;
             }
         }
@@ -425,6 +440,7 @@ void app_loop_run(const app_loop_config_t* config) {
         }
 
         if (err != ESP_OK) {
+            operation_log_event(OPLOG_CANCEL,1,err,0,0,0);
             held_key = -1;
             ctx.consumed = true;
             cancel_gesture(&ctx, current, &gesture);
@@ -729,6 +745,7 @@ void app_loop_run(const app_loop_config_t* config) {
         }
         app_time_service_poll(ctx.now_ms,err==ESP_OK&&!touch.touched&&!ctx.released&&!ctx.consumed&&
             !power_dialog_open&&!usb_storage_active()&&!current->holds_pmu);
+        operation_log_poll(err==ESP_OK&&!touch.touched&&!usb_storage_active());
         vTaskDelay(pdMS_TO_TICKS(LOOP_TICK_MS));
     }
 }

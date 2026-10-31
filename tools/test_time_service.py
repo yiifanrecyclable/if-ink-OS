@@ -29,9 +29,19 @@ void cloud_get_status(cloud_status_t *out);
 typedef struct { bool busy; } if_update_status_t;
 void if_update_get_status(if_update_status_t *out);
 esp_err_t app_sync_time_to_pmu(void);
+typedef int nvs_handle_t;
+#define NVS_READONLY 0
+#define NVS_READWRITE 1
+#define OPLOG_CLOCK 9
+void operation_log_event(int t,int a,int b,int c,int d,int e);
+esp_err_t nvs_open(const char *ns,int mode,nvs_handle_t *h);
+esp_err_t nvs_get_u32(nvs_handle_t h,const char *key,uint32_t *out);
+esp_err_t nvs_set_u32(nvs_handle_t h,const char *key,uint32_t v);
+esp_err_t nvs_commit(nvs_handle_t h);
+void nvs_close(nvs_handle_t h);
 #define ESP_LOGI(tag,fmt,...) ((void)(tag),(void)(fmt),(void)(__VA_ARGS__))
 ''')
-    for name in ('esp_log.h','esp_netif_sntp.h','read_pico_transfer.h','cloud/cloud_sync.h','ota_online.h','sleep.h'):
+    for name in ('esp_log.h','esp_netif_sntp.h','read_pico_transfer.h','cloud/cloud_sync.h','ota_online.h','sleep.h','nvs.h','operation_log.h'):
         (work/name).write_text('#include "'+('../' if '/' in name else '')+'common.h"\n')
     (work/'test.c').write_text('''#include <assert.h>
 #include <stdio.h>
@@ -40,6 +50,14 @@ esp_err_t app_sync_time_to_pmu(void);
 static int inits,deinits,waits,pmu,cloud_reads;
 static int init_result,wait_result=1;
 static time_t wall=1760000000;
+static uint32_t persisted;
+static int pmu_result;
+void operation_log_event(int t,int a,int b,int c,int d,int e){(void)t;(void)a;(void)b;(void)c;(void)d;(void)e;}
+esp_err_t nvs_open(const char *ns,int mode,nvs_handle_t *h){(void)ns;(void)mode;*h=1;return 0;}
+esp_err_t nvs_get_u32(nvs_handle_t h,const char *k,uint32_t *v){(void)h;(void)k;*v=persisted;return 0;}
+esp_err_t nvs_set_u32(nvs_handle_t h,const char *k,uint32_t v){(void)h;(void)k;persisted=v;return 0;}
+esp_err_t nvs_commit(nvs_handle_t h){(void)h;return 0;}
+void nvs_close(nvs_handle_t h){(void)h;}
 static read_pico_transfer_status_t network;
 static cloud_status_t cloud;
 static if_update_status_t update;
@@ -49,11 +67,12 @@ esp_err_t esp_netif_sntp_sync_wait(unsigned ticks){assert(ticks==0);++waits;retu
 void read_pico_transfer_get_status(read_pico_transfer_status_t *out){*out=network;}
 void cloud_get_status(cloud_status_t *out){++cloud_reads;*out=cloud;}
 void if_update_get_status(if_update_status_t *out){*out=update;}
-esp_err_t app_sync_time_to_pmu(void){++pmu;return 0;}
+esp_err_t app_sync_time_to_pmu(void){++pmu;return pmu_result;}
 time_t fake_time(time_t *out){if(out)*out=wall;return wall;}
 #define time fake_time
 #include "time_service.c"
 static void reset(void){
+    s_loaded=s_pmu_pending=false;s_last_sync=persisted=0;wall=1760000000;pmu_result=0;
     s_owned=false;s_next_attempt=s_deadline=0;s_last_poll=-1000;s_idle_since=-1;
     inits=deinits=waits=pmu=cloud_reads=init_result=0;wait_result=1;
     network=(read_pico_transfer_status_t){.mode=READ_PICO_TRANSFER_MODE_STA,.network_ready=true};
@@ -69,8 +88,8 @@ int main(void){
     app_time_service_poll(10000,true);assert(inits==1&&s_owned);
     app_time_service_poll(10500,true);assert(!waits);
     wait_result=0;app_time_service_poll(11000,true);assert(deinits==1&&!s_owned&&pmu==1&&waits==1);
-    app_time_service_poll(3610000,true);assert(inits==1);
-    app_time_service_poll(3611000,true);assert(inits==2);
+    wall+=3599;app_time_service_poll(3610000,true);assert(inits==1);
+    wall++;app_time_service_poll(3611000,true);assert(inits==2);
     app_time_service_poll(3611001,false);assert(deinits==2&&!s_owned);
     reset();app_time_service_poll(0,true);app_time_service_poll(10000,true);
     app_time_service_poll(24999,true);assert(s_owned);
@@ -85,6 +104,11 @@ int main(void){
     reset();init_result=1;app_time_service_poll(0,true);app_time_service_poll(10000,true);
     assert(inits==1&&!s_owned);app_time_service_stop();assert(!deinits);
     app_time_service_poll(20000,true);assert(inits==1);
+    reset();persisted=(uint32_t)wall-60;app_time_service_poll(0,true);app_time_service_poll(10000,true);assert(!inits);
+    wall-=3600;app_time_service_poll(11000,true);assert(inits==1);
+    reset();app_time_service_poll(0,true);app_time_service_poll(10000,true);wait_result=0;pmu_result=1;
+    app_time_service_poll(11000,true);assert(s_pmu_pending&&persisted==(uint32_t)wall);pmu_result=0;
+    app_time_service_poll(12000,true);assert(!s_pmu_pending&&pmu==2);
     puts("time service: existing STA only, idle gate, zero-wait polling, hourly success, bounded retry and foreground cancellation passed");
 }
 ''')

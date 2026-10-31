@@ -58,6 +58,7 @@
 #include "esp_system.h"
 #include "esp_timer.h"
 #include "display.h"
+#include "operation_log.h"
 #include "e0470_epaper_waveform.h"
 #include "pmu_selftest.h"
 #include "soc/rtc_cntl_reg.h"
@@ -70,7 +71,7 @@ typedef enum { SETTINGS_MAIN, SETTINGS_WIFI, SETTINGS_TIME,
                SETTINGS_WALLPAPER, SETTINGS_WALLPAPER_PREVIEW,
                SETTINGS_CONFIG, SETTINGS_UPGRADE, SETTINGS_BOOT,
                SETTINGS_POWER_SLEEP, SETTINGS_RETIRED_15, SETTINGS_RETIRED_16,
-               SETTINGS_RETIRED_17, SETTINGS_RETIRED_18, SETTINGS_TEXT_EDIT, SETTINGS_CLOUD, SETTINGS_HOME_QUOTE, SETTINGS_QUOTE_FONT, SETTINGS_BATTERY = 24, SETTINGS_STATUS_DATE_FORMAT, SETTINGS_IDLE_SLEEP, SETTINGS_FIRMWARE_INFO, SETTINGS_ONLINE_UPDATE, SETTINGS_WALLPAPER_FOLDER, SETTINGS_WALLPAPER_FIXED, SETTINGS_BANNER_IMAGE, SETTINGS_BANNER_BROWSER } settings_page_t;
+               SETTINGS_RETIRED_17, SETTINGS_RETIRED_18, SETTINGS_TEXT_EDIT, SETTINGS_CLOUD, SETTINGS_HOME_QUOTE, SETTINGS_QUOTE_FONT, SETTINGS_BATTERY = 24, SETTINGS_STATUS_DATE_FORMAT, SETTINGS_IDLE_SLEEP, SETTINGS_FIRMWARE_INFO, SETTINGS_ONLINE_UPDATE, SETTINGS_WALLPAPER_FOLDER, SETTINGS_WALLPAPER_FIXED, SETTINGS_BANNER_IMAGE, SETTINGS_BANNER_BROWSER, SETTINGS_OPERATION_LOG } settings_page_t;
 static settings_page_t s_page;
 static int s_main_scroll, s_font_page, s_wallpaper_page, s_cloud_scroll;
 static bool s_battery_week;
@@ -133,7 +134,7 @@ static const char *const TAG = "device_settings";
 #define SETTINGS_GROUP_GAP (ui_text_line_height(UI_TEXT_TITLE)+36)
 #define SETTINGS_WIRELESS_ROWS 2
 #define SETTINGS_DISPLAY_ROWS 5
-#define SETTINGS_DEVICE_ROWS 7
+#define SETTINGS_DEVICE_ROWS 8
 #define SETTINGS_INFO_H 64
 #define SETTINGS_WIRELESS_Y (UI_STATUS_HEIGHT+4+SETTINGS_INFO_H+SETTINGS_GROUP_GAP)
 // 分组布局从上一组底边推导，绘制与命中共用坐标。/ Derive groups from the previous bottom; drawing and hits share coordinates.
@@ -714,6 +715,20 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         if (s_upgrade_notice[0]) ui_text(fb, 48,UI_PAGE_Y(760), 21, s_upgrade_notice, EPD_DRAW_ALIGN_LEFT, false);
         ui_nav_draw(fb, 3); return;
     }
+    if(s_page==SETTINGS_OPERATION_LOG){
+        back_header(fb,UI_MSG("记录日志"));
+        ui_text_fixed_vc(fb,36,UI_PAGE_Y(250),ui_text_fit_px(UI_TEXT_BODY,UI_MSG("记录两分钟操作，用于排查触控问题。"),612,48),UI_MSG("记录两分钟操作，用于排查触控问题。"),EPD_DRAW_ALIGN_LEFT,false);
+        ui_text_fixed_vc(fb,36,UI_PAGE_Y(314),ui_text_fit_px(UI_TEXT_CAPTION,UI_MSG("开始后请返回阅读，正常操作并复现问题。"),612,48),UI_MSG("开始后请返回阅读，正常操作并复现问题。"),EPD_DRAW_ALIGN_LEFT,false);
+        ui_text_fixed_vc(fb,36,UI_PAGE_Y(365),ui_text_fit_px(UI_TEXT_CAPTION,UI_MSG("不记录正文、文件名、账号或密码。"),612,48),UI_MSG("不记录正文、文件名、账号或密码。"),EPD_DRAW_ALIGN_LEFT,false);
+        ui_text_fixed_vc(fb,36,UI_PAGE_Y(416),ui_text_fit_px(UI_TEXT_CAPTION,UI_MSG("休眠会提前结束；日志保存在 diagnostics。"),612,48),UI_MSG("休眠会提前结束；日志保存在 diagnostics。"),EPD_DRAW_ALIGN_LEFT,false);
+        ui_draw_button(fb,(EpdRect){60,UI_PAGE_Y(520),564,80},operation_log_active()?UI_MSG("正在记录，请返回阅读"):operation_log_pending()?UI_MSG("重试保存"):UI_MSG("开始记录"),false);
+        if(operation_log_status()[0]){
+            ui_text_fixed_vc(fb,36,UI_PAGE_Y(670),ui_text_fit_px(UI_TEXT_BODY,UI_MSG("日志状态"),612,48),UI_MSG("日志状态"),EPD_DRAW_ALIGN_LEFT,false);
+            ui_text_vc(fb,36,UI_PAGE_Y(730),UI_TEXT_CAPTION,operation_log_status()[0]=='/'?operation_log_status():UI_MSG("等待保存，请检查 TF 卡或结束 USB。"),EPD_DRAW_ALIGN_LEFT,false);
+        }
+        if(s_notice[0])ui_text_vc(fb,36,UI_PAGE_Y(820),UI_TEXT_CAPTION,s_notice,EPD_DRAW_ALIGN_LEFT,false);
+        ui_nav_draw(fb,3);return;
+    }
     if(s_page==SETTINGS_HOME_QUOTE){banner_editor_draw(fb);return;}
     if(s_page==SETTINGS_BANNER_IMAGE||s_page==SETTINGS_BANNER_BROWSER){banner_picker_draw(fb);return;}
     if (s_page == SETTINGS_TEXT_EDIT) {
@@ -988,9 +1003,9 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         int title_px=ui_text_fit_px(UI_TEXT_TITLE,"if-ink OS",196,48);
         ui_text_fixed_vc(fb,36,center,title_px,"if-ink OS",EPD_DRAW_ALIGN_LEFT,false);
         int version_x=36+ui_text_fixed_width_px(title_px,"if-ink OS")+12;
-        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.2.0 beta",156,48);
-        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.2.0 beta",EPD_DRAW_ALIGN_LEFT,false);
-        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.2.0 beta")-24;
+        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.2.0 beta r2",156,48);
+        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.2.0 beta r2",EPD_DRAW_ALIGN_LEFT,false);
+        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.2.0 beta r2")-24;
         const char *slogan=UI_MSG("支持md文档的Pico固件");
         int slogan_px=ui_text_fit_px(UI_TEXT_CAPTION,slogan,width,48);
         ui_text_fixed_vc_gray(fb,648,center,slogan_px,slogan,EPD_DRAW_ALIGN_RIGHT,8,15);
@@ -1023,10 +1038,10 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     static const int reading_icons[] = {2, 10, 11, 5, 15};
     setting_group(fb, SETTINGS_DISPLAY_Y - 34, UI_MSG("显示与个性化"), SETTINGS_DISPLAY_Y,
                   reading_icons, reading_labels, reading_values, SETTINGS_DISPLAY_ROWS);
-    const char *device_labels[] = {UI_MSG("日期与时间"), UI_MSG("系统语言"), UI_MSG("关机与休眠"), UI_MSG("电池管理"), UI_MSG("保存与恢复"), UI_MSG("固件信息"), UI_MSG("BOOT 刷机")};
+    const char *device_labels[] = {UI_MSG("日期与时间"), UI_MSG("系统语言"), UI_MSG("关机与休眠"), UI_MSG("电池管理"), UI_MSG("保存与恢复"), UI_MSG("固件信息"), UI_MSG("记录日志"), UI_MSG("BOOT 刷机")};
     const char *device_values[] = {UI_MSG("设置  ›"), app_settings_language()==APP_LANGUAGE_EN?"English":"中文", app_settings_staged_shutdown() ? UI_MSG("先浅后深  ›") : UI_MSG("彻底断电  ›"),
-                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), "v0.2.0 beta  ›", UI_MSG("电脑刷机  ›")};
-    static const int device_icons[] = {6, 17, 9, 13, 8, 14, 16};
+                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), "v0.2.0 beta r2  ›", UI_MSG("诊断  ›"), UI_MSG("电脑刷机  ›")};
+    static const int device_icons[] = {6, 17, 9, 13, 8, 14, 14, 16};
     setting_group(fb, SETTINGS_DEVICE_Y - 34, UI_MSG("系统与设备"), SETTINGS_DEVICE_Y,
                   device_icons, device_labels, device_values, SETTINGS_DEVICE_ROWS);
     epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_STATUS_HEIGHT}, UI_GRAY_WHITE, fb);
@@ -1053,6 +1068,14 @@ static void on_enter(app_ctx_t *ctx) {
 }
 
 static app_redraw_t on_tick(app_ctx_t *ctx) {
+    if(s_page==SETTINGS_OPERATION_LOG){
+        static bool previous;static char previous_status[160];
+        operation_log_poll(true);bool active=operation_log_active();
+        if(previous!=active||strcmp(previous_status,operation_log_status())){
+            previous=active;snprintf(previous_status,sizeof(previous_status),"%s",operation_log_status());return APP_REDRAW_PAGE;
+        }
+        return APP_REDRAW_NONE;
+    }
     if(s_page==SETTINGS_ONLINE_UPDATE){
         if(s_online_pending){s_online_pending=false;(void)if_update_check();}
         if_update_poll();if_update_status_t status;if_update_get_status(&status);
@@ -1347,6 +1370,16 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     if(s_page==SETTINGS_IDLE_SLEEP&&y<UI_PAGE_Y(190)){s_page=SETTINGS_POWER_SLEEP;return APP_REDRAW_PAGE;}
     if(s_page==SETTINGS_STATUS_DATE_FORMAT && y<UI_PAGE_Y(190)){s_page=SETTINGS_TIME;return APP_REDRAW_PAGE;}
     if (s_page != SETTINGS_MAIN && y < UI_PAGE_Y(190)) { s_page = SETTINGS_MAIN; return APP_REDRAW_PAGE; }
+    if(s_page==SETTINGS_OPERATION_LOG){
+        if(ui_rect_hit((EpdRect){60,UI_PAGE_Y(520),564,80},ev->x0,y)&&!operation_log_active()){
+            if(operation_log_pending()){operation_log_finish();return APP_REDRAW_PAGE;}
+            operation_log_poll(true);esp_err_t e=operation_log_start();
+            ui_snprintf(s_notice,sizeof(s_notice),e==ESP_OK?UI_MSG("已开始记录，两分钟后自动保存。"):
+                e==ESP_ERR_NO_MEM?UI_MSG("内存不足，请重试"):UI_MSG("请检查 TF 卡，或等待上次日志保存。"));
+            return APP_REDRAW_PAGE;
+        }
+        return APP_REDRAW_NONE;
+    }
     if (s_page == SETTINGS_FIRMWARE_INFO) {
         if (ui_rect_hit(firmware_update_rect(0),ev->x0,y)) {
             s_page=SETTINGS_ONLINE_UPDATE;s_online_pending=true;s_online_confirm=false;
@@ -1527,7 +1560,8 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         case 3: s_battery_week = false; s_page = SETTINGS_BATTERY; break;
         case 4: s_page = SETTINGS_CONFIG; s_config_confirm = false; s_notice[0] = 0; break;
         case 5: s_page = SETTINGS_FIRMWARE_INFO; s_notice[0] = 0; break;
-        case 6: s_boot_pending = false; s_page = SETTINGS_BOOT; break;
+        case 6: s_page=SETTINGS_OPERATION_LOG;s_notice[0]=0;break;
+        case 7: s_boot_pending = false; s_page = SETTINGS_BOOT; break;
         }
         return APP_REDRAW_PAGE;
     }

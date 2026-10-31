@@ -59,6 +59,14 @@ static void stats_load(ticket_stats_t *out) {
     nvs_close(h);
     if (err != ESP_OK || len != sizeof(*out) || out->magic != TICKET_MAGIC) memset(out, 0, sizeof(*out));
 }
+// 内部存储写满时，仍允许日记录独立落到TF；失败则让调用方保留待存秒数。
+// Keep daily history writable on SD when NVS is full; retain pending seconds if both stores fail.
+static esp_err_t record_daily_fallback(uint32_t day,uint32_t seconds,esp_err_t error) {
+    if(!day||!seconds)return error;
+    uint32_t old=reading_history_read(day);
+    uint32_t next=UINT32_MAX-old<seconds?UINT32_MAX:old+seconds;
+    return reading_history_merge(day,next)?ESP_OK:error;
+}
 esp_err_t book_ticket_record(uint32_t seconds, uint32_t turns) {
     if (!seconds && !turns) return ESP_OK;
     ticket_stats_t stats; stats_load(&stats);
@@ -73,7 +81,7 @@ esp_err_t book_ticket_record(uint32_t seconds, uint32_t turns) {
     uint32_t daily_total=0;
     nvs_handle_t h;
     esp_err_t err = nvs_open("rp_ticket", NVS_READWRITE, &h);
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) return record_daily_fallback(day,seconds,err);
     err = nvs_set_blob(h, "stats", &stats, sizeof(stats));
     if (err == ESP_OK && day && seconds) {
         ticket_heat_t heat = {0};
@@ -95,7 +103,7 @@ esp_err_t book_ticket_record(uint32_t seconds, uint32_t turns) {
     nvs_close(h);
     // NVS先提交，TF失败时保留30天恢复窗口，后续幂等补存。/ Commit NVS first; retain a 30-day recovery window when TF writes fail.
     if(err==ESP_OK&&day&&daily_total)(void)reading_history_merge(day,daily_total);
-    return err;
+    return err==ESP_OK?ESP_OK:record_daily_fallback(day,seconds,err);
 }
 bool book_ticket_archive_days(void) {
     nvs_handle_t h;if(nvs_open("rp_ticket",NVS_READONLY,&h)!=ESP_OK)return true;
