@@ -82,6 +82,7 @@ idf_component_register(
         "apps/usb_storage.c"
         "book/book_store.c"
         "book/book_progress.c"
+        "book/book_progress_kv.c"
         "book/book_history_backup.c"
         "book/content_library.c"
         "book/book_title.c"

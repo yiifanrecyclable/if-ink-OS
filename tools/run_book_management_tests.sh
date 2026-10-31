@@ -11,7 +11,7 @@ cc -std=gnu11 -Wall -Wextra -Werror -Itools/settings_backup_stubs \
     -Imain tools/settings_backup_host_test.c main/book/reader_input.c main/ui/ui_i18n.c -o build/book-tests/settings-backup
 build/book-tests/settings-backup
 cc -std=gnu11 -Wall -Wextra -Werror -Itools/settings_backup_stubs \
-    tools/book_history_backup_host_test.c main/book/content_library.c -Imain/book -o build/book-tests/book-history-backup
+    tools/book_history_backup_host_test.c main/book/content_library.c main/book/book_progress_kv.c -Imain/book -o build/book-tests/book-history-backup
 build/book-tests/book-history-backup
 python3 tools/book_ui_host_test.py
 python3 tools/test_home_recent.py

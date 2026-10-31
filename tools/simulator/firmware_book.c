@@ -64,6 +64,7 @@ bool simulator_document_delete_confirm(void){return s_document_delete_confirm;}
 const char *simulator_document_first(void){return s_document_count?s_documents[0].path:"";}
 const char *simulator_document_item(unsigned i){return i<s_document_count?s_documents[i].path:"";}
 const char *simulator_shelf_item(unsigned i){return i<(unsigned)s_visible_count?s_shelf[i].path:"";}
+int simulator_list_progress(bool documents,unsigned i){return documents?(i<s_document_count&&s_documents[i].has_progress?s_documents[i].pct:-1):(i<(unsigned)s_visible_count&&s_shelf[i].has_progress?s_shelf[i].pct:-1);}
 bool simulator_content_sort_open(void){return s_sort_open;}
 unsigned simulator_document_selected_count(void){return document_selected_count();}
 bool simulator_document_batch_confirm(void){return s_document_batch_confirm;}

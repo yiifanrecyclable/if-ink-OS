@@ -50,6 +50,7 @@ esp_err_t nvs_erase_key(nvs_handle_t h,const char* key){
     if(erase_failure)return erase_failure;
     record_t*r=record(key,false);if(!r)return ESP_ERR_NVS_NOT_FOUND;r->len=0;return ESP_OK;
 }
+esp_err_t nvs_erase_all(nvs_handle_t h){(void)h;memset(records,0,sizeof(records));has_sequence=has_last=false;return ESP_OK;}
 esp_err_t nvs_commit(nvs_handle_t h){(void)h;++commits;return commit_failure;}
 /* 迭代器就是 records 槽位的指针；len 为 0 的槽位视为已擦除。
    The iterator is a pointer into records; a zero-length slot counts as erased. */

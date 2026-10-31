@@ -17,3 +17,7 @@ Obsidian 推送插件为独立项目，本固件发布包不包含插件及任�
 基于 [Pico Reader 0.3.3-rc83](https://github.com/wegooo-cell/read-pico-reader)，选择性采用后续 rc88/rc95 的阅读、刷新与存储改进；保留 if-ink OS 的界面与刷新策略。感谢[原作者主页](https://wegooo-cell.github.io/read-pico-reader/)。本项目是独立衍生版本，不是原作者或 MindReset 官方发布。
 
 主体 [Apache-2.0](LICENSE)；epdiy 使用 LGPL-3.0-or-later，其他组件及字体保留原许可。每版同时提供对应源码、固定依赖、实际构建配置和许可包，参见[第三方声明](THIRD_PARTY_NOTICES.md)。
+
+### Reading progress storage
+
+With an available SD card, resume positions, percentages and recent ordering live in the hidden `.readpico/progress` directory. Keep it when copying or backing up the card. Records use CRC-checked dual slots with sync and readback verification; write failures remain pending. Legacy NVS records remain readable and subsequent updates go to SD; without SD, NVS remains the fallback. Settings backup/restore includes the new store and accepts older backups. Unsaved positions already lost after a restart cannot be recovered.

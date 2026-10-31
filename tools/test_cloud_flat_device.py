@@ -108,7 +108,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='flat-device-') as temp
     test.write_text('\n'.join([preamble,function('strong_etag'),function('active_font_replace'),function('download_one'),main]))
     args=['cc','-std=gnu11','-D_DEFAULT_SOURCE','-DPICO_HOST_SIMULATOR=1','-DPICO_SIM_CARD_PATH="'+str(work/'card')+'"','-Wall','-Wextra','-Werror','-Wno-unused-function','-Wno-unused-parameter','-Wno-sign-compare','-Wno-misleading-indentation','-Wno-deprecated-declarations','-fsanitize=address,undefined','-g','-include',str(ROOT/'tools/simulator/fs.h')]
     args += ['-I'+str(ROOT/p) for p in ('tools/simulator/include','tools/simulator/vendor/cjson','main','main/cloud','main/book','components/md4c')]
-    args += [str(test)] + [str(ROOT/p) for p in ('main/ui/ui_i18n.c','tools/simulator/fs.c','tools/simulator/nvs.c','tools/simulator/vendor/cjson/cJSON.c','main/cloud/cloud_protocol.c','main/book/document_store.c','main/book/document_image.c','main/book/book_progress.c','main/book/book_markdown.c','main/book/markdown_text.c','main/book/html_text.c','components/md4c/md4c.c')]
+    args += [str(test)] + [str(ROOT/p) for p in ('main/ui/ui_i18n.c','tools/simulator/fs.c','tools/simulator/nvs.c','tools/simulator/vendor/cjson/cJSON.c','main/cloud/cloud_protocol.c','main/book/document_store.c','main/book/document_image.c','main/book/book_progress.c','main/book/book_progress_kv.c','main/book/book_markdown.c','main/book/markdown_text.c','main/book/html_text.c','components/md4c/md4c.c')]
     args += ['-lz','-lm','-o',str(binary)]
     subprocess.run(args,check=True)
     subprocess.run([str(binary)],cwd=work,env={**os.environ,'PICO_SIM_CARD_ROOT':str(work/'card'),'ASAN_OPTIONS':'detect_leaks=0','PICO_TEST_FATFS_RENAME':'1'},check=True)

@@ -42,6 +42,10 @@ static int mapped(const char *p,char out[PATH_MAX],int write){
  return 1;
 }
 FILE *sim_fopen(const char*p,const char*m){
+ // 精确路径注入写失败，用于双槽落盘与重试测试。/ Exact-path write faults exercise durable slots and retries.
+ const char *write_fault=getenv("PICO_TEST_FOPEN_WRITE_FAIL");
+ if(write_fault&&!strcmp(p,write_fault)&&strpbrk(m,"wa+")){errno=EIO;return NULL;}
+
  const char *fault=getenv("PICO_TEST_JOURNAL_WRITE_FAIL_AT");
  if(fault&&!strcmp(p,"/sdcard/.pico-sync/transaction.part")&&strchr(m,'w')){
   static unsigned writes;

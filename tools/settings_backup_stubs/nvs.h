@@ -8,6 +8,8 @@ typedef enum { NVS_TYPE_U8 = 0x01, NVS_TYPE_U32 = 0x04,
                NVS_TYPE_STR = 0x21, NVS_TYPE_BLOB = 0x42, NVS_TYPE_ANY = 0xff } nvs_type_t;
 typedef struct nvs_iterator_opaque *nvs_iterator_t;
 typedef struct { char namespace_name[16]; char key[16]; nvs_type_t type; } nvs_entry_info_t;
+#define NVS_DEFAULT_PART_NAME "nvs"
+#define ESP_ERR_NVS_INVALID_LENGTH ESP_ERR_INVALID_SIZE
 #define NVS_READONLY 0
 #define NVS_READWRITE 1
 esp_err_t nvs_open(const char *, int, nvs_handle_t *);
@@ -27,3 +29,5 @@ esp_err_t nvs_entry_find_in_handle(nvs_handle_t, nvs_type_t, nvs_iterator_t *);
 esp_err_t nvs_entry_next(nvs_iterator_t *);
 esp_err_t nvs_entry_info(nvs_iterator_t, nvs_entry_info_t *);
 void nvs_release_iterator(nvs_iterator_t);
+
+esp_err_t nvs_entry_find(const char *, const char *, nvs_type_t, nvs_iterator_t *);

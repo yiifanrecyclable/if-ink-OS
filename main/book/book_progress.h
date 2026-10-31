@@ -2,8 +2,8 @@
  * SPDX-FileCopyrightText: 2026 mindreset
  * SPDX-License-Identifier: Apache-2.0
  *
- * 按书籍路径保存 NVS 进度，不依赖 UI 或 SD。
- * Per-path NVS reading progress, independent of UI and SD.
+ * 按书籍路径保存进度；TF双槽优先，兼容旧NVS，无UI依赖。
+ * Per-path progress with SD dual slots and legacy NVS compatibility, independent of UI.
  *
  * 冻结：文件大小不同不恢复；失败返回调用方并告警，不擦除其他记录。
  * 为无 RTC 的最近阅读排序，v2 使用持久序号；v1 保留续读但排序置零。
@@ -61,8 +61,8 @@ esp_err_t book_progress_save(const char* path, const book_progress_t* progress);
 esp_err_t book_progress_clear(const char* path);
 /// 清除此路径进度及匹配的 last；任一步失败返回错误，允许幂等重试，保留碰撞记录。
 /// Forget this path's progress and matching last; return any failure, allow idempotent retries, preserve colliding records.
-/// 有效路径在首次 NVS 操作前使对应待保存监视失效，失败也不回写旧文件进度。
-/// Invalidate matching pending watches before any NVS operation so failures cannot restore an old file's progress.
+/// 有效路径在首次存储操作前使对应待保存监视失效，失败也不回写旧文件进度。
+/// Invalidate matching pending watches before any storage operation so failures cannot restore an old file's progress.
 esp_err_t book_progress_forget(const char* path);
 /// 读取最后一本的路径；失败输出空串。/ Read the last book path; output an empty string on failure.
 bool book_progress_last_path(char* out, size_t cap);

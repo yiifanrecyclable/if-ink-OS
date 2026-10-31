@@ -46,3 +46,6 @@ const char *simulator_home_featured_path(void){return s_current.path[0]?s_curren
 
 unsigned simulator_reading_target(void){return content_reading_target_minutes();}
 unsigned simulator_history_bar_width(unsigned row){return row<HOME_HISTORY_MAX_ROWS?history_bar_width(s_history_seconds[row],content_reading_target_minutes()):0;}
+
+// 直接观察实际首页数据，避免测试另算百分比。/ Observe actual Home state rather than recalculating progress in tests.
+int simulator_home_progress(int row){if(row<0){home_book_t *b=s_current.path[0]?&s_current:&s_recent[0];return b->has_progress?b->progress.pct:-1;}if(s_has_documents)return (unsigned)row<s_recent_document_count?s_recent_documents[row].pct:-1;home_book_t *b=recent_book_row((size_t)row);return b&&b->has_progress?b->progress.pct:-1;}

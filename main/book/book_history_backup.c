@@ -6,6 +6,7 @@
  * English: Stream progress, reading time, bookmarks, favorites, titles and shelf removals to TF.
  */
 #include "book_history_backup.h"
+#include "book_progress_kv.h"
 #include "content_library.h"
 #include <stdlib.h>
 #include <string.h>
@@ -111,53 +112,48 @@ static esp_err_t read_value(nvs_handle_t h, const nvs_entry_info_t *info, uint8_
     return err;
 }
 
-esp_err_t book_history_backup_write(FILE *file) {
-    if (!file) return ESP_ERR_INVALID_ARG;
-    static const char magic[8] = {'R','P','H','I','S','T','1',0};
-    if (fwrite(magic, 1, 8, file) != 8) return ESP_FAIL;
-    uint32_t hash = UINT32_C(2166136261);
-    uint16_t count = 0;
-    for (unsigned ns = 0; ns < sizeof(namespaces) / sizeof(namespaces[0]); ++ns) {
-        nvs_handle_t h;
-        esp_err_t err = nvs_open(namespaces[ns], NVS_READONLY, &h);
-        if (err == ESP_ERR_NVS_NOT_FOUND) continue;
-        if (err != ESP_OK) return err;
-        nvs_iterator_t it = NULL;
-        err = nvs_entry_find_in_handle(h, NVS_TYPE_ANY, &it);
-        while (err == ESP_OK) {
-            nvs_entry_info_t info;
-            err = nvs_entry_info(it, &info);
-            if (err != ESP_OK) break;
-            uint8_t *value = NULL;
-            size_t len = 0;
-            err = read_value(h, &info, &value, &len);
-            if (err == ESP_OK && (!valid_record(ns, info.type, info.key, value, len) || count == HISTORY_MAX_RECORDS))
-                err = ESP_ERR_INVALID_STATE;
-            if (err == ESP_OK) {
-                uint8_t head[HISTORY_RECORD_HEADER] = {(uint8_t)ns, (uint8_t)info.type};
-                memcpy(head + 2, info.key, strlen(info.key));
-                head[18] = (uint8_t)len; head[19] = (uint8_t)(len >> 8);
-                if (fwrite(head, 1, sizeof(head), file) != sizeof(head) ||
-                    fwrite(value, 1, len, file) != len) err = ESP_FAIL;
-                else {
-                    hash = hash_bytes(hash, head, sizeof(head));
-                    hash = hash_bytes(hash, value, len);
-                    ++count;
-                }
-            }
-            free(value);
-            if (err != ESP_OK) break;
-            err = nvs_entry_next(&it);
-        }
-        nvs_release_iterator(it);
-        nvs_close(h);
-        if (err != ESP_ERR_NVS_NOT_FOUND) return err;
+typedef struct { FILE *file; uint32_t hash; uint16_t count; esp_err_t error; } backup_writer_t;
+static bool backup_emit(backup_writer_t *writer, unsigned ns, uint8_t type, const char *key, const void *value, size_t len) {
+    if(!valid_record(ns,type,key,value,len) || writer->count==HISTORY_MAX_RECORDS) {
+        writer->error=ESP_ERR_INVALID_STATE; return false;
     }
-    uint8_t end[HISTORY_RECORD_HEADER] = {0xff};
-    uint8_t seal[6] = {(uint8_t)count, (uint8_t)(count >> 8),
-        (uint8_t)hash, (uint8_t)(hash >> 8), (uint8_t)(hash >> 16), (uint8_t)(hash >> 24)};
-    return fwrite(end, 1, sizeof(end), file) == sizeof(end) &&
-           fwrite(seal, 1, sizeof(seal), file) == sizeof(seal) ? ESP_OK : ESP_FAIL;
+    uint8_t head[HISTORY_RECORD_HEADER]={(uint8_t)ns,type};
+    memcpy(head+2,key,strlen(key)); head[18]=(uint8_t)len; head[19]=(uint8_t)(len>>8);
+    if(fwrite(head,1,sizeof(head),writer->file)!=sizeof(head) || fwrite(value,1,len,writer->file)!=len) {
+        writer->error=ESP_FAIL; return false;
+    }
+    writer->hash=hash_bytes(writer->hash,head,sizeof(head));
+    writer->hash=hash_bytes(writer->hash,value,len); ++writer->count; return true;
+}
+static bool backup_progress(const char *key,nvs_type_t type,const void *value,size_t len,void *ctx) {
+    return backup_emit(ctx,0,(uint8_t)type,key,value,len);
+}
+esp_err_t book_history_backup_write(FILE *file) {
+    if(!file) return ESP_ERR_INVALID_ARG;
+    static const char magic[8]={'R','P','H','I','S','T','1',0};
+    if(fwrite(magic,1,8,file)!=8) return ESP_FAIL;
+    backup_writer_t writer={file,UINT32_C(2166136261),0,ESP_OK};
+    esp_err_t result=progress_kv_list(backup_progress,&writer);
+    if(result!=ESP_OK || writer.error!=ESP_OK) return result!=ESP_OK?result:writer.error;
+    for(unsigned ns=1;ns<sizeof(namespaces)/sizeof(namespaces[0]);++ns) {
+        nvs_handle_t h; esp_err_t err=nvs_open(namespaces[ns],NVS_READONLY,&h);
+        if(err==ESP_ERR_NVS_NOT_FOUND) continue;
+        if(err!=ESP_OK) return err;
+        nvs_iterator_t it=NULL; err=nvs_entry_find_in_handle(h,NVS_TYPE_ANY,&it);
+        while(err==ESP_OK) {
+            nvs_entry_info_t info; err=nvs_entry_info(it,&info); if(err!=ESP_OK) break;
+            uint8_t *value=NULL; size_t len=0; err=read_value(h,&info,&value,&len);
+            if(err==ESP_OK && !backup_emit(&writer,ns,(uint8_t)info.type,info.key,value,len)) err=writer.error;
+            free(value); if(err!=ESP_OK) break;
+            err=nvs_entry_next(&it);
+        }
+        nvs_release_iterator(it); nvs_close(h);
+        if(err!=ESP_ERR_NVS_NOT_FOUND) return err;
+    }
+    uint8_t end[HISTORY_RECORD_HEADER]={0xff};
+    uint8_t seal[6]={(uint8_t)writer.count,(uint8_t)(writer.count>>8),
+        (uint8_t)writer.hash,(uint8_t)(writer.hash>>8),(uint8_t)(writer.hash>>16),(uint8_t)(writer.hash>>24)};
+    return fwrite(end,1,sizeof(end),file)==sizeof(end) && fwrite(seal,1,sizeof(seal),file)==sizeof(seal)?ESP_OK:ESP_FAIL;
 }
 
 static esp_err_t read_stream(FILE *file, bool restore) {
@@ -192,7 +188,17 @@ static esp_err_t read_stream(FILE *file, bool restore) {
         hash = hash_bytes(hash, head, sizeof(head));
         hash = hash_bytes(hash, value, len);
         ++count;
-        if (restore) {
+        if (restore && ns==0) {
+            progress_kv_handle_t progress;
+            result=progress_kv_open(NVS_READWRITE,&progress);
+            if(result==ESP_OK) {
+                if(type==NVS_TYPE_U32) { uint32_t v; memcpy(&v,value,4); result=progress_kv_set_u32(progress,key,v); }
+                else if(type==NVS_TYPE_STR) result=progress_kv_set_str(progress,key,(const char*)value);
+                else result=progress_kv_set_blob(progress,key,value,len);
+                if(result==ESP_OK) result=progress_kv_commit(progress);
+                progress_kv_close(progress);
+            }
+        } else if (restore) {
             if (open_ns != (int)ns) {
                 if (open_ns >= 0) { result = nvs_commit(h); nvs_close(h); }
                 open_ns = -1;
@@ -234,6 +240,7 @@ esp_err_t book_history_backup_restore(FILE *file) {
     // and per-book records behind, so the restored shelf can appear unchanged.
     // 恢复应替换旧阅读资料；合并会留下备份外的旧书进度与最近阅读排序。
     for (unsigned ns = 0; ns < sizeof(namespaces) / sizeof(namespaces[0]); ++ns) {
+        if(ns==0) { esp_err_t err=progress_kv_reset(); if(err!=ESP_OK) return err; continue; }
         nvs_handle_t h;
         esp_err_t err = nvs_open(namespaces[ns], NVS_READWRITE, &h);
         if (err != ESP_OK) return err;

@@ -17,3 +17,7 @@ Obsidian 推送插件为独立项目，本固件发布包不包含插件及任�
 基于 [Pico Reader 0.3.3-rc83](https://github.com/wegooo-cell/read-pico-reader)，选择性采用后续 rc88/rc95 的阅读、刷新与存储改进；保留 if-ink OS 的界面与刷新策略。感谢[原作者主页](https://wegooo-cell.github.io/read-pico-reader/)。本项目是独立衍生版本，不是原作者或 MindReset 官方发布。
 
 主体 [Apache-2.0](LICENSE)；epdiy 使用 LGPL-3.0-or-later，其他组件及字体保留原许可。每版同时提供对应源码、固定依赖、实际构建配置和许可包，参见[第三方声明](THIRD_PARTY_NOTICES.md)。
+
+### 阅读进度存储
+
+TF卡可用时，续读位置、阅读百分比和最近阅读顺序保存到卡内的隐藏目录 `.readpico/progress`。请保留该目录；转移整张卡或备份时一并复制。每项记录使用CRC校验双副本，保存时同步并读回校验；写入失败不会显示为保存成功。旧NVS记录继续可读，之后的阅读更新保存到TF，无卡时沿用NVS。设置中的“保存与恢复”包含新进度库，兼容旧备份。旧版尚未成功保存、并已随重启丢失的内存进度无法恢复。

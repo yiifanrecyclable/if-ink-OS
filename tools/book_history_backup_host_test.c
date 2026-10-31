@@ -75,6 +75,9 @@ esp_err_t nvs_entry_find_in_handle(nvs_handle_t h, nvs_type_t type, nvs_iterator
     }
     *it = NULL; return ESP_ERR_NVS_NOT_FOUND;
 }
+esp_err_t nvs_entry_find(const char *part,const char *ns,nvs_type_t type,nvs_iterator_t *it) {
+    (void)part; return nvs_entry_find_in_handle(namespace_index(ns)+1,type,it);
+}
 esp_err_t nvs_entry_next(nvs_iterator_t *it) {
     for (int i = (*it)->index + 1; i < counts[active]; ++i)
         if (records[active][i].ns == (*it)->ns) { (*it)->index = i; return ESP_OK; }

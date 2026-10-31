@@ -4,6 +4,14 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.0 beta r3 / 2026-11-01
+
+- 阅读进度在TF可用时保存到 `.readpico/progress`，不再依赖内部NVS可写空间。使用CRC双槽、同步与读回校验，保存失败保留待写状态；兼容读取旧NVS进度，无TF时保留原NVS路径。
+- 续读位置、书架/文档列表百分比、首页最近阅读排序统一从持久进度库读取；保存与恢复包含新存储记录，并兼容旧备份。文件修订、清进度与删除仍使旧锚点失效。
+- 触控采样、手势、阅读排版及刷新策略保持beta r2行为，本版仅修复进度持久化与相关备份兼容。
+
+Persist progress in CRC-checked SD dual slots with sync/readback verification while retaining legacy NVS reads and no-card fallback. Resume, library percentages and Home recency share that durable store; include it in backups and accept older backups. Preserve revision/deletion invalidation and beta r2 input, layout and refresh behavior.
+
 ## 0.2.0 beta r2 / 2026-10-31
 
 - 设置 → 系统与设备新增「记录日志」：两分钟内存采集，结束后保存为 `diagnostics/operation-NNNN.csv`，用于诊断阅读触控；休眠/USB提前结束，不采集正文、文件名、账号、密码，非阅读区隐藏触控坐标。记录容量有界，文件头列出被覆盖条数；失败保留内存，可回设置页重试。尚未改变阅读触控或水波纹行为。

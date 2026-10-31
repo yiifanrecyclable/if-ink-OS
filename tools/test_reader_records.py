@@ -3,7 +3,7 @@
 # 中文：真实阅读器的计时、文档进度和首页排序，全部使用隔离存储。
 # English: Real-reader time, document progress and Home order over isolated storage.
 from pathlib import Path
-import json,os,struct,subprocess,tempfile
+import json,os,struct,subprocess,tempfile,runpy
 R=Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='reader-records-',dir=R/'build') as tmp:
  w=Path(tmp);card=w/'card';out=w/'build/simulator';out.mkdir(parents=True)
@@ -34,4 +34,31 @@ with tempfile.TemporaryDirectory(prefix='reader-records-',dir=R/'build') as tmp:
  def total():return struct.unpack_from('<Q',(out/'nvs/rp_ticket/stats').read_bytes(),8)[0]
  first=total();assert first>=60,first
  frame('book-1',paths[2],0,events);assert total()>=first+60
- print('PASS: real MD resume/revision saving, recency changes across opens, and active reading time accumulates across sessions.')
+ # 使用真正EPUB解析和每帧独立进程模拟重启；NVS提交失败不能再阻断阅读进度。
+ # Use the real EPUB parser and fresh processes as reboot boundaries; NVS commit failures must not block progress.
+ make_epub=runpy.run_path(str(R/'tools/gen_book_fixtures.py'))['make_epub']
+ books=['/sdcard/books/New A.epub','/sdcard/books/New B.epub']
+ for path in books:make_epub(card/path.removeprefix('/sdcard/'),'ncx')
+ env['PICO_TEST_NVS_COMMIT_FAIL']='always'
+ expected={}
+ for path in books+paths[:2]:
+  state=frame('book-1',path,3);assert state['reader_page']==3 and state['reader_progress']>0,state
+  expected[path]=state['reader_progress']
+  # Shelf and document progress values are the actual values rendered by production UI.
+  listed=frame('book-8' if path.endswith('.md') else 'book-0')
+  items=listed['document_items'] if path.endswith('.md') else listed['book_items']
+  values=listed['document_progresses'] if path.endswith('.md') else listed['book_progresses']
+  assert dict(zip(items,values))[path]==expected[path],(path,listed)
+  home=frame('baseline-home')
+  if path.endswith('.md'):
+   assert home['home_list_paths'][0]==path and home['home_progresses'][1]==expected[path],home
+  else:
+   assert home['home_featured_path']==path and home['home_progresses'][0]==expected[path],home
+ # Every fresh process must restore both the position and percentage, and move that title to the top.
+ for path in reversed(books+paths[:2]):
+  state=frame('book-1',path);assert state['reader_page']==3 and state['reader_progress']==expected[path],state
+  home=frame('baseline-home')
+  if path.endswith('.md'):assert home['home_list_paths'][0]==path
+  else:assert home['home_featured_path']==path
+ assert len(list((card/'.readpico/progress').glob('b_*')))>0
+ print('PASS: real MD/EPUB fresh-process resume, matching shelf/doc/Home percentages and recency with NVS commits failing; MD revision saving and active time across sessions.')

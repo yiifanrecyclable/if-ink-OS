@@ -60,6 +60,8 @@ bool simulator_document_zoom(void);
 bool simulator_document_image_ready(void);
 bool simulator_reader_image_slot(unsigned i,int *x,int *y,int *w,int *h);
 unsigned simulator_reader_progress(void);
+int simulator_list_progress(bool documents,unsigned row);
+int simulator_home_progress(int row);
 bool simulator_markdown_committed(void);
 unsigned simulator_markdown_size(unsigned index);
 unsigned simulator_document_image_top(void);
@@ -369,6 +371,8 @@ int main(int argc, char **argv) {
     printf(",\"content_sort_open\":%s,\"book_sort_mode\":%u,\"document_sort_mode\":%u,\"document_selected_count\":%u,\"document_batch_confirm\":%s,\"document_items\":[",simulator_content_sort_open()?"true":"false",simulator_content_sort_mode(false),simulator_content_sort_mode(true),simulator_document_selected_count(),simulator_document_batch_confirm()?"true":"false");
     for(unsigned i=0;i<3;++i){if(i)printf(",");json_string(simulator_document_item(i));}printf("],\"book_items\":[");
     for(unsigned i=0;i<3;++i){if(i)printf(",");json_string(simulator_shelf_item(i));}printf("]");
+    printf(",\"book_progresses\":[");for(unsigned i=0;i<3;++i){if(i)printf(",");printf("%d",simulator_list_progress(false,i));}printf("],\"document_progresses\":[");for(unsigned i=0;i<3;++i){if(i)printf(",");printf("%d",simulator_list_progress(true,i));}printf("]");
+    printf(",\"home_progresses\":[");for(int i=-1;i<4;++i){if(i>=0)printf(",");printf("%d",simulator_home_progress(i));}printf("]");
     printf(",\"banner_draft\":[");for(unsigned i=0;i<13;++i){if(i)printf(",");printf("%d",simulator_banner_draft(i));}printf("]");
     printf(",\"banner_items\":[");for(unsigned i=0;i<10;++i){if(i)printf(",");json_string(simulator_banner_item(i));}printf("]");
     printf(",\"banner_text\":");json_string(simulator_banner_text());printf(",\"banner_font\":");json_string(simulator_banner_font());printf(",\"banner_image\":");json_string(simulator_banner_image());
