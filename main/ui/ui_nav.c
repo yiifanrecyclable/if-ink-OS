@@ -95,7 +95,40 @@ static void ui_nav_battery_bolt(uint8_t *fb,int cx,int cy){
     epd_fill_triangle(cx-1,cy+1,cx+8,cy-2,cx+1,cy-2,UI_GRAY_BLACK,fb);
 }
 
+static char s_status_notice[192];
+static int64_t s_status_notice_until;
+void ui_nav_notice_show(const char *text,int64_t now_ms){
+    ui_snprintf(s_status_notice,sizeof(s_status_notice),"%s",text?text:"");
+    s_status_notice_until=now_ms+4000;
+}
+void ui_nav_notice_clear(void){s_status_notice[0]=0;s_status_notice_until=0;}
+const char *ui_nav_notice_text(void){return s_status_notice;}
+bool ui_nav_notice_tick(int64_t now_ms){
+    if(!s_status_notice[0]||now_ms<s_status_notice_until)return false;
+    ui_nav_notice_clear();return true;
+}
+
 void ui_nav_status(uint8_t *fb) {
+    // 通知保持标题字号，不缩字；临时接管额头，避免与日期/电量叠字，到期原样恢复。
+    // Keep title-sized notices without shrinking; temporarily own the forehead to avoid clock/battery collisions.
+    if(s_status_notice[0]){
+        int px=ui_text_effective_px(UI_TEXT_TITLE);char label[192];
+        snprintf(label,sizeof(label),"%s",s_status_notice);
+        bool shortened=false;
+        while(label[0]&&ui_text_fixed_width_px(px,label)>UI_LOCK_WIDTH-48){
+            size_t n=strlen(label)-1;while(n&&((unsigned char)label[n]&0xc0)==0x80)--n;
+            label[n]=0;shortened=true;
+        }
+        if(shortened){
+            while(label[0]&&ui_text_fixed_width_px(px,label)+ui_text_fixed_width_px(px,"…")>UI_LOCK_WIDTH-48){
+                size_t n=strlen(label)-1;while(n&&((unsigned char)label[n]&0xc0)==0x80)--n;label[n]=0;
+            }
+            size_t n=strlen(label);if(n+4<sizeof(label))memcpy(label+n,"…",4);
+        }
+        epd_fill_rect((EpdRect){0,0,UI_LOCK_WIDTH,UI_STATUS_HEIGHT},UI_GRAY_WHITE,fb);
+        ui_text_fixed_vc(fb,UI_LOCK_WIDTH/2,UI_STATUS_CENTER_Y,px,label,EPD_DRAW_ALIGN_CENTER,false);
+        return;
+    }
     time_t now = time(NULL);
     const pmu_snapshot_t *pmu = read_pico_pmu_get();
     if (now < 1704067200 && pmu && pmu->time_synced && pmu->unix_sec >= 1704067200)

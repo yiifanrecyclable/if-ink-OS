@@ -29,7 +29,7 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_DIR = ROOT / "tools/icons/lucide"
 CUSTOM_DIR = ROOT / "tools/icons/if"
-CUSTOM_ICONS = {"nutstore", "weread", "usb"}
+CUSTOM_ICONS = {"nutstore", "weread", "usb", "folder-image"}
 # 原创服务图标与Lucide共用描边/灰阶流水线。/ Original service symbols share the Lucide stroke/grayscale pipeline.
 def icon_source(name: str) -> Path:
     return (CUSTOM_DIR if name in CUSTOM_ICONS else SOURCE_DIR) / f"{name}.svg"
@@ -99,6 +99,10 @@ ICONS = (
     "undo-2",            # 拼豆撤回 / undo beads
     "save",              # 拼豆保存 / save beads
     "brush-cleaning",    # 清空拼豆 / clear beads
+    "cable",             # 应用页USB连接 / Apps USB connection
+    "signature",         # 状态栏签名 / Status signature
+    "languages",         # 系统语言 / System language
+    "folder-image",      # 图片文件夹·组合图标 / Image folder composite
 )
 
 _NUMBER = re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")

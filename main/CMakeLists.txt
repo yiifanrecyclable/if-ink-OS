@@ -70,6 +70,7 @@ idf_component_register(
         "apps/book_toc.c"
         "apps/app_dashboard.c"
         "apps/app_files.c"
+        "apps/file_thumbnail.c"
         "apps/app_pindou.c"
         "apps/cyber_beads.c"
         "apps/beads_png.c"

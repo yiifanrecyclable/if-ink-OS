@@ -4,20 +4,58 @@
  */
 #define app_files simulator_descriptor_files
 #include "../../main/apps/app_files.c"
+// 模拟时间推进只作用于文件页；使用真机同一tick处理通知消退。
+// Advance only file-page time, using the production tick for notice expiry.
+#define SIM_REPLAY_RAW(ctx,type,x,y) do { if((type)=='n')(ctx)->now_ms+=(x); } while(0)
+#define SIM_REPLAY_TICK(ctx) do { on_tick(ctx);prepare_thumbnails(); } while(0)
 #include "replay.h"
 #include "app_registry.h"
+#include <assert.h>
 extern int simulator_route,simulator_files_view,simulator_files_folder;
 char simulator_files_dir[288];
 int simulator_files_page(void){return s_page;}
+int simulator_files_grid(void){return grid_active();}
+int simulator_files_grid_available(void){return grid_available();}
+int simulator_files_grid_modes(void){return (s_grid_modes[0]?1:0)|(s_grid_modes[1]?2:0);}
+int simulator_files_grid_geometry(int part){if(!grid_available())return 0;EpdRect box=grid_cell(0);const int values[]={grid_columns(),grid_rows(),box.x,box.y,box.width,box.height,visible_rows()};return part<7?values[part]:0;}
+int simulator_files_count(void){return s_count;}
+int simulator_files_row_height(void){return file_row_height();}
+const char *simulator_files_message(void){return s_message;}
+const char *simulator_files_notice(void){return ui_nav_notice_text();}
+unsigned simulator_files_notice_serial(void){return s_notice_serial;}
+int simulator_files_card_geometry(int part){
+ if(s_view!=FILE_VIEW_ACTIONS)return 0;
+ EpdRect w=wallpaper_action_rect(),a=file_regular_action_rect(0),c=file_card_close_rect();
+ const int values[]={file_card_top(),UI_NAV_TOP,selected_wallpaper_image()&&!s_delete_confirm,w.x,w.y,w.width,w.height,a.x,a.y,a.width,a.height,c.x,c.y,c.width,c.height,s_delete_confirm};
+ return part<16?values[part]:0;
+}
+const char *simulator_files_item(int row){return row>=0&&row<s_count?s_files[row].path:"";}
+const char *simulator_files_note(int row){const char *v=row>=0&&row<s_count?root_note(s_files[row].path):NULL;return v?v:"";}
+int simulator_files_item_image_folder(int row){return row>=0&&row<s_count&&s_files[row].is_dir&&image_tree(s_files[row].path)>=0;}
+int simulator_files_thumb_ready(int row){return row>=0&&row<9&&s_thumbs[row].pixels!=NULL;}
+
 void simulator_files(uint8_t *fb,int view,int folder,const char *dir,const char *events){
  app_font_activate_system();
  app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);on_tick(&ctx);
  s_folder=folder;if(folder>=0)scan_folder(folder);
  if(dir&&*dir){snprintf(s_dir,sizeof(s_dir),"%s",dir);scan_folder(folder>=0?folder:3);}
  s_view=(file_view_t)view;
- if(s_count){s_selected=s_files[0];snprintf(s_editor,sizeof(s_editor),"%s",s_selected.name);}
+ const char *modes=getenv("PICO_SIM_FILES_GRID");if(modes){unsigned mask=(unsigned)atoi(modes);s_grid_modes[0]=mask&1;s_grid_modes[1]=mask&2;}
+ if(s_count){s_selected=s_files[0];probe_wallpaper_action();snprintf(s_editor,sizeof(s_editor),"%s",s_selected.name);}
  if(view==FILE_VIEW_RENAME)editor_start();
- simulator_replay(&ctx,on_gesture,on_key,events);render(&ctx,fb);
+ simulator_replay(&ctx,on_gesture,on_key,events);
+ if(getenv("PICO_TEST_FILES_NOTICE_FULL")){
+  // 与主循环AREA提升为FULL的顺序一致，随后再验证键盘局部呈现。
+  // Match the loop's AREA-to-FULL ordering, then verify the next keyboard-area presentation.
+  assert(ui_nav_notice_text()[0]);ctx.now_ms+=5000;
+  assert(on_tick(&ctx)==APP_REDRAW_AREA&&s_status_area.height==UI_STATUS_HEIGHT);
+  assert(!files_present(&ctx,APP_REDRAW_FULL)&&s_status_area.height==0);
+  editor_start();render_rename(fb);
+  assert(files_present(&ctx,APP_REDRAW_AREA)&&s_status_area.height==0);
+  s_status_area=(EpdRect){0,0,684,56};files_on_exit(&ctx);assert(!s_status_area.height);
+  s_status_area=(EpdRect){0,0,684,56};on_enter(&ctx);assert(!s_status_area.height);
+ }
+ prepare_thumbnails();render(&ctx,fb);
  if(ctx.request_app)simulator_route=app_index_of(ctx.request_app);
  simulator_files_view=s_view;simulator_files_folder=s_folder;snprintf(simulator_files_dir,sizeof(simulator_files_dir),"%s",s_dir);
 }

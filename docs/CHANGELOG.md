@@ -4,6 +4,16 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.0 beta r4 / 2026-11-01
+
+- 文件操作卡片改为贴合底部导航栏的无外框面板，保留向上阴影与背景淡显，重命名/复制/移动/删除横排，四等分与底部导航的中心和分界线对齐。接近屏幕比例的图片提供“设为息屏壁纸”，操作结果以系统标题字号在额头中央短暂显示，约4秒后局部刷新恢复状态栏。/ Anchor a borderless file-action card above navigation with an upward shadow, faded backdrop and one-row actions. Screen-shaped images offer Set as sleep wallpaper; title-sized status notices clear after about four seconds using only a status-strip update.
+
+- 存储卡管理中，pictures与banner pic及其子目录支持列表/缩略图切换，图片文件夹使用组合标识；补齐五个固定目录用途并统一设备/网页的根目录保护。/ Add inherited list/thumbnail modes for pictures and banner pic, image-folder symbols and consistent labels/protection for the five fixed roots.
+
+- 应用页USB连接、状态栏签名和系统语言统一采用Lucide的cable、signature、languages图标。/ Use Lucide cable, signature and languages icons for Apps USB, status signature and system language.
+
+- 修复通知区域被唤醒全刷接管后的过期状态；阅读进度、统计、触控与阅读刷新保持r3行为。/ Consume expired notice state after a wake full-refresh promotion; retain r3 reading progress, statistics, input and reader refresh behavior.
+
 ## 0.2.0 beta r3 / 2026-11-01
 
 - 阅读进度在TF可用时保存到 `.readpico/progress`，不再依赖内部NVS可写空间。使用CRC双槽、同步与读回校验，保存失败保留待写状态；兼容读取旧NVS进度，无TF时保留原NVS路径。
@@ -26,8 +36,6 @@ Add a bounded two-minute diagnostic capture under Settings → System & device; 
 - “应用”页统一传输、存储卡、坚果云和数字拼豆入口；增加六阶拼豆、32步撤回、PNG保存和残局恢复。
 - 新增默认壁纸，首次卡就绪时释放到pictures，保留用户自选壁纸及已有同名文件。
 - 增加稳定/测试在线更新通道，包含触控事件与升级闪烁修复、网页壁纸文件名保留等改进；上述硬件修复仍需Beta实机验证。
-
-## 未发布 / Unreleased
 
 - 第三栏改为“应用”，集中WiFi/热点、USB、存储卡管理、坚果云和数字拼豆；存储容量用文字及圆环显示。数字拼豆支持六阶灰度、32步撤回、清空和TF卡PNG导出。 / Replace Files with an Apps hub for WiFi/hotspot, USB, storage, Nutstore and Cyber Beads, with a capacity ring; add six-tone bead drawing, 32-step undo, clearing and SD PNG export.
 

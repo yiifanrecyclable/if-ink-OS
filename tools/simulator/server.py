@@ -9,6 +9,7 @@ import json
 import shutil
 import subprocess
 import threading
+import time
 import copy
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -64,6 +65,8 @@ class Preview:
         self.failed_signature=''
         self.replay_origin=None
         self.storage_signature=None
+        self.file_notice_key=None
+        self.file_notice_due=0
         self.render()
 
     def documents(self, cloud=False):
@@ -204,6 +207,10 @@ class Preview:
         if native.startswith('settings-'):
             import os
             process_env={**(process_env or os.environ),'PICO_SIM_BATTERY_DEMO':'1'}
+        if native.startswith('files-'):
+            import os
+            modes=self.state.get('root_grid_modes',0) if self.state['root_view'] else self.state.get('files_grid_modes',0)
+            process_env={**(process_env or os.environ),'PICO_SIM_FILES_GRID':str(modes)}
         result = subprocess.run([str(BUILD / "render"), native, str(path), str(aux), str(px),
                                  str(frame_tmp), str(listing), str(mask), seconds, "builtin",
                                  ';'.join(self.state['events']), directory],
@@ -211,6 +218,18 @@ class Preview:
         if result.returncode:
             raise ValueError("界面渲染失败；测试图书可能已被删除，请改选其他图书")
         info = json.loads(result.stdout)
+        if native.startswith('files-'):
+            self.state['files_grid_modes']=info.get('files_grid_modes',0)
+            self.state['files_grid']=info.get('files_grid',0)
+            notice=info.get('files_notice','')
+            key=(info.get('files_notice_serial',0),notice)
+            if notice:
+                if key!=self.file_notice_key:self.file_notice_due=time.monotonic()+4
+                self.file_notice_key=key
+            else:self.file_notice_key=None;self.file_notice_due=0
+            self.state['files_notice']=notice
+        else:self.file_notice_key=None;self.file_notice_due=0;self.state['files_notice']=''
+
         restored_cloud=info.pop('cloud_restore',None)
         if restored_cloud is not None:
             self.cloud.backup_restore(restored_cloud)
@@ -310,6 +329,11 @@ class Preview:
                     self.state.update(screen=self.cloud_pending_view,events=[],root_view=None);self.cloud_pending_view=None
                 if self.state['screen']=='cloud-sync' or not cloud['busy']:
                     self.state.update(events=[],root_view=None);self.replay_origin=None;self.render()
+            if getattr(self,'file_notice_due',0) and time.monotonic()>=self.file_notice_due:
+                self.file_notice_due=0
+                if self.state.get('root_view'):
+                    self.state['events'].append('n,4000,0,0,0')
+                    self.render()
             current=self.sources_signature()
             if current != self.signature and current!=self.failed_signature:
                 self.render()
@@ -375,7 +399,7 @@ class Preview:
                 if not self.state['root_view']:
                     self.state.update(root_view=screen, root_page=self.state['page'], root_px=self.state['px'],
                                       root_path=self.state['firmware_path'], root_dir=self.state['files_dir'],
-                                      root_scroll=self.state['scroll'],root_image_path=self.state.get('image_path',''))
+                                      root_scroll=self.state['scroll'],root_image_path=self.state.get('image_path',''),root_grid_modes=self.state.get('files_grid_modes',0))
                     self.capture_origin()
                 if len(self.state['events'])>=(4096 if native=='cyber-beads' else 500):
                     raise ValueError('当前模拟会话过长，请重新进入该界面')

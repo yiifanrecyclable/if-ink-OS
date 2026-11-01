@@ -385,6 +385,13 @@ int main(int argc, char **argv) {
     printf(",\"home_list_paths\":[");for(unsigned row=0;row<4;++row){if(row)printf(",");json_string(simulator_home_list_path(row));}printf("]");
     printf(",\"home_cover_geometry\":[");for(unsigned part=0;part<6;++part){if(part)printf(",");printf("%d",simulator_home_cover_geometry(part));}printf("]");
     printf(",\"shelf_geometry\":[");for(unsigned row=0;row<9;++row){if(row)printf(",");printf("[");for(unsigned part=0;part<14;++part){if(part)printf(",");printf("%d",simulator_shelf_geometry(row,part));}printf("]");}printf("]");
+    extern int simulator_files_row_height(void),simulator_files_grid(void),simulator_files_grid_available(void),simulator_files_grid_modes(void),simulator_files_grid_geometry(int),simulator_files_count(void),simulator_files_item_image_folder(int),simulator_files_thumb_ready(int);
+    extern const char *simulator_files_item(int),*simulator_files_note(int),*simulator_files_message(void);
+    extern int simulator_files_card_geometry(int);extern unsigned simulator_files_notice_serial(void);extern const char *simulator_files_notice(void);
+    printf(",\"files_card_geometry\":[");for(int i=0;i<16;++i){if(i)printf(",");printf("%d",simulator_files_card_geometry(i));}printf("],\"files_notice_serial\":%u,\"files_notice\":",simulator_files_notice_serial());json_string(simulator_files_notice());
+    printf(",\"files_row_height\":%d,\"files_message\":",simulator_files_row_height());json_string(simulator_files_message());
+    printf(",\"files_grid\":%d,\"files_grid_available\":%d,\"files_grid_modes\":%d,\"files_grid_geometry\":[",simulator_files_grid(),simulator_files_grid_available(),simulator_files_grid_modes());for(int i=0;i<7;++i){if(i)printf(",");printf("%d",simulator_files_grid_geometry(i));}printf("],\"files_items\":[");
+    for(int i=0;i<simulator_files_count();++i){if(i)printf(",");printf("{\"path\":");json_string(simulator_files_item(i));printf(",\"note\":");json_string(simulator_files_note(i));printf(",\"image_folder\":%d}",simulator_files_item_image_folder(i));}printf("],\"files_thumbs\":[");for(int i=0;i<9;++i){if(i)printf(",");printf("%d",simulator_files_thumb_ready(i));}printf("]");
     printf(",\"cloud_backup_used\":%s",simulator_cloud_backup_used()?"true":"false");
     if(restored){printf(",\"cloud_restore\":{\"folder\":");json_string(restored->folder);printf(",\"account\":");json_string(restored->account);printf(",\"password\":");json_string(restored->password);printf("}");}
     puts("}");

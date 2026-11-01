@@ -23,6 +23,12 @@ EpdRect ui_nav_rect(void);
 
 void ui_nav_draw(uint8_t *fb, int active);
 void ui_nav_status(uint8_t *fb);
+/// 状态栏短暂通知；到期由页面tick清除并仅重绘状态栏，避免整屏闪烁。
+/// Transient status notice; page ticks expire it and repaint only the status strip.
+void ui_nav_notice_show(const char *text, int64_t now_ms);
+void ui_nav_notice_clear(void);
+bool ui_nav_notice_tick(int64_t now_ms);
+const char *ui_nav_notice_text(void);
 /// 内容和文件共用底部分页。/ Shared content/file pagination above the navigation.
 EpdRect ui_nav_pager_rect(int direction);
 void ui_nav_draw_pager(uint8_t *fb,int count,const char *unit,int page,int pages);

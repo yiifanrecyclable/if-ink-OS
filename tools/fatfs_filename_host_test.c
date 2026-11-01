@@ -47,8 +47,8 @@ DRESULT disk_ioctl(BYTE drive, BYTE cmd, void* out) {
 
 int main(int argc, char** argv) {
     assert(argc == 3);
-    FATFS fs;
-    FIL file;
+    FATFS fs = {0};
+    FIL file = {0};
     UINT count;
     if (!strcmp(argv[1], "create")) {
         assert(FF_LFN_UNICODE == 2);
