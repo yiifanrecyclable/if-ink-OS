@@ -2,15 +2,17 @@
  * SPDX-FileCopyrightText: 2026 mindreset
  * SPDX-License-Identifier: Apache-2.0
  *
- * NVS 读写。打开失败就用深睡默认值，不擦除整个分区。
+ * 系统设置NVS读写，TF可用时壁纸选择独立校验保存；失败不擦除整个分区。
  *
- * NVS load/store. A failed open keeps the deep-sleep default; the
- * partition is not erased.
+ * NVS system settings plus checked SD wallpaper preferences; storage failures
+ * never erase the partition.
  * 恢复前保留整组旧状态；普通失败回退，回退失败保留TF恢复材料供重试。
  * Preserve all previous state before restore; roll back ordinary failures and retain TF material if rollback fails.
  */
 
 #include "settings.h"
+#include "settings_storage.h"
+#include "wallpaper_preferences.h"
 #include "book/reader_input.h"
 
 #include <stdio.h>
@@ -21,6 +23,10 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_timer.h"
+#ifndef PICO_HOST_SIMULATOR
+#include "esp_system.h"
+#endif
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "read_pico_sd.h"
@@ -108,7 +114,60 @@ static uint8_t s_book_tracking = 2, s_book_reading_line, s_book_rule_offset = 4;
 static uint8_t s_book_indent = 2;
 static char s_books_dir[MEDIA_DIR_MAX] = "/sdcard/books";
 static char s_fonts_dir[MEDIA_DIR_MAX] = "/sdcard/fonts";
-static void nvs_put_u8(const char* key, uint8_t value);
+static esp_err_t nvs_put_u8(const char* key, uint8_t value);
+static esp_err_t s_save_error,s_load_error,s_wallpaper_load_error;
+static esp_err_t settings_result(const char *key,esp_err_t error){
+    if(error!=ESP_OK){if(!s_save_error)s_save_error=error;ESP_LOGW(TAG,"save %s: %s",key,esp_err_to_name(error));}
+    return error;
+}
+esp_err_t app_settings_take_save_error(void){esp_err_t error=s_save_error;s_save_error=ESP_OK;return error;}
+esp_err_t app_settings_load_status(void){return s_load_error;}
+static bool idle_sleep_valid(uint8_t value);
+static bool status_date_valid(uint8_t value);
+static bool settings_u8_valid(const char *key,uint8_t v){
+    if(!strcmp(key,NVS_KEY_SLEEP))return v<=APP_SLEEP_OFF;
+    if(!strcmp(key,NVS_KEY_LANGUAGE))return v<=APP_LANGUAGE_EN;
+    if(!strcmp(key,NVS_KEY_IDLE_SLEEP))return idle_sleep_valid(v);
+    if(!strcmp(key,NVS_KEY_STATUS_DATE))return status_date_valid(v);
+    if(!strcmp(key,NVS_KEY_SYS_SIZE))return v>=100&&v<=200&&v%10==0;
+    if(!strcmp(key,NVS_KEY_BOOK_PX))return v>=36&&v<=72;
+    if(!strcmp(key,NVS_KEY_READER_FULL))return v==0||v==5||v==10||v==15||v==30;
+    if(!strcmp(key,NVS_KEY_BOOK_TRACK))return v<=4;
+    if(!strcmp(key,NVS_KEY_BOOK_RULE))return v<=2;
+    if(!strcmp(key,NVS_KEY_BOOK_RULE_OFFSET))return v<=8;
+    if(!strcmp(key,NVS_KEY_BOOK_INDENT))return v<=3;
+    // 旧180行距迁移仍有效，不把正常旧配置误判损坏。/ Retain the explicit legacy 180 spacing migration.
+    if(!strcmp(key,NVS_KEY_BOOK_LINE))return (v>=110&&v<=150)||v==180;
+    if(!strcmp(key,NVS_KEY_BOOK_PARA))return v<=75;
+    if(!strcmp(key,NVS_KEY_BOOK_MARGIN))return v>=8&&v<=60;
+    const char *flags[]={NVS_KEY_SHUTDOWN_MODE,NVS_KEY_HOME_FULL,NVS_KEY_LOCK_STYLE,NVS_KEY_PICKUP,
+        NVS_KEY_FULLSCREEN,NVS_KEY_READER_TURN,NVS_KEY_POWER_TURN,NVS_KEY_IMMERSIVE,NVS_KEY_HOLD_REFRESH,
+        NVS_KEY_VERTICAL_TURN,NVS_KEY_HIDE_IMAGES,NVS_KEY_SHELF_RECENT};
+    for(unsigned i=0;i<sizeof(flags)/sizeof(flags[0]);++i)if(!strcmp(key,flags[i]))return v<=1;
+    return true;
+}
+static esp_err_t settings_read_u8(nvs_handle_t h,const char *key,uint8_t *value){
+    esp_err_t e=nvs_get_u8(h,key,value);
+    if(e==ESP_OK&&!settings_u8_valid(key,*value))e=ESP_ERR_INVALID_RESPONSE;
+    if(e!=ESP_OK&&e!=ESP_ERR_NVS_NOT_FOUND&&!s_load_error)s_load_error=e;
+    return e;
+}
+static esp_err_t settings_read_str(nvs_handle_t h,const char *key,char *value,size_t *size){
+    size_t capacity=*size;esp_err_t e=nvs_get_str(h,key,value,size);
+    if(e==ESP_OK&&(!*size||*size>capacity||value[*size-1]||strnlen(value,*size)!=*size-1))e=ESP_ERR_INVALID_RESPONSE;
+    if(e==ESP_OK){
+        if(!strcmp(key,NVS_KEY_DEVICE_NAME)&&!value[0])e=ESP_ERR_INVALID_RESPONSE;
+        if(!strcmp(key,NVS_KEY_AVATAR)&&value[0]&&strncmp(value,"/sdcard/",8))e=ESP_ERR_INVALID_RESPONSE;
+        if((!strcmp(key,NVS_KEY_WALLPAPER)||!strcmp(key,"wp_last"))&&value[0]&&!wallpaper_card_path_valid(value))e=ESP_ERR_INVALID_RESPONSE;
+    }
+    if(e!=ESP_OK&&e!=ESP_ERR_NVS_NOT_FOUND&&!s_load_error)s_load_error=e;
+    return e;
+}
+static esp_err_t s_nvs_init_error;
+static esp_err_t s_boot_font_read=ESP_ERR_NOT_FINISHED,s_boot_size_read=ESP_ERR_NOT_FINISHED;
+static esp_err_t s_boot_shutdown_read=ESP_ERR_NOT_FINISHED;
+static void settings_trace_record(const char *stage,esp_err_t operation,bool arm);
+static void settings_trace_flush(void);
 static bool idle_sleep_valid(uint8_t value){return value==0||value==1||value==3||value==5||value==10||value==30;}
 static bool status_date_valid(uint8_t value) {return !(value&0x78) && (value&7)<APP_STATUS_DATE_FORMAT_COUNT;}
 
@@ -149,113 +208,121 @@ static uint8_t valid_book_px(uint8_t px) {
 }
 
 void app_settings_init(void) {
-    esp_err_t err = nvs_flash_init();
+    esp_err_t err = nvs_flash_init();s_nvs_init_error=err;
     // 设置分区异常时保留原数据供恢复，绝不因空间不足自动擦除用户资料。
     // Preserve settings on NVS errors; a full partition must never silently erase profile data.
     if (err != ESP_OK) {
+        s_load_error=err;
         ESP_LOGW(TAG, "nvs init %s, use deep sleep", esp_err_to_name(err));
-        return;
+        settings_trace_record("boot_nvs_init",err,false);return;
     }
 
     remove_legacy_weread_session();
 
     nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READONLY, &h) != ESP_OK) return;
+    err=nvs_open(NVS_NS,NVS_READONLY,&h);
+    if(err!=ESP_OK){if(err!=ESP_ERR_NVS_NOT_FOUND)s_load_error=err;settings_trace_record("boot_nvs_open",err,false);return;}
     uint8_t language=APP_LANGUAGE_ZH;
     s_language=APP_LANGUAGE_ZH;
-    if(nvs_get_u8(h,NVS_KEY_LANGUAGE,&language)==ESP_OK && language<=APP_LANGUAGE_EN)s_language=(app_language_t)language;
+    if(settings_read_u8(h,NVS_KEY_LANGUAGE,&language)==ESP_OK && language<=APP_LANGUAGE_EN)s_language=(app_language_t)language;
     ui_i18n_set_english(s_language==APP_LANGUAGE_EN);
     uint8_t idle=5;
-    if(nvs_get_u8(h,NVS_KEY_IDLE_SLEEP,&idle)==ESP_OK&&idle_sleep_valid(idle))s_idle_sleep_minutes=idle;
+    if(settings_read_u8(h,NVS_KEY_IDLE_SLEEP,&idle)==ESP_OK&&idle_sleep_valid(idle))s_idle_sleep_minutes=idle;
     uint8_t date=0;
-    if(nvs_get_u8(h,NVS_KEY_STATUS_DATE,&date)==ESP_OK && status_date_valid(date))s_status_date=date;
+    if(settings_read_u8(h,NVS_KEY_STATUS_DATE,&date)==ESP_OK && status_date_valid(date))s_status_date=date;
     uint8_t raw = APP_SLEEP_DEEP;
-    if (nvs_get_u8(h, NVS_KEY_SLEEP, &raw) == ESP_OK && raw <= APP_SLEEP_OFF) {
+    if (settings_read_u8(h, NVS_KEY_SLEEP, &raw) == ESP_OK && raw <= APP_SLEEP_OFF) {
         s_sleep = (app_sleep_mode_t)raw;
     }
     raw = 0;
-    if (nvs_get_u8(h, NVS_KEY_SHUTDOWN_MODE, &raw) == ESP_OK)
+    s_boot_shutdown_read=settings_read_u8(h,NVS_KEY_SHUTDOWN_MODE,&raw);
+    if (s_boot_shutdown_read == ESP_OK) {
         s_staged_shutdown = raw == 1;
+        if(raw>1)s_boot_shutdown_read=ESP_ERR_INVALID_RESPONSE;
+    }
     raw = 0;
-    if (nvs_get_u8(h, NVS_KEY_HOME_FULL, &raw) == ESP_OK) s_home_full_refresh = raw == 1;
+    if (settings_read_u8(h, NVS_KEY_HOME_FULL, &raw) == ESP_OK) s_home_full_refresh = raw == 1;
     size_t value_len = sizeof(s_device_name);
-    if (nvs_get_str(h, NVS_KEY_DEVICE_NAME, s_device_name, &value_len) != ESP_OK || !s_device_name[0])
+    if (settings_read_str(h, NVS_KEY_DEVICE_NAME, s_device_name, &value_len) != ESP_OK || !s_device_name[0])
         strlcpy(s_device_name, "Pico", sizeof(s_device_name));
     value_len = sizeof(s_avatar);
-    if (nvs_get_str(h, NVS_KEY_AVATAR, s_avatar, &value_len) != ESP_OK ||
+    if (settings_read_str(h, NVS_KEY_AVATAR, s_avatar, &value_len) != ESP_OK ||
         (s_avatar[0] && strncmp(s_avatar, "/sdcard/", 8))) s_avatar[0] = 0;
     value_len = sizeof(s_status_signature);
-    if (nvs_get_str(h, NVS_KEY_STATUS_SIGNATURE, s_status_signature, &value_len) != ESP_OK)
+    if (settings_read_str(h, NVS_KEY_STATUS_SIGNATURE, s_status_signature, &value_len) != ESP_OK)
         s_status_signature[0] = 0;
     size_t font_len = sizeof(s_font);
-    if (nvs_get_str(h, NVS_KEY_FONT, s_font, &font_len) != ESP_OK) {
+    if (settings_read_str(h, NVS_KEY_FONT, s_font, &font_len) != ESP_OK) {
         s_font[0] = '\0';
     }
     font_len = sizeof(s_system_font);
-    if (nvs_get_str(h, NVS_KEY_SYS_FONT, s_system_font, &font_len) != ESP_OK)
-        s_system_font[0] = 0;
+    s_boot_font_read=settings_read_str(h,NVS_KEY_SYS_FONT,s_system_font,&font_len);
+    if(s_boot_font_read!=ESP_OK)s_system_font[0]=0;
     uint8_t system_size = 120;
-    if (nvs_get_u8(h, NVS_KEY_SYS_SIZE, &system_size) == ESP_OK &&
+    s_boot_size_read=settings_read_u8(h,NVS_KEY_SYS_SIZE,&system_size);
+    if (s_boot_size_read == ESP_OK &&
         system_size >= 100 && system_size <= 200 && system_size % 10 == 0)
         s_system_size = system_size_preset(system_size);
+    else if(s_boot_size_read==ESP_OK)s_boot_size_read=ESP_ERR_INVALID_RESPONSE;
     uint8_t lock_style = 0;
-    if (nvs_get_u8(h, NVS_KEY_LOCK_STYLE, &lock_style) == ESP_OK && lock_style <= 1)
+    if (settings_read_u8(h, NVS_KEY_LOCK_STYLE, &lock_style) == ESP_OK && lock_style <= 1)
         s_lock_style = 1;
     size_t wallpaper_len = sizeof(s_wallpaper);
-    if (nvs_get_str(h, NVS_KEY_WALLPAPER, s_wallpaper, &wallpaper_len) != ESP_OK ||
+    if (settings_read_str(h, NVS_KEY_WALLPAPER, s_wallpaper, &wallpaper_len) != ESP_OK ||
         !wallpaper_card_path_valid(s_wallpaper)) s_wallpaper[0] = 0;
     size_t last_len=sizeof(s_wallpaper_last);
-    if(nvs_get_str(h,"wp_last",s_wallpaper_last,&last_len)!=ESP_OK || !wallpaper_card_path_valid(s_wallpaper_last)) s_wallpaper_last[0]=0;
+    if(settings_read_str(h,"wp_last",s_wallpaper_last,&last_len)!=ESP_OK || !wallpaper_card_path_valid(s_wallpaper_last)) s_wallpaper_last[0]=0;
     uint8_t wake = 0;
-    if (nvs_get_u8(h, NVS_KEY_WAKE, &wake) == ESP_OK) s_last_wake = wake;
+    if (settings_read_u8(h, NVS_KEY_WAKE, &wake) == ESP_OK) s_last_wake = wake;
     uint8_t boot = 0;
-    if (nvs_get_u8(h, NVS_KEY_BOOT, &boot) == ESP_OK) s_last_boot = boot;
+    if (settings_read_u8(h, NVS_KEY_BOOT, &boot) == ESP_OK) s_last_boot = boot;
     uint8_t pickup = 0;
-    if (nvs_get_u8(h, NVS_KEY_PICKUP, &pickup) == ESP_OK) s_pickup_wake = pickup != 0;
+    if (settings_read_u8(h, NVS_KEY_PICKUP, &pickup) == ESP_OK) s_pickup_wake = pickup != 0;
     uint8_t book_px = 48;
-    if (nvs_get_u8(h, NVS_KEY_BOOK_PX, &book_px) == ESP_OK) s_book_px = valid_book_px(book_px);
+    if (settings_read_u8(h, NVS_KEY_BOOK_PX, &book_px) == ESP_OK) s_book_px = valid_book_px(book_px);
     uint8_t fullscreen=0;
-    if(nvs_get_u8(h,NVS_KEY_FULLSCREEN,&fullscreen)==ESP_OK&&fullscreen<=1)s_reader_fullscreen=fullscreen!=0;
+    if(settings_read_u8(h,NVS_KEY_FULLSCREEN,&fullscreen)==ESP_OK&&fullscreen<=1)s_reader_fullscreen=fullscreen!=0;
     uint8_t reader_full_pages = 15;
-    if (nvs_get_u8(h, NVS_KEY_READER_FULL, &reader_full_pages) == ESP_OK &&
+    if (settings_read_u8(h, NVS_KEY_READER_FULL, &reader_full_pages) == ESP_OK &&
         (reader_full_pages == 0 || reader_full_pages == 5 || reader_full_pages == 10 ||
          reader_full_pages == 15 || reader_full_pages == 30))
         s_reader_full_pages = reader_full_pages;
     uint8_t reader_turn_effect = 0;
-    if (nvs_get_u8(h, NVS_KEY_READER_TURN, &reader_turn_effect) == ESP_OK && reader_turn_effect <= 1)
+    if (settings_read_u8(h, NVS_KEY_READER_TURN, &reader_turn_effect) == ESP_OK && reader_turn_effect <= 1)
         s_reader_turn_effect = reader_turn_effect;
     uint8_t power_turn = 0;
-    if (nvs_get_u8(h, NVS_KEY_POWER_TURN, &power_turn) == ESP_OK) s_reader_power_turn = power_turn == 1;
+    if (settings_read_u8(h, NVS_KEY_POWER_TURN, &power_turn) == ESP_OK) s_reader_power_turn = power_turn == 1;
     uint8_t immersive = 0;
-    if (nvs_get_u8(h, NVS_KEY_IMMERSIVE, &immersive) == ESP_OK) s_reader_immersive = immersive == 1;
+    if (settings_read_u8(h, NVS_KEY_IMMERSIVE, &immersive) == ESP_OK) s_reader_immersive = immersive == 1;
     uint8_t hold_refresh = 0;
-    if (nvs_get_u8(h, NVS_KEY_HOLD_REFRESH, &hold_refresh) == ESP_OK) s_reader_hold_refresh = hold_refresh == 1;
+    if (settings_read_u8(h, NVS_KEY_HOLD_REFRESH, &hold_refresh) == ESP_OK) s_reader_hold_refresh = hold_refresh == 1;
     uint8_t vertical_turn = 0;
-    if (nvs_get_u8(h, NVS_KEY_VERTICAL_TURN, &vertical_turn) == ESP_OK) s_reader_vertical_turn = vertical_turn == 1;
+    if (settings_read_u8(h, NVS_KEY_VERTICAL_TURN, &vertical_turn) == ESP_OK) s_reader_vertical_turn = vertical_turn == 1;
     uint8_t hide_images = 0, recent_sort = 0;
-    if (nvs_get_u8(h, NVS_KEY_HIDE_IMAGES, &hide_images) == ESP_OK) s_reader_hide_images = hide_images == 1;
-    if (nvs_get_u8(h, NVS_KEY_SHELF_RECENT, &recent_sort) == ESP_OK) s_shelf_recent_sort = recent_sort == 1;
+    if (settings_read_u8(h, NVS_KEY_HIDE_IMAGES, &hide_images) == ESP_OK) s_reader_hide_images = hide_images == 1;
+    if (settings_read_u8(h, NVS_KEY_SHELF_RECENT, &recent_sort) == ESP_OK) s_shelf_recent_sort = recent_sort == 1;
     uint8_t tracking = 2, reading_line = 0, rule_offset = 4, indent = 2;
-    if (nvs_get_u8(h, NVS_KEY_BOOK_TRACK, &tracking) == ESP_OK && tracking <= 4)
+    if (settings_read_u8(h, NVS_KEY_BOOK_TRACK, &tracking) == ESP_OK && tracking <= 4)
         s_book_tracking = tracking;
-    if (nvs_get_u8(h, NVS_KEY_BOOK_RULE, &reading_line) == ESP_OK && reading_line <= 2)
+    if (settings_read_u8(h, NVS_KEY_BOOK_RULE, &reading_line) == ESP_OK && reading_line <= 2)
         s_book_reading_line = reading_line;
-    if (nvs_get_u8(h, NVS_KEY_BOOK_RULE_OFFSET, &rule_offset) == ESP_OK && rule_offset <= 8)
+    if (settings_read_u8(h, NVS_KEY_BOOK_RULE_OFFSET, &rule_offset) == ESP_OK && rule_offset <= 8)
         s_book_rule_offset = rule_offset;
-    if (nvs_get_u8(h, NVS_KEY_BOOK_INDENT, &indent) == ESP_OK && indent <= 3)
+    if (settings_read_u8(h, NVS_KEY_BOOK_INDENT, &indent) == ESP_OK && indent <= 3)
         s_book_indent = indent;
     uint8_t line = 130, para = 50, margin = 36;
-    if (nvs_get_u8(h, NVS_KEY_BOOK_LINE, &line) == ESP_OK) {
+    if (settings_read_u8(h, NVS_KEY_BOOK_LINE, &line) == ESP_OK) {
         if (line >= 110 && line <= 150) s_book_line = line;
         else if (line == 180) s_book_line = 150;
     }
-    if (nvs_get_u8(h, NVS_KEY_BOOK_PARA, &para) == ESP_OK && para <= 75) s_book_para = para;
-    if (nvs_get_u8(h, NVS_KEY_BOOK_MARGIN, &margin) == ESP_OK && margin >= 8 && margin <= 60)
+    if (settings_read_u8(h, NVS_KEY_BOOK_PARA, &para) == ESP_OK && para <= 75) s_book_para = para;
+    if (settings_read_u8(h, NVS_KEY_BOOK_MARGIN, &margin) == ESP_OK && margin >= 8 && margin <= 60)
         s_book_margin = margin;
     // 标准目录固定，忽略旧版自定义路径但不移动任何文件。/ Ignore legacy custom roots without moving files.
     strlcpy(s_books_dir,"/sdcard/books",sizeof(s_books_dir));
     strlcpy(s_fonts_dir,"/sdcard/fonts",sizeof(s_fonts_dir));
     nvs_close(h);
+    settings_trace_record("boot_loaded",ESP_OK,false);
     ESP_LOGI(
         TAG, "sleep mode %s, font %s",
         app_sleep_mode_name(s_sleep),
@@ -276,73 +343,83 @@ const char* app_sleep_mode_name(app_sleep_mode_t mode) {
     }
 }
 
-void app_settings_set_sleep_mode(app_sleep_mode_t mode) {
-    if (mode > APP_SLEEP_OFF) mode = APP_SLEEP_DEEP;
-    s_sleep = mode;
-    nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
-    nvs_set_u8(h, NVS_KEY_SLEEP, (uint8_t)mode);
-    nvs_commit(h);
-    nvs_close(h);
+esp_err_t app_settings_set_sleep_mode(app_sleep_mode_t mode) {
+    if(mode>APP_SLEEP_OFF)mode=APP_SLEEP_DEEP;
+    esp_err_t err=nvs_put_u8(NVS_KEY_SLEEP,mode);
+    if(err==ESP_OK)s_sleep=mode;
+    return err;
 }
 
 bool app_settings_staged_shutdown(void) { return s_staged_shutdown; }
-void app_settings_set_staged_shutdown(bool staged) {
-    if (staged == s_staged_shutdown) return;
-    s_staged_shutdown = staged;
-    nvs_put_u8(NVS_KEY_SHUTDOWN_MODE, staged ? 1 : 0);
+esp_err_t app_settings_set_staged_shutdown(bool staged) {
+    esp_err_t err=nvs_put_u8(NVS_KEY_SHUTDOWN_MODE,staged?1:0);
+    if(err==ESP_OK)s_staged_shutdown=staged;
+    settings_trace_record("shutdown_saved",err,true);
+    return err;
 }
 
 bool app_settings_home_full_refresh(void) { return s_home_full_refresh; }
-void app_settings_set_home_full_refresh(bool enabled) {
-    if (enabled == s_home_full_refresh) return;
-    s_home_full_refresh = enabled;
-    nvs_put_u8(NVS_KEY_HOME_FULL, enabled ? 1 : 0);
+esp_err_t app_settings_set_home_full_refresh(bool enabled) {
+    esp_err_t err=nvs_put_u8(NVS_KEY_HOME_FULL,enabled?1:0);
+    if(err==ESP_OK)s_home_full_refresh=enabled;
+    return err;
 }
 
-static bool nvs_put_str(const char *key, const char *value) {
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(NVS_NS, NVS_READWRITE, &h);
-    if (err != ESP_OK) { ESP_LOGE(TAG, "save %s open: %s", key, esp_err_to_name(err)); return false; }
-    err = nvs_set_str(h, key, value);
-    if (err == ESP_OK) err = nvs_commit(h);
-    nvs_close(h);
-    if (err != ESP_OK) ESP_LOGE(TAG, "save %s: %s", key, esp_err_to_name(err));
-    return err == ESP_OK;
+static esp_err_t nvs_put_str(const char *key, const char *value) {
+    const char *phase;esp_err_t err=settings_storage_put_str_stage(NVS_NS,key,value,&phase);
+    if(!strcmp(key,NVS_KEY_SYS_FONT)){char stage[48];snprintf(stage,sizeof(stage),"font_%s",phase);settings_trace_record(stage,err,true);}
+    return settings_result(key,err);
 }
 
 const char *app_settings_device_name(void) { return s_device_name; }
-void app_settings_set_device_name(const char *name) {
-    if (!name || !name[0] || strnlen(name, sizeof(s_device_name)) >= sizeof(s_device_name)) return;
-    if (nvs_put_str(NVS_KEY_DEVICE_NAME, name)) strlcpy(s_device_name, name, sizeof(s_device_name));
+esp_err_t app_settings_set_device_name(const char *name) {
+    if(!name||!name[0]||strnlen(name,sizeof(s_device_name))>=sizeof(s_device_name))return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_str(NVS_KEY_DEVICE_NAME,name);
+    if(err==ESP_OK)strlcpy(s_device_name,name,sizeof(s_device_name));
+    return err;
 }
 const char *app_settings_avatar_path(void) { return s_avatar; }
-void app_settings_set_avatar_path(const char *path) {
-    if (!path || (path[0] && strncmp(path, "/sdcard/", 8)) ||
-        strnlen(path, sizeof(s_avatar)) >= sizeof(s_avatar)) return;
-    if (nvs_put_str(NVS_KEY_AVATAR, path)) strlcpy(s_avatar, path, sizeof(s_avatar));
+esp_err_t app_settings_set_avatar_path(const char *path) {
+    if(!path||(path[0]&&strncmp(path,"/sdcard/",8))||strnlen(path,sizeof(s_avatar))>=sizeof(s_avatar))return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_str(NVS_KEY_AVATAR,path);
+    if(err==ESP_OK)strlcpy(s_avatar,path,sizeof(s_avatar));
+    return err;
 }
 const char *app_settings_status_signature(void) { return s_status_signature; }
-void app_settings_set_status_signature(const char *signature) {
-    if (!signature || strnlen(signature, sizeof(s_status_signature)) >= sizeof(s_status_signature)) return;
-    if (nvs_put_str(NVS_KEY_STATUS_SIGNATURE, signature))
-        strlcpy(s_status_signature, signature, sizeof(s_status_signature));
+esp_err_t app_settings_set_status_signature(const char *signature) {
+    if(!signature||strnlen(signature,sizeof(s_status_signature))>=sizeof(s_status_signature))return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_str(NVS_KEY_STATUS_SIGNATURE,signature);
+    if(err==ESP_OK)strlcpy(s_status_signature,signature,sizeof(s_status_signature));
+    return err;
 }
 
 uint8_t app_settings_idle_sleep_minutes(void){return s_idle_sleep_minutes;}
-void app_settings_set_idle_sleep_minutes(uint8_t minutes){
-    if(!idle_sleep_valid(minutes))return;
-    s_idle_sleep_minutes=minutes;nvs_put_u8(NVS_KEY_IDLE_SLEEP,minutes);
+esp_err_t app_settings_set_idle_sleep_minutes(uint8_t minutes) {
+    if(!idle_sleep_valid(minutes))return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_u8(NVS_KEY_IDLE_SLEEP,minutes);
+    if(err==ESP_OK)s_idle_sleep_minutes=minutes;
+    return err;
 }
 
+static esp_err_t status_date_read_current(uint8_t *value){
+    *value=0;nvs_handle_t h;esp_err_t err=nvs_open(NVS_NS,NVS_READONLY,&h);
+    if(err==ESP_OK){err=nvs_get_u8(h,NVS_KEY_STATUS_DATE,value);nvs_close(h);}
+    if(err==ESP_ERR_NVS_NOT_FOUND){*value=0;return ESP_OK;}
+    if(err==ESP_OK&&!status_date_valid(*value))err=ESP_ERR_INVALID_RESPONSE;
+    return settings_result(NVS_KEY_STATUS_DATE,err);
+}
 bool app_settings_status_show_date(void){return !(s_status_date&0x80);}
-void app_settings_set_status_show_date(bool show){
-    s_status_date=(s_status_date&7)|(show?0:0x80);nvs_put_u8(NVS_KEY_STATUS_DATE,s_status_date);
+esp_err_t app_settings_set_status_show_date(bool show) {
+    uint8_t value;esp_err_t err=status_date_read_current(&value);if(err!=ESP_OK)return err;
+    value=(value&7)|(show?0:0x80);
+    err=nvs_put_u8(NVS_KEY_STATUS_DATE,value);if(err==ESP_OK)s_status_date=value;return err;
 }
 app_status_date_format_t app_settings_status_date_format(void){return (app_status_date_format_t)(s_status_date&7);}
-void app_settings_set_status_date_format(app_status_date_format_t format){
-    if((unsigned)format>=APP_STATUS_DATE_FORMAT_COUNT)return;
-    s_status_date=(s_status_date&0x80)|(uint8_t)format;nvs_put_u8(NVS_KEY_STATUS_DATE,s_status_date);
+esp_err_t app_settings_set_status_date_format(app_status_date_format_t format) {
+    if((unsigned)format>=APP_STATUS_DATE_FORMAT_COUNT)return ESP_ERR_INVALID_ARG;
+    uint8_t value;esp_err_t err=status_date_read_current(&value);if(err!=ESP_OK)return err;
+    value=(value&0x80)|(uint8_t)format;
+    err=nvs_put_u8(NVS_KEY_STATUS_DATE,value);if(err==ESP_OK)s_status_date=value;return err;
 }
 void app_settings_format_status_clock(time_t now,char *out,size_t capacity){
     if(!out||!capacity)return;
@@ -366,31 +443,27 @@ const char* app_settings_font_path(void) {
 
 const char* app_settings_system_font_path(void) { return s_system_font; }
 app_language_t app_settings_language(void){return s_language;}
-esp_err_t app_settings_set_language(app_language_t language){
+esp_err_t app_settings_set_language(app_language_t language) {
     if(language!=APP_LANGUAGE_ZH&&language!=APP_LANGUAGE_EN)return ESP_ERR_INVALID_ARG;
-    if(language==s_language)return ESP_OK;
-    nvs_handle_t h;esp_err_t err=nvs_open(NVS_NS,NVS_READWRITE,&h);
-    if(err!=ESP_OK)return err;
-    err=nvs_set_u8(h,NVS_KEY_LANGUAGE,(uint8_t)language);
-    if(err==ESP_OK)err=nvs_commit(h);
-    nvs_close(h);if(err==ESP_OK){s_language=language;ui_i18n_set_english(language==APP_LANGUAGE_EN);}return err;
+    esp_err_t err=nvs_put_u8(NVS_KEY_LANGUAGE,(uint8_t)language);
+    if(err==ESP_OK){s_language=language;ui_i18n_set_english(language==APP_LANGUAGE_EN);}return err;
 }
-void app_settings_set_system_font_path(const char* path) {
-    if (!path) path = "";
-    if (strnlen(path, sizeof(s_system_font)) >= sizeof(s_system_font)) return;
-    strlcpy(s_system_font, path, sizeof(s_system_font));
-    nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
-    nvs_set_str(h, NVS_KEY_SYS_FONT, s_system_font);
-    nvs_commit(h);
-    nvs_close(h);
+esp_err_t app_settings_set_system_font_path(const char *path) {
+    if(!path)path="";
+    if(strnlen(path,sizeof(s_system_font))>=sizeof(s_system_font))return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_str(NVS_KEY_SYS_FONT,path);
+    if(err==ESP_OK)strlcpy(s_system_font,path,sizeof(s_system_font));
+    settings_trace_record("font_saved",err,true);
+    return err;
 }
 uint8_t app_settings_system_font_size(void) { return s_system_size; }
-void app_settings_set_system_font_size(uint8_t percent) {
-    if (percent < 100 || percent > 200 || percent % 10 || percent == s_system_size) return;
-    percent = system_size_preset(percent);
-    s_system_size = percent;
-    nvs_put_u8(NVS_KEY_SYS_SIZE, percent);
+esp_err_t app_settings_set_system_font_size(uint8_t percent) {
+    if(percent<100||percent>200||percent%10)return ESP_ERR_INVALID_ARG;
+    percent=system_size_preset(percent);
+    esp_err_t err=nvs_put_u8(NVS_KEY_SYS_SIZE,percent);
+    if(err==ESP_OK)s_system_size=percent;
+    settings_trace_record("size_saved",err,true);
+    return err;
 }
 uint8_t app_settings_lock_style(void) { return s_lock_style; }
 void app_settings_set_lock_style(uint8_t style) {
@@ -400,51 +473,112 @@ void app_settings_set_lock_style(uint8_t style) {
 const char* app_settings_wallpaper_path(void) { return s_wallpaper; }
 // 目录以末尾斜线存入既有字段，保持备份格式不变。/ A trailing slash encodes a directory in the existing backup field.
 bool app_settings_wallpaper_rotating(void) { size_t n=strlen(s_wallpaper);return n && s_wallpaper[n-1]=='/'; }
-static esp_err_t wallpaper_store(const char *path) {
-    if(!path || (path[0] && !wallpaper_card_path_valid(path)) || strlen(path)>=sizeof(s_wallpaper))return ESP_ERR_INVALID_ARG;
-    nvs_handle_t h;esp_err_t err=nvs_open(NVS_NS,NVS_READWRITE,&h);if(err!=ESP_OK)return err;
-    err=nvs_set_str(h,NVS_KEY_WALLPAPER,path);if(err==ESP_OK)err=nvs_commit(h);nvs_close(h);
-    if(err==ESP_OK)strlcpy(s_wallpaper,path,sizeof(s_wallpaper));
-    return err;
+static bool wallpaper_card_ready(void){read_pico_sd_info_t sd={0};return read_pico_sd_get_info(&sd)==ESP_OK&&sd.mounted;}
+void app_settings_wallpaper_media_ready(void){
+    settings_trace_flush();
+    if(!wallpaper_card_ready())return;
+    wallpaper_preferences_t prefs;esp_err_t err=wallpaper_preferences_load(&prefs);
+    s_wallpaper_load_error=err==ESP_ERR_NOT_FOUND?ESP_OK:err;
+    if(err==ESP_OK){strlcpy(s_wallpaper,prefs.path,sizeof(s_wallpaper));strlcpy(s_wallpaper_last,prefs.last,sizeof(s_wallpaper_last));}
+    else if(err!=ESP_ERR_NOT_FOUND)ESP_LOGW(TAG,"wallpaper SD load: %s",esp_err_to_name(err));
 }
-void app_settings_set_wallpaper_path(const char* path) { (void)wallpaper_store(path); }
-esp_err_t app_settings_save_wallpaper_path(const char *path) {
-    char old[sizeof(s_wallpaper)];strlcpy(old,s_wallpaper,sizeof(old));
-    esp_err_t err=wallpaper_store(path);
-    if(err!=ESP_OK){
-        (void)wallpaper_store(old);
-        // 提交错误可能发生在写入之后；回读持久路径，不拿旧缓存冒充存储结果。
-        // A commit error may follow a write; read durable state rather than presenting stale cache as storage.
-        nvs_handle_t h;char actual[sizeof(s_wallpaper)];size_t size=sizeof(actual);
-        if(nvs_open(NVS_NS,NVS_READONLY,&h)==ESP_OK){
-            if(nvs_get_str(h,NVS_KEY_WALLPAPER,actual,&size)==ESP_OK&&wallpaper_card_path_valid(actual))strlcpy(s_wallpaper,actual,sizeof(s_wallpaper));
-            nvs_close(h);
-        }
+static esp_err_t wallpaper_store(const char *path){
+    if(!path||(path[0]&&!wallpaper_card_path_valid(path))||strlen(path)>=sizeof(s_wallpaper))return ESP_ERR_INVALID_ARG;
+    esp_err_t err;
+    if(wallpaper_card_ready()){
+        wallpaper_preferences_t prefs={0};strlcpy(prefs.path,path,sizeof(prefs.path));strlcpy(prefs.last,s_wallpaper_last,sizeof(prefs.last));
+        err=wallpaper_preferences_save(&prefs);
+        if(err!=ESP_OK)ESP_LOGW(TAG,"wallpaper SD save: %s",esp_err_to_name(err));
+    }else{
+        err=settings_storage_put_str(NVS_NS,NVS_KEY_WALLPAPER,path);
+        if(err!=ESP_OK)ESP_LOGW(TAG,"wallpaper NVS save: %s",esp_err_to_name(err));
     }
+    if(err==ESP_OK){strlcpy(s_wallpaper,path,sizeof(s_wallpaper));if(wallpaper_card_ready())s_wallpaper_load_error=ESP_OK;}
     return err;
 }
-esp_err_t app_settings_set_wallpaper_directory(const char *path) {
+esp_err_t app_settings_set_wallpaper_path(const char *path) {
+    return app_settings_save_wallpaper_path(path);
+}
+esp_err_t app_settings_save_wallpaper_path(const char *path){
+    esp_err_t err=wallpaper_store(path);
+    // 未确认的保存不触发盲回写；TF可读取现存有效槽以重获确认状态。/ Never blindly rewrite after an unconfirmed save; SD can reload its valid slot.
+    if(err!=ESP_OK&&wallpaper_card_ready())app_settings_wallpaper_media_ready();
+    return settings_result(NVS_KEY_WALLPAPER,err);
+}
+esp_err_t app_settings_set_wallpaper_directory(const char *path){
     if(!wallpaper_card_path_valid(path))return ESP_ERR_INVALID_ARG;
     char directory[288];size_t n=strlen(path);
-    if(snprintf(directory,sizeof(directory),"%s%s",path,n && path[n-1]=='/'?"":"/") >= (int)sizeof(directory))return ESP_ERR_INVALID_ARG;
-    return wallpaper_store(directory);
+    if(snprintf(directory,sizeof(directory),"%s%s",path,n&&path[n-1]=='/'?"":"/")>=(int)sizeof(directory))return ESP_ERR_INVALID_ARG;
+    return app_settings_save_wallpaper_path(directory);
 }
 const char *app_settings_wallpaper_last(void){return s_wallpaper_last;}
 void app_settings_note_wallpaper(const char *path){
     if(!wallpaper_card_path_valid(path)||!strcmp(path,s_wallpaper_last))return;
-    strlcpy(s_wallpaper_last,path,sizeof(s_wallpaper_last));
-    nvs_handle_t h;if(nvs_open(NVS_NS,NVS_READWRITE,&h)!=ESP_OK)return;
-    if(nvs_set_str(h,"wp_last",path)==ESP_OK)(void)nvs_commit(h);
-    nvs_close(h);
+    if(wallpaper_card_ready()){
+        wallpaper_preferences_t prefs={0};strlcpy(prefs.path,s_wallpaper,sizeof(prefs.path));strlcpy(prefs.last,path,sizeof(prefs.last));
+        esp_err_t err=wallpaper_preferences_save(&prefs);if(err==ESP_OK)strlcpy(s_wallpaper_last,path,sizeof(s_wallpaper_last));
+        else ESP_LOGW(TAG,"wallpaper rotation save: %s",esp_err_to_name(err));
+        return;
+    }
+    esp_err_t err=settings_storage_put_str(NVS_NS,"wp_last",path);
+    if(err==ESP_OK)strlcpy(s_wallpaper_last,path,sizeof(s_wallpaper_last));
+    else ESP_LOGW(TAG,"wallpaper rotation save: %s",esp_err_to_name(err));
 }
 
-static void nvs_put_u8(const char* key, uint8_t value) {
-    nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
-    nvs_set_u8(h, key, value);
-    nvs_commit(h);
-    nvs_close(h);
+static esp_err_t nvs_put_u8(const char *key,uint8_t value) {
+    const char *phase;esp_err_t err=settings_storage_put_u8_stage(NVS_NS,key,value,&phase);
+    bool shutdown=!strcmp(key,NVS_KEY_SHUTDOWN_MODE),size=!strcmp(key,NVS_KEY_SYS_SIZE);
+    if(shutdown||size){char stage[48];snprintf(stage,sizeof(stage),"%s_%s",shutdown?"shutdown":"size",phase);settings_trace_record(stage,err,true);}
+    if(!strcmp(key,NVS_KEY_WAKE)||!strcmp(key,NVS_KEY_BOOT)){if(err!=ESP_OK)ESP_LOGW(TAG,"telemetry save %s: %s",key,esp_err_to_name(err));return err;}
+    return settings_result(key,err);
 }
+
+// 只在文字/关机策略设置或电源操作后开启；启动记录暂存在RAM，TF挂载后补写，不采集路径/账号。
+// Arm on typography/shutdown settings or power actions; queue boot evidence until mounted, never recording paths/accounts.
+#define SETTINGS_TRACE "/sdcard/diagnostics/ifink-settings.csv"
+static char s_trace_pending[2048];
+static size_t s_trace_bytes;
+static unsigned s_trace_sequence,s_trace_dropped;
+static bool s_trace_armed;
+static uint32_t settings_path_hash(const char *text){uint32_t h=2166136261u;for(;*text;++text)h=(h^(unsigned char)*text)*16777619u;return h;}
+static void settings_trace_flush(void){
+    read_pico_sd_info_t sd={0};if(read_pico_sd_get_info(&sd)!=ESP_OK||!sd.mounted)return;
+    struct stat st;
+    if(!s_trace_armed){if(stat(SETTINGS_TRACE,&st))return;s_trace_armed=true;}
+    if(!s_trace_bytes)return;
+    if(mkdir("/sdcard/diagnostics",0755)&&errno!=EEXIST)return;
+    if(!stat(SETTINGS_TRACE,&st)&&st.st_size>=65536){
+        (void)remove(SETTINGS_TRACE ".previous");if(rename(SETTINGS_TRACE,SETTINGS_TRACE ".previous"))return;
+    }
+    bool fresh=stat(SETTINGS_TRACE,&st)!=0||st.st_size==0;
+    FILE *f=fopen(SETTINGS_TRACE,"ab");if(!f)return;
+    bool ok=true;
+    if(fresh)ok=fputs("seq,uptime_ms,stage,reset_reason,nvs_init,operation,nvs_open,font_read,size_read,ram_font_hash,nvs_font_hash,ram_size,nvs_size,staged,stats_error,used,free,available,dropped,boot_font_read,boot_size_read,shutdown_read,nvs_staged,boot_shutdown_read\n",f)>=0;
+    if(fwrite(s_trace_pending,1,s_trace_bytes,f)!=s_trace_bytes)ok=false;
+    if(fflush(f)||fsync(fileno(f)))ok=false;
+    if(fclose(f))ok=false;
+    if(ok){s_trace_bytes=0;s_trace_dropped=0;}
+}
+static void settings_trace_record(const char *stage,esp_err_t operation,bool arm){
+    if(arm)s_trace_armed=true;
+    nvs_handle_t h;char font[FONT_PATH_MAX]={0};size_t len=sizeof(font);uint8_t size=0,staged=255;
+    esp_err_t opened=nvs_open(NVS_NS,NVS_READONLY,&h),font_error=opened,size_error=opened,shutdown_error=opened;
+    if(opened==ESP_OK){font_error=nvs_get_str(h,NVS_KEY_SYS_FONT,font,&len);size_error=nvs_get_u8(h,NVS_KEY_SYS_SIZE,&size);shutdown_error=nvs_get_u8(h,NVS_KEY_SHUTDOWN_MODE,&staged);nvs_close(h);}
+    long used=-1,free_entries=-1,available=-1;esp_err_t stats_error=ESP_ERR_NOT_SUPPORTED;int reset=0;
+#ifndef PICO_HOST_SIMULATOR
+    nvs_stats_t stats={0};stats_error=nvs_get_stats(NULL,&stats);reset=(int)esp_reset_reason();
+    if(stats_error==ESP_OK){used=(long)stats.used_entries;free_entries=(long)stats.free_entries;available=(long)stats.available_entries;}
+#endif
+    char row[320];int n=snprintf(row,sizeof(row),"%u,%lld,%s,%d,%d,%d,%d,%d,%d,%u,%u,%u,%u,%u,%d,%ld,%ld,%ld,%u,%d,%d,%d,%u,%d\n",
+        ++s_trace_sequence,(long long)(esp_timer_get_time()/1000),stage,reset,s_nvs_init_error,operation,opened,font_error,size_error,
+        (unsigned)settings_path_hash(s_system_font),font_error==ESP_OK?(unsigned)settings_path_hash(font):0u,(unsigned)s_system_size,(unsigned)size,s_staged_shutdown,stats_error,used,free_entries,available,s_trace_dropped,s_boot_font_read,s_boot_size_read,shutdown_error,(unsigned)staged,s_boot_shutdown_read);
+    ESP_LOGI(TAG,"storage probe %s",row);
+    if(n>0&&(size_t)n<sizeof(row)&&(size_t)n<sizeof(s_trace_pending)-s_trace_bytes){memcpy(s_trace_pending+s_trace_bytes,row,(size_t)n);s_trace_bytes+=(size_t)n;}
+    else ++s_trace_dropped;
+    settings_trace_flush();
+}
+void app_settings_trace_storage_result(const char *stage,esp_err_t error){settings_trace_record(stage?stage:"power_result",error,true);}
+void app_settings_trace_storage(const char *stage){settings_trace_record(stage?stage:"snapshot",ESP_OK,true);}
 
 uint8_t app_settings_last_wake(void) {
     return s_last_wake;
@@ -470,130 +604,136 @@ bool app_settings_pickup_wake(void) {
     return s_pickup_wake;
 }
 
-void app_settings_set_pickup_wake(bool on) {
-    if (s_pickup_wake == on) return;
-    s_pickup_wake = on;
-    nvs_put_u8(NVS_KEY_PICKUP, on ? 1 : 0);
+esp_err_t app_settings_set_pickup_wake(bool on) {
+    esp_err_t err=nvs_put_u8(NVS_KEY_PICKUP,on?1:0);
+    if(err==ESP_OK)s_pickup_wake=on;
+    return err;
 }
 
-void app_settings_set_font_path(const char* path) {
-    if (path == NULL) path = "";
-    strlcpy(s_font, path, sizeof(s_font));
-    nvs_handle_t h;
-    if (nvs_open(NVS_NS, NVS_READWRITE, &h) != ESP_OK) return;
-    nvs_set_str(h, NVS_KEY_FONT, s_font);
-    nvs_commit(h);
-    nvs_close(h);
+esp_err_t app_settings_set_font_path(const char *path) {
+    if(!path)path="";
+    if(strnlen(path,sizeof(s_font))>=sizeof(s_font))return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_str(NVS_KEY_FONT,path);
+    if(err==ESP_OK)strlcpy(s_font,path,sizeof(s_font));
+    return err;
 }
 
 uint8_t app_settings_book_px(void) {
     return s_book_px;
 }
 
-void app_settings_set_book_px(uint8_t px) {
-    px = valid_book_px(px);
-    if (s_book_px == px) return;
-    s_book_px = px;
-    nvs_put_u8(NVS_KEY_BOOK_PX, px);
+esp_err_t app_settings_set_book_px(uint8_t px) {
+    px=valid_book_px(px);
+    esp_err_t err=nvs_put_u8(NVS_KEY_BOOK_PX,px);
+    if(err==ESP_OK)s_book_px=px;
+    return err;
 }
 
 uint8_t app_settings_reader_full_pages(void) { return s_reader_full_pages; }
-void app_settings_set_reader_full_pages(uint8_t pages) {
-    if ((pages != 0 && pages != 5 && pages != 10 && pages != 15 && pages != 30) ||
-        pages == s_reader_full_pages) return;
-    s_reader_full_pages = pages;
-    nvs_put_u8(NVS_KEY_READER_FULL, pages);
+esp_err_t app_settings_set_reader_full_pages(uint8_t pages) {
+    if(pages!=0&&pages!=5&&pages!=10&&pages!=15&&pages!=30)return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_u8(NVS_KEY_READER_FULL,pages);
+    if(err==ESP_OK)s_reader_full_pages=pages;
+    return err;
 }
 uint8_t app_settings_reader_turn_effect(void) { return s_reader_turn_effect; }
-void app_settings_set_reader_turn_effect(uint8_t effect) {
-    if (effect > 1 || effect == s_reader_turn_effect) return;
-    s_reader_turn_effect = effect;
-    nvs_put_u8(NVS_KEY_READER_TURN, effect);
+esp_err_t app_settings_set_reader_turn_effect(uint8_t effect) {
+    if(effect>1)return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_u8(NVS_KEY_READER_TURN,effect);
+    if(err==ESP_OK)s_reader_turn_effect=effect;
+    return err;
 }
 bool app_settings_reader_power_turn(void) { return s_reader_power_turn; }
-void app_settings_set_reader_power_turn(bool on) {
-    if (s_reader_power_turn == on) return;
-    s_reader_power_turn = on;
-    nvs_put_u8(NVS_KEY_POWER_TURN, on ? 1 : 0);
+esp_err_t app_settings_set_reader_power_turn(bool on) {
+    esp_err_t err=nvs_put_u8(NVS_KEY_POWER_TURN,on?1:0);
+    if(err==ESP_OK)s_reader_power_turn=on;
+    return err;
 }
 bool app_settings_reader_fullscreen(void){return s_reader_fullscreen;}
-void app_settings_set_reader_fullscreen(bool on){if(s_reader_fullscreen==on)return;s_reader_fullscreen=on;nvs_put_u8(NVS_KEY_FULLSCREEN,on?1:0);}
+esp_err_t app_settings_set_reader_fullscreen(bool on) {
+    esp_err_t err=nvs_put_u8(NVS_KEY_FULLSCREEN,on?1:0);
+    if(err==ESP_OK)s_reader_fullscreen=on;
+    return err;
+}
 bool app_settings_reader_immersive(void) { return s_reader_immersive; }
-void app_settings_set_reader_immersive(bool on) {
-    if (s_reader_immersive == on) return;
-    s_reader_immersive = on;
-    nvs_put_u8(NVS_KEY_IMMERSIVE, on ? 1 : 0);
+esp_err_t app_settings_set_reader_immersive(bool on) {
+    esp_err_t err=nvs_put_u8(NVS_KEY_IMMERSIVE,on?1:0);
+    if(err==ESP_OK)s_reader_immersive=on;
+    return err;
 }
 bool app_settings_reader_hide_images(void) { return s_reader_hide_images; }
-void app_settings_set_reader_hide_images(bool on) {
-    if (s_reader_hide_images == on) return;
-    s_reader_hide_images = on;
-    nvs_put_u8(NVS_KEY_HIDE_IMAGES, on ? 1 : 0);
+esp_err_t app_settings_set_reader_hide_images(bool on) {
+    esp_err_t err=nvs_put_u8(NVS_KEY_HIDE_IMAGES,on?1:0);
+    if(err==ESP_OK)s_reader_hide_images=on;
+    return err;
 }
 bool app_settings_reader_hold_refresh(void) { return s_reader_hold_refresh; }
 bool app_settings_reader_vertical_turn(void) { return s_reader_vertical_turn; }
-void app_settings_set_reader_vertical_turn(bool on) {
-    if (s_reader_vertical_turn == on) return;
-    s_reader_vertical_turn = on;
-    nvs_put_u8(NVS_KEY_VERTICAL_TURN, on ? 1 : 0);
+esp_err_t app_settings_set_reader_vertical_turn(bool on) {
+    esp_err_t err=nvs_put_u8(NVS_KEY_VERTICAL_TURN,on?1:0);
+    if(err==ESP_OK)s_reader_vertical_turn=on;
+    return err;
 }
-void app_settings_set_reader_hold_refresh(bool on) {
-    if (s_reader_hold_refresh == on) return;
-    s_reader_hold_refresh = on;
-    nvs_put_u8(NVS_KEY_HOLD_REFRESH, on ? 1 : 0);
+esp_err_t app_settings_set_reader_hold_refresh(bool on) {
+    esp_err_t err=nvs_put_u8(NVS_KEY_HOLD_REFRESH,on?1:0);
+    if(err==ESP_OK)s_reader_hold_refresh=on;
+    return err;
 }
 
 bool app_settings_shelf_recent_sort(void) { return s_shelf_recent_sort; }
-void app_settings_set_shelf_recent_sort(bool on) {
-    if (s_shelf_recent_sort == on) return;
-    s_shelf_recent_sort = on;
-    nvs_put_u8(NVS_KEY_SHELF_RECENT, on ? 1 : 0);
+esp_err_t app_settings_set_shelf_recent_sort(bool on) {
+    esp_err_t err=nvs_put_u8(NVS_KEY_SHELF_RECENT,on?1:0);
+    if(err==ESP_OK)s_shelf_recent_sort=on;
+    return err;
 }
 uint8_t app_settings_book_tracking(void) { return s_book_tracking; }
-void app_settings_set_book_tracking(uint8_t index) {
-    if (index > 4 || index == s_book_tracking) return;
-    s_book_tracking = index;
-    nvs_put_u8(NVS_KEY_BOOK_TRACK, index);
+esp_err_t app_settings_set_book_tracking(uint8_t index) {
+    if(index>4)return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_u8(NVS_KEY_BOOK_TRACK,index);
+    if(err==ESP_OK)s_book_tracking=index;
+    return err;
 }
 uint8_t app_settings_book_indent(void) { return s_book_indent; }
-void app_settings_set_book_indent(uint8_t em) {
-    if (em > 3 || em == s_book_indent) return;
-    s_book_indent = em;
-    nvs_put_u8(NVS_KEY_BOOK_INDENT, em);
+esp_err_t app_settings_set_book_indent(uint8_t em) {
+    if(em>3)return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_u8(NVS_KEY_BOOK_INDENT,em);
+    if(err==ESP_OK)s_book_indent=em;
+    return err;
 }
 uint8_t app_settings_book_reading_line(void) { return s_book_reading_line; }
-void app_settings_set_book_reading_line(uint8_t style) {
-    if (style > 2 || style == s_book_reading_line) return;
-    s_book_reading_line = style;
-    nvs_put_u8(NVS_KEY_BOOK_RULE, style);
+esp_err_t app_settings_set_book_reading_line(uint8_t style) {
+    if(style>2)return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_u8(NVS_KEY_BOOK_RULE,style);
+    if(err==ESP_OK)s_book_reading_line=style;
+    return err;
 }
 int8_t app_settings_book_reading_line_offset(void) { return (int8_t)((int)s_book_rule_offset - 4) * 2; }
-void app_settings_set_book_reading_line_offset(int8_t offset_px) {
-    if (offset_px < -8 || offset_px > 8 || offset_px % 2) return;
-    uint8_t index = (uint8_t)(offset_px / 2 + 4);
-    if (index == s_book_rule_offset) return;
-    s_book_rule_offset = index;
-    nvs_put_u8(NVS_KEY_BOOK_RULE_OFFSET, index);
+esp_err_t app_settings_set_book_reading_line_offset(int8_t offset_px) {
+    if(offset_px< -8||offset_px>8||offset_px%2)return ESP_ERR_INVALID_ARG;
+    uint8_t index=(uint8_t)(offset_px/2+4);esp_err_t err=nvs_put_u8(NVS_KEY_BOOK_RULE_OFFSET,index);
+    if(err==ESP_OK)s_book_rule_offset=index;
+    return err;
 }
 uint8_t app_settings_book_line_spacing(void) { return s_book_line; }
-void app_settings_set_book_line_spacing(uint8_t percent) {
-    if (percent < 110 || percent > 150) return;
-    if (s_book_line == percent) return;
-    s_book_line = percent;
-    nvs_put_u8(NVS_KEY_BOOK_LINE, percent);
+esp_err_t app_settings_set_book_line_spacing(uint8_t percent) {
+    if(percent<110||percent>150)return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_u8(NVS_KEY_BOOK_LINE,percent);
+    if(err==ESP_OK)s_book_line=percent;
+    return err;
 }
 uint8_t app_settings_book_margin(void) { return s_book_margin; }
-void app_settings_set_book_margin(uint8_t px) {
-    if (px < 8 || px > 60 || s_book_margin == px) return;
-    s_book_margin = px;
-    nvs_put_u8(NVS_KEY_BOOK_MARGIN, px);
+esp_err_t app_settings_set_book_margin(uint8_t px) {
+    if(px<8||px>60)return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_u8(NVS_KEY_BOOK_MARGIN,px);
+    if(err==ESP_OK)s_book_margin=px;
+    return err;
 }
 uint8_t app_settings_book_paragraph_spacing(void) { return s_book_para; }
-void app_settings_set_book_paragraph_spacing(uint8_t percent) {
-    if (percent > 75) return;
-    if (s_book_para == percent) return;
-    s_book_para = percent;
-    nvs_put_u8(NVS_KEY_BOOK_PARA, percent);
+esp_err_t app_settings_set_book_paragraph_spacing(uint8_t percent) {
+    if(percent>75)return ESP_ERR_INVALID_ARG;
+    esp_err_t err=nvs_put_u8(NVS_KEY_BOOK_PARA,percent);
+    if(err==ESP_OK)s_book_para=percent;
+    return err;
 }
 
 const char* app_settings_books_dir(void) { return s_books_dir; }
@@ -747,6 +887,8 @@ static uint32_t backup_reader_checksum(const settings_backup_v1_t *,const reader
 
 static esp_err_t backup_save_to(const char *target, const char *temporary, const char *previous) {
     if (!backup_card_ready()) return ESP_ERR_INVALID_STATE;
+    if(s_load_error!=ESP_OK)return s_load_error;
+    if(s_wallpaper_load_error!=ESP_OK)return s_wallpaper_load_error;
     settings_backup_v1_t backup = {0};
     memcpy(backup.magic, "PICOSETB", sizeof(backup.magic));
     uint8_t *f = backup.flags;
@@ -820,7 +962,8 @@ static esp_err_t backup_save_to(const char *target, const char *temporary, const
     uint32_t display_hash=(backup_date_checksum(&backup,s_status_date)^s_idle_sleep_minutes)*16777619u;
     for(int i=0;i<4;++i)display[i+2]=(uint8_t)(display_hash>>(i*8));
     if(ok)ok=fwrite(display,1,sizeof(display),file)==sizeof(display);
-    reader_input_preferences_t reader_prefs;reader_input_export(&reader_prefs);
+    reader_input_preferences_t reader_prefs;memset(&reader_prefs,0,sizeof(reader_prefs));
+    if(reader_input_export_checked(&reader_prefs)!=ESP_OK)ok=false;
     uint32_t reader_hash=backup_reader_checksum(&backup,&reader_prefs);uint8_t reader_seal[4];
     for(int i=0;i<4;++i)reader_seal[i]=(uint8_t)(reader_hash>>(8*i));
     if(ok)ok=fwrite(&reader_prefs,1,sizeof(reader_prefs),file)==sizeof(reader_prefs)&&fwrite(reader_seal,1,4,file)==4;
@@ -907,6 +1050,16 @@ static uint32_t backup_reader_checksum(const settings_backup_v1_t *backup,const 
     return hash;
 }
 
+static esp_err_t restore_verify_u8(nvs_handle_t h,const char *key,uint8_t expected){
+    uint8_t actual=0;esp_err_t err=nvs_get_u8(h,key,&actual);
+    return err==ESP_OK&&actual!=expected?ESP_ERR_INVALID_RESPONSE:err;
+}
+static esp_err_t restore_verify_str(nvs_handle_t h,const char *key,const char *expected){
+    char actual[288];size_t bytes=sizeof(actual);esp_err_t err=nvs_get_str(h,key,actual,&bytes);
+    if(err==ESP_OK&&(bytes!=strlen(expected)+1||memcmp(actual,expected,bytes)))err=ESP_ERR_INVALID_RESPONSE;
+    return err;
+}
+
 static esp_err_t backup_restore_from(const char *source, bool *mutated) {
     if (!backup_card_ready()) return ESP_ERR_INVALID_STATE;
     *mutated = false;
@@ -966,7 +1119,11 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
         }
     }
     uint8_t status_date=s_status_date,idle_minutes=s_idle_sleep_minutes;
-    reader_input_preferences_t reader_prefs;reader_input_export(&reader_prefs);
+    reader_input_preferences_t reader_prefs={0};
+    if(memcmp(backup.magic,"PICOSETB",8)){
+        esp_err_t reader_load=reader_input_export_checked(&reader_prefs);
+        if(reader_load!=ESP_OK){fclose(file);return reader_load;}
+    }
     long history_position = -1;
     has_wifi = ok && (!memcmp(backup.magic, "PICOSET7", 8) || (!memcmp(backup.magic,"PICOSET8",8)||(!memcmp(backup.magic,"PICOSET9",8)||(!memcmp(backup.magic,"PICOSETA",8)||!memcmp(backup.magic,"PICOSETB",8)))));
     if (has_wifi) ok = fread(&wifi, 1, sizeof(wifi), file) == sizeof(wifi) && backup_wifi_valid(&wifi);
@@ -1025,26 +1182,29 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
     strlcpy(backup.books_dir, "/sdcard/books", sizeof(backup.books_dir));
     strlcpy(backup.fonts_dir, "/sdcard/fonts", sizeof(backup.fonts_dir));
 
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(NVS_NS, NVS_READWRITE, &h);
-    if (err != ESP_OK) { backup_erase_secret(&cloud, sizeof(cloud)); backup_erase_secret(&wifi, sizeof(wifi)); return err; }
-    *mutated = true;
-#define BACKUP_SET_U8(key, index) do { if (err == ESP_OK) err = nvs_set_u8(h, key, backup.flags[index]); } while (0)
-#define BACKUP_SET_STR(key, value) do { if (err == ESP_OK) err = nvs_set_str(h, key, value); } while (0)
+    esp_err_t err=ESP_OK;
+    for(unsigned verify=0;verify<2&&err==ESP_OK;++verify){
+        nvs_handle_t h;err=nvs_open(NVS_NS,verify?NVS_READONLY:NVS_READWRITE,&h);
+        if(err!=ESP_OK)break;
+        if(!verify)*mutated=true;
+        esp_err_t (*apply_u8)(nvs_handle_t,const char *,uint8_t)=verify?restore_verify_u8:nvs_set_u8;
+        esp_err_t (*apply_str)(nvs_handle_t,const char *,const char *)=verify?restore_verify_str:nvs_set_str;
+#define BACKUP_SET_U8(key, index) do { if (err == ESP_OK) err = apply_u8(h, key, backup.flags[index]); } while (0)
+#define BACKUP_SET_STR(key, value) do { if (err == ESP_OK) err = apply_str(h, key, value); } while (0)
     BACKUP_SET_U8(NVS_KEY_SLEEP, BK_SLEEP);
-    if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_SHUTDOWN_MODE, staged_shutdown);
-    if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_HOLD_REFRESH, (profile.home_full_refresh & 16) != 0);
-    if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_VERTICAL_TURN, (profile.home_full_refresh & 32) != 0);
-    if(err==ESP_OK)err=nvs_set_u8(h,NVS_KEY_FULLSCREEN,(profile.home_full_refresh&64)!=0);
-    if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_HOME_FULL, profile.home_full_refresh & 1);
-    if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_HIDE_IMAGES, (profile.home_full_refresh & 2) != 0);
-    if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_SHELF_RECENT, (profile.home_full_refresh & 4) != 0);
-    if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_LANGUAGE, (profile.home_full_refresh & 128) != 0);
-    if (err == ESP_OK) err = nvs_set_str(h, NVS_KEY_DEVICE_NAME, profile.device_name);
-    if (err == ESP_OK) err = nvs_set_str(h, NVS_KEY_AVATAR, profile.avatar);
-    if (err == ESP_OK) err = nvs_set_str(h, NVS_KEY_STATUS_SIGNATURE, profile.status_signature);
-    if(err==ESP_OK)err=nvs_set_u8(h,NVS_KEY_STATUS_DATE,status_date);
-    if(err==ESP_OK)err=nvs_set_u8(h,NVS_KEY_IDLE_SLEEP,idle_minutes);
+    if (err == ESP_OK) err = apply_u8(h, NVS_KEY_SHUTDOWN_MODE, staged_shutdown);
+    if (err == ESP_OK) err = apply_u8(h, NVS_KEY_HOLD_REFRESH, (profile.home_full_refresh & 16) != 0);
+    if (err == ESP_OK) err = apply_u8(h, NVS_KEY_VERTICAL_TURN, (profile.home_full_refresh & 32) != 0);
+    if(err==ESP_OK)err=apply_u8(h,NVS_KEY_FULLSCREEN,(profile.home_full_refresh&64)!=0);
+    if (err == ESP_OK) err = apply_u8(h, NVS_KEY_HOME_FULL, profile.home_full_refresh & 1);
+    if (err == ESP_OK) err = apply_u8(h, NVS_KEY_HIDE_IMAGES, (profile.home_full_refresh & 2) != 0);
+    if (err == ESP_OK) err = apply_u8(h, NVS_KEY_SHELF_RECENT, (profile.home_full_refresh & 4) != 0);
+    if (err == ESP_OK) err = apply_u8(h, NVS_KEY_LANGUAGE, (profile.home_full_refresh & 128) != 0);
+    if (err == ESP_OK) err = apply_str(h, NVS_KEY_DEVICE_NAME, profile.device_name);
+    if (err == ESP_OK) err = apply_str(h, NVS_KEY_AVATAR, profile.avatar);
+    if (err == ESP_OK) err = apply_str(h, NVS_KEY_STATUS_SIGNATURE, profile.status_signature);
+    if(err==ESP_OK)err=apply_u8(h,NVS_KEY_STATUS_DATE,status_date);
+    if(err==ESP_OK)err=apply_u8(h,NVS_KEY_IDLE_SLEEP,idle_minutes);
     BACKUP_SET_U8(NVS_KEY_PICKUP, BK_PICKUP);
     BACKUP_SET_U8(NVS_KEY_SYS_SIZE, BK_SYS_SIZE);
     BACKUP_SET_U8(NVS_KEY_LOCK_STYLE, BK_LOCK);
@@ -1054,9 +1214,9 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
     BACKUP_SET_U8(NVS_KEY_POWER_TURN, BK_POWER_TURN);
     BACKUP_SET_U8(NVS_KEY_IMMERSIVE, BK_IMMERSIVE);
     BACKUP_SET_U8(NVS_KEY_BOOK_TRACK, BK_TRACKING);
-    if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_BOOK_INDENT, indent);
+    if (err == ESP_OK) err = apply_u8(h, NVS_KEY_BOOK_INDENT, indent);
     BACKUP_SET_U8(NVS_KEY_BOOK_RULE, BK_READING_LINE);
-    if (err == ESP_OK) err = nvs_set_u8(h, NVS_KEY_BOOK_RULE_OFFSET, rule_offset);
+    if (err == ESP_OK) err = apply_u8(h, NVS_KEY_BOOK_RULE_OFFSET, rule_offset);
     BACKUP_SET_U8(NVS_KEY_BOOK_LINE, BK_LINE_SPACING);
     BACKUP_SET_U8(NVS_KEY_BOOK_MARGIN, BK_MARGIN);
     BACKUP_SET_U8(NVS_KEY_BOOK_PARA, BK_PARAGRAPH);
@@ -1067,8 +1227,9 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
     BACKUP_SET_STR(NVS_KEY_FONTS_DIR, backup.fonts_dir);
 #undef BACKUP_SET_U8
 #undef BACKUP_SET_STR
-    if (err == ESP_OK) err = nvs_commit(h);
-    nvs_close(h);
+        if(err==ESP_OK&&!verify)err=nvs_commit(h);
+        nvs_close(h);
+    }
     if (err != ESP_OK) { backup_erase_secret(&cloud, sizeof(cloud)); backup_erase_secret(&wifi, sizeof(wifi)); return err; }
 
     if(has_reader){esp_err_t input_err=reader_input_import(&reader_prefs);if(input_err!=ESP_OK){backup_erase_secret(&cloud,sizeof(cloud));backup_erase_secret(&wifi,sizeof(wifi));return input_err;}}
@@ -1089,6 +1250,10 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
     esp_err_t cloud_err = has_cloud ? cloud_config_backup_restore(&cloud.credentials) : ESP_OK;
     backup_erase_secret(&cloud, sizeof(cloud));
     if (cloud_err != ESP_OK) return cloud_err;
+    if(wallpaper_card_ready()){
+        wallpaper_preferences_t prefs={0};strlcpy(prefs.path,backup.wallpaper,sizeof(prefs.path));
+        esp_err_t wp_err=wallpaper_preferences_save(&prefs);if(wp_err!=ESP_OK)return wp_err;
+    }
     const uint8_t *f = backup.flags;
     s_sleep = (app_sleep_mode_t)f[BK_SLEEP];
     s_staged_shutdown = staged_shutdown != 0;
@@ -1123,6 +1288,7 @@ static esp_err_t backup_restore_from(const char *source, bool *mutated) {
     strlcpy(s_font, backup.font, sizeof(s_font));
     strlcpy(s_system_font, backup.system_font, sizeof(s_system_font));
     strlcpy(s_wallpaper, backup.wallpaper, sizeof(s_wallpaper));
+    if(wallpaper_card_ready()){s_wallpaper_last[0]=0;s_wallpaper_load_error=ESP_OK;}
     strlcpy(s_books_dir, backup.books_dir, sizeof(s_books_dir));
     strlcpy(s_fonts_dir, backup.fonts_dir, sizeof(s_fonts_dir));
     return ESP_OK;

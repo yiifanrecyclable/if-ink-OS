@@ -39,6 +39,9 @@ static bool resume_pending;
 bool display_resume_clean_pending(void){return resume_pending;}
 static uint8_t idle_minutes;
 static int idle_locks,before_locks;
+static bool lock_confirmed;
+static void before_lock(app_ctx_t *c);
+static esp_err_t failing_prepare(app_ctx_t *c){before_lock(c);return ESP_ERR_INVALID_STATE;}
 static bool background_busy;
 uint8_t app_settings_idle_sleep_minutes(void){return idle_minutes;}
 static bool prevent_idle(app_ctx_t *c){(void)c;return background_busy;}
@@ -78,8 +81,8 @@ bool read_pico_pmu_ready(void) {return lock_due;}
 read_pico_pmu_key_action_t read_pico_pmu_take_key_action(void) {return READ_PICO_PMU_KEY_SHORT;}
 void enter_lock_and_sleep(EpdiyHighlevelState*h,int64_t*t,void*a,bool reader) {(void)h;(void)t;(void)a;(void)reader;if(idle_minutes)assert(before_locks==idle_locks+1);lock_due=false;++idle_locks;time_offset+=1000000;}
 void app_lock_wait_key_idle(int ms) {(void)ms;}
-void app_enter_host_sleep(app_sleep_mode_t mode) {(void)mode;longjmp(done,1);}
-void app_restart_host(void) {longjmp(done,1);}
+esp_err_t app_enter_host_sleep(app_sleep_mode_t mode) {(void)mode;longjmp(done,1);}
+esp_err_t app_restart_host(void) {longjmp(done,1);}
 void epd_poweroff(void) {}
 const char* app_settings_font_path(void) {return "builtin";}
 bool app_settings_reader_power_turn(void) {return false;}
@@ -318,6 +321,8 @@ int main(void) {
     reset();media_test=sd_font=saved_sd_font=true;mounted_steps[0]=true;first.on_media_lost=lost;
     time_step=4000000;for(int i=0;i<5;++i){present_steps[i]=true;add(0,0,0,0);}run();
     assert(media_lost==1&&remounts==1&&builtin_opens==1&&!probes);
+    reset();idle_minutes=1;time_step=60000000;first.prepare_sleep=failing_prepare;
+    add(0,0,0,0);add(0,0,0,0);add(0,0,0,0);run();assert(idle_locks==2&&before_locks==2&&!lock_confirmed);
     puts("app_loop: scheduler and idle-sleep scenarios passed");
     return 0;
 }
@@ -330,3 +335,25 @@ const pmu_snapshot_t *read_pico_pmu_get(void) { return NULL; }
 void battery_history_observe(uint32_t at, int percent, unsigned millivolts, bool charging, bool ready) {
     (void)at; (void)percent; (void)millivolts; (void)charging; (void)ready;
 }
+
+esp_err_t app_settings_take_save_error(void){return ESP_OK;}
+void app_settings_wallpaper_media_ready(void){}
+void app_settings_trace_storage(const char *stage){(void)stage;}
+void ui_nav_notice_show(const char *text,int64_t now){(void)text;(void)now;}
+bool ui_nav_notice_tick(int64_t now){(void)now;return false;}
+void ui_nav_status(uint8_t *fb){(void)fb;}
+
+#include "operation_log.h"
+int app_index_of(const app_desc_t *app){return app==&first?0:app==&second?1:-1;}
+void operation_log_event(operation_log_event_t type,int a,int b,int c,int d,int e){(void)type;(void)a;(void)b;(void)c;(void)d;(void)e;}
+void operation_log_finish(void){}
+void operation_log_poll(bool safe){(void)safe;}
+void operation_log_sample(const cst836u_touch_t *touch,esp_err_t error,bool pressed,bool released,bool reader){(void)touch;(void)error;(void)pressed;(void)released;(void)reader;}
+
+esp_err_t app_settings_load_status(void){return ESP_OK;}
+void app_settings_trace_storage_result(const char *stage,esp_err_t error){(void)stage;(void)error;}
+void app_lock_set_save_confirmed(bool confirmed){lock_confirmed=confirmed;}
+esp_err_t app_enter_host_sleep_ex(app_sleep_mode_t mode,bool discard_unsaved){(void)discard_unsaved;return app_enter_host_sleep(mode);}
+esp_err_t app_restart_host_ex(bool discard_unsaved){(void)discard_unsaved;return app_restart_host();}
+esp_err_t read_pico_sd_flush(void){return ESP_OK;}
+void ui_power_dialog_set_unsaved(bool unsaved,bool restart){(void)unsaved;(void)restart;}

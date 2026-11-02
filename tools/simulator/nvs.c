@@ -11,10 +11,12 @@
 #include <unistd.h>
 #include <dirent.h>
 static char spaces[16][64];
+static char last_written[64];
 static void type_record(nvs_handle_t h,const char *key,nvs_type_t type);
 static bool valid(const char *s){if(!s||!*s||strlen(s)>60)return false;for(;*s;++s)if(!((*s>='a'&&*s<='z')||(*s>='A'&&*s<='Z')||(*s>='0'&&*s<='9')||*s=='_'||*s=='-'))return false;return true;}
 static bool path(nvs_handle_t h,const char *key,char out[200]){if(h<1||h>16||!spaces[h-1][0]||!valid(key))return false;snprintf(out,200,"build/simulator/nvs/%s/%s",spaces[h-1],key);return true;}
 esp_err_t nvs_open(const char *name,int mode,nvs_handle_t *h){
+ const char *fault=getenv("PICO_TEST_NVS_OPEN_FAIL");if(fault&&(!strcmp(fault,"*")||!strcmp(fault,mode?"rw":"ro")))return ESP_FAIL;
  if(!valid(name)||!h)return ESP_ERR_INVALID_ARG;
  char dir[128];snprintf(dir,128,"build/simulator/nvs/%s",name);
  if(mode){mkdir("build/simulator/nvs",0700);mkdir(dir,0700);}else{struct stat st;if(stat(dir,&st))return ESP_ERR_NVS_NOT_FOUND;}
@@ -22,6 +24,8 @@ esp_err_t nvs_open(const char *name,int mode,nvs_handle_t *h){
 }
 void nvs_close(nvs_handle_t h){if(h>0&&h<=16)spaces[h-1][0]=0;}
 esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *out,size_t *n){
+ const char *fault=getenv("PICO_TEST_NVS_GET_FAIL"),*verify=getenv("PICO_TEST_NVS_READBACK_FAIL");
+ if(key&&((fault&&(!strcmp(fault,"*")||!strcmp(fault,key)))||(verify&&!strcmp(verify,key)&&!strcmp(last_written,key))))return ESP_FAIL;
  char p[200];if(!n||!path(h,key,p))return ESP_ERR_INVALID_ARG;
  FILE *f=fopen(p,"rb");if(!f)return ESP_ERR_NVS_NOT_FOUND;
  fseek(f,0,SEEK_END);long size=ftell(f);rewind(f);if(size<0||size>65536){fclose(f);return ESP_ERR_INVALID_SIZE;}
@@ -30,9 +34,10 @@ esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *out,size_t *n){
  size_t got=fread(out,1,size,f);fclose(f);return got==(size_t)size?ESP_OK:ESP_FAIL;
 }
 esp_err_t nvs_set_blob(nvs_handle_t h,const char *key,const void *in,size_t n){
+ const char *fault=getenv("PICO_TEST_NVS_SET_FAIL");if(fault&&key&&(!strcmp(fault,"*")||!strcmp(fault,key)))return ESP_FAIL;
  char p[200],tmp[208];if(n>65536||(!in&&n)||!path(h,key,p))return ESP_ERR_INVALID_ARG;
  snprintf(tmp,sizeof(tmp),"%s.part",p);FILE *f=fopen(tmp,"wb");if(!f)return ESP_FAIL;
- size_t put=fwrite(in,1,n,f);int close=fclose(f);if(put!=n||close||rename(tmp,p)){unlink(tmp);return ESP_FAIL;}type_record(h,key,NVS_TYPE_BLOB);return ESP_OK;
+ size_t put=fwrite(in,1,n,f);int close=fclose(f);if(put!=n||close||rename(tmp,p)){unlink(tmp);return ESP_FAIL;}snprintf(last_written,sizeof(last_written),"%s",key);type_record(h,key,NVS_TYPE_BLOB);return ESP_OK;
 }
 esp_err_t nvs_get_u8(nvs_handle_t h,const char *key,uint8_t *out){size_t n=1;return nvs_get_blob(h,key,out,&n);}
 esp_err_t nvs_set_u8(nvs_handle_t h,const char *key,uint8_t value){esp_err_t e=nvs_set_blob(h,key,&value,1);if(!e)type_record(h,key,NVS_TYPE_U8);return e;}

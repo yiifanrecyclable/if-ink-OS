@@ -36,6 +36,9 @@ int main(void){
  save("/sdcard/test.md");sleep_resume_init(build,true);assert(!unlink("/sdcard/test.md"));assert(!restore());document("/sdcard/test.md");
  save("/sdcard/test.md");sleep_resume_init(build,true);assert(!unlink("/sdcard/.readpico/sleep-frame.bin"));assert(!restore());
  save("/sdcard/test.md");sleep_resume_init(build,true);document("/sdcard/test.md");f=fopen("/sdcard/test.md","ab");fputc('x',f);fclose(f);assert(!restore());
+ sleep_resume_set_target(1,"/sdcard/test.md");pattern();
+ setenv("PICO_TEST_NVS_READBACK_FAIL","pending",1);assert(!sleep_resume_save(front,BYTES,3));unsetenv("PICO_TEST_NVS_READBACK_FAIL");
+ assert(sleep_resume_clear()==ESP_OK);sleep_resume_init(build,true);assert(!sleep_resume_pending());
  sleep_resume_set_target(3,NULL);pattern();assert(sleep_resume_save(front,BYTES,3));sleep_resume_init(build,true);sleep_resume_target_t out={0};assert(sleep_resume_restore(front,back,BYTES,3,&out));assert(out.tab==3&&!out.path[0]);
  sleep_resume_set_target(1,"/sdcard/../bad.md");pattern();assert(sleep_resume_save(front,BYTES,3));sleep_resume_init(build,true);assert(sleep_resume_restore(front,back,BYTES,3,&out)&&!out.path[0]);
  puts("PASS: one-shot TXT/EPUB/MD/root restore, corrupt/truncated/missing cache, source change, reset/build rejection and old-back preservation");

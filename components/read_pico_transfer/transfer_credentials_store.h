@@ -3,6 +3,7 @@
  * Store network history in one NVS blob, lazily importing the legacy record; publish only successful writes.
  */
 #pragma once
+#include <stdlib.h>
 #ifndef READ_PICO_TRANSFER_NVS_TEST
 #include "nvs.h"
 #endif
@@ -31,7 +32,13 @@ static esp_err_t load_profiles(transfer_wifi_profiles_t *out){
 static esp_err_t store_profiles(const transfer_wifi_profiles_t *next){
     if(!profiles_valid(next))return ESP_ERR_INVALID_ARG;
     nvs_handle_t h;esp_err_t err=nvs_open("rp_wifi",NVS_READWRITE,&h);if(err!=ESP_OK)return err;
-    err=nvs_set_blob(h,"profiles",next,sizeof(*next));if(err==ESP_OK)err=nvs_commit(h);nvs_close(h);return err;
+    err=nvs_set_blob(h,"profiles",next,sizeof(*next));if(err==ESP_OK)err=nvs_commit(h);nvs_close(h);
+    if(err!=ESP_OK)return err;
+    transfer_wifi_profiles_t *check=malloc(sizeof(*check));if(!check)return ESP_ERR_NO_MEM;
+    err=nvs_open("rp_wifi",NVS_READONLY,&h);
+    if(err==ESP_OK){size_t size=sizeof(*check);err=nvs_get_blob(h,"profiles",check,&size);nvs_close(h);
+        if(err==ESP_OK&&(size!=sizeof(*check)||memcmp(check,next,sizeof(*check))))err=ESP_ERR_INVALID_STATE;}
+    clear_secret(check,sizeof(*check));free(check);return err;
 }
 static esp_err_t load_credentials(transfer_credentials_t *out){
     memset(out,0,sizeof(*out));transfer_wifi_profiles_t p;

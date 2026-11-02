@@ -97,7 +97,7 @@ class Preview:
         inputs.extend((ROOT/'main/power').glob('*'))
         inputs.extend((HERE/'vendor/cjson').glob('*'))
         inputs.extend((ROOT/'main/assets').glob('*.h'))
-        inputs.extend([ROOT/'main/settings.c',ROOT/'main/settings.h',ROOT/'main/font/ui_font.c',ROOT/'components/md4c/md4c.c',ROOT/'components/md4c/md4c.h'])
+        inputs.extend([ROOT/'main/settings.c',ROOT/'main/settings.h',ROOT/'main/wallpaper_preferences.c',ROOT/'main/wallpaper_preferences.h',ROOT/'main/font/ui_font.c',ROOT/'components/md4c/md4c.c',ROOT/'components/md4c/md4c.h'])
         return hashlib.sha256("|".join(f"{p}:{p.stat().st_mtime_ns}" for p in inputs).encode()).hexdigest()
 
     def storage_digest(self):
@@ -187,6 +187,8 @@ class Preview:
         if native.startswith('image-'):
             path=self.state.get('root_image_path','') if self.state['root_view'] else self.state.get('image_path','')
         directory = self.state.get('root_dir', '') if self.state['root_view'] else ''
+        if native.startswith('files-') and not self.state['root_view'] and self.state.get('files_resume'):
+            directory=self.state['files_resume']['directory']
         frame_tmp = BUILD / "frame.next"
         seconds = ",".join(str(max(0, min(int(n), 1440)) * 60) for n in self.state["days"])
         if self.state['events'] and native!='cloud-0':
@@ -211,6 +213,8 @@ class Preview:
             import os
             modes=self.state.get('root_grid_modes',0) if self.state['root_view'] else self.state.get('files_grid_modes',0)
             process_env={**(process_env or os.environ),'PICO_SIM_FILES_GRID':str(modes)}
+            initial_page=self.state.get('root_files_page',0) if self.state['root_view'] else (self.state.get('files_resume') or {}).get('page',0)
+            process_env['PICO_SIM_FILES_PAGE']=str(initial_page)
         result = subprocess.run([str(BUILD / "render"), native, str(path), str(aux), str(px),
                                  str(frame_tmp), str(listing), str(mask), seconds, "builtin",
                                  ';'.join(self.state['events']), directory],
@@ -251,6 +255,11 @@ class Preview:
                 target = 'reader'
             elif route == 4 and info.get('image_path'):
                 target='image-view';self.state['image_path']=info['image_path']
+                if native.startswith('files-'):
+                    folder=info['files_folder'];source=next((v['id'] for v in VIEWS.values() if v['native']=='files-0' and v['aux']==folder),'files-card')
+                    self.state['image_file_return']=dict(screen=source,directory=info['files_dir'],page=info['files_page'],grid_modes=info['files_grid_modes'])
+            elif route==2 and native.startswith('image-') and self.state.get('image_file_return'):
+                origin=self.state.pop('image_file_return');target=origin['screen'];self.state['files_resume']=origin;self.state['files_grid_modes']=origin['grid_modes']
             elif route == 5:
                 target = {1:'transfer-networks', 2:'transfer-hotspot', 3:'transfer-usb', 4:'wifi-settings'}.get(info.get('transfer_entry'), target)
             # 跨页面指定文件沿用固件保存的阅读位置，其他页面仍从第一页开始。
@@ -299,6 +308,7 @@ class Preview:
         if info.get('files_view', -1) >= 0:
             n, folder = info['files_view'], info['files_folder']
             self.state['files_dir'] = info.get('files_dir', '')
+            self.state['files_page']=info.get('files_page',0)
             self.state['screen'] = next((v['id'] for v in VIEWS.values() if v['native']==f'files-{n}' and (n != 0 or v['aux']==folder)), 'files-home')
         if info.get('transfer_view', -1) >= 0:
             n, mode = info['transfer_view'], info.get('transfer_mode', 0)
@@ -365,7 +375,7 @@ class Preview:
             self.state["screen"] = {'home':'baseline-home','settings':'settings-0','cloud':'cloud-sync','files':'files-home','contents':'book-0'}.get(action,action)
             self.state["page"] = 0
             self.state['scroll']=0
-            self.state.update(events=[],root_view=None)
+            self.state.update(events=[],root_view=None,files_resume=None)
             if action=='cloud' and not self.cloud.snapshot()['busy']:self.cloud.start()
         elif action=='reload-card':
             self.state.update(screen="baseline-home",events=[],root_view=None,page=0,files_dir="",message="已重新读取项目 TF卡目录")
@@ -377,7 +387,7 @@ class Preview:
                 shutil.copyfile(BUILD/'frame.bin',BUILD/'power-background.bin')
             if self.cloud.snapshot()['busy'] and key!='cloud-sync':
                 self.cloud.request_cancel();self.cloud_pending_view=key;self.render();return self.snapshot()
-            self.state.update(screen=key,page=0,scroll=0,events=[],root_view=None)
+            self.state.update(screen=key,page=0,scroll=0,events=[],root_view=None,files_resume=None)
             if key=='cloud-sync' and not self.cloud.snapshot()['busy']:self.cloud.start()
         elif action in ('gesture','key'):
             screen=self.state['screen']
@@ -399,7 +409,7 @@ class Preview:
                 if not self.state['root_view']:
                     self.state.update(root_view=screen, root_page=self.state['page'], root_px=self.state['px'],
                                       root_path=self.state['firmware_path'], root_dir=self.state['files_dir'],
-                                      root_scroll=self.state['scroll'],root_image_path=self.state.get('image_path',''),root_grid_modes=self.state.get('files_grid_modes',0))
+                                      root_scroll=self.state['scroll'],root_files_page=self.state.get('files_page',0),root_image_path=self.state.get('image_path',''),root_grid_modes=self.state.get('files_grid_modes',0))
                     self.capture_origin()
                 if len(self.state['events'])>=(4096 if native=='cyber-beads' else 500):
                     raise ValueError('当前模拟会话过长，请重新进入该界面')

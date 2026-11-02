@@ -41,9 +41,21 @@ void simulator_files(uint8_t *fb,int view,int folder,const char *dir,const char 
  if(dir&&*dir){snprintf(s_dir,sizeof(s_dir),"%s",dir);scan_folder(folder>=0?folder:3);}
  s_view=(file_view_t)view;
  const char *modes=getenv("PICO_SIM_FILES_GRID");if(modes){unsigned mask=(unsigned)atoi(modes);s_grid_modes[0]=mask&1;s_grid_modes[1]=mask&2;}
+ const char *restore_page=getenv("PICO_SIM_FILES_PAGE");if(restore_page){int page=atoi(restore_page),last=s_count?(s_count-1)/visible_rows():0;s_page=page<0?0:page>last?last:page;}
  if(s_count){s_selected=s_files[0];probe_wallpaper_action();snprintf(s_editor,sizeof(s_editor),"%s",s_selected.name);}
  if(view==FILE_VIEW_RENAME)editor_start();
  simulator_replay(&ctx,on_gesture,on_key,events);
+ if(getenv("PICO_TEST_IMAGE_FILE_RETURN")){
+  extern const app_desc_t simulator_descriptor_image;
+  int folder_before=s_folder,page_before=s_page;char directory_before[288];strlcpy(directory_before,s_dir,sizeof(directory_before));
+  assert(ctx.request_app&&s_image_origin.valid);files_on_exit(&ctx);ctx.request_app=NULL;
+  simulator_descriptor_image.on_enter(&ctx);
+  unsigned x=0,y=0;sscanf(getenv("PICO_TEST_IMAGE_FILE_RETURN"),"%u,%u",&x,&y);
+  ui_gesture_event_t tap={.type=UI_GESTURE_TAP,.x0=x,.y0=y,.x=x,.y=y};
+  simulator_descriptor_image.on_gesture(&ctx,&tap);assert(ctx.request_return&&s_image_restore);
+  simulator_descriptor_image.on_exit(&ctx);ctx.request_return=false;on_enter(&ctx);on_tick(&ctx);
+  assert(s_folder==folder_before&&s_page==page_before&&!strcmp(s_dir,directory_before));
+ }
  if(getenv("PICO_TEST_FILES_NOTICE_FULL")){
   // 与主循环AREA提升为FULL的顺序一致，随后再验证键盘局部呈现。
   // Match the loop's AREA-to-FULL ordering, then verify the next keyboard-area presentation.

@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "nvs.h"
+#include "settings_storage.h"
 #ifndef SLEEP_RESUME_DIR
 #define SLEEP_RESUME_DIR "/sdcard/.readpico"
 #endif
@@ -53,15 +54,19 @@ void sleep_resume_set_target(unsigned tab,const char *path){
 }
 bool sleep_resume_pending(void){return s_candidate;}
 void sleep_resume_discard(void){s_candidate=false;memset(&s_record,0,sizeof(s_record));}
+esp_err_t sleep_resume_clear(void){
+    esp_err_t err=settings_storage_erase("if_sleep","pending");
+    if(err==ESP_OK)sleep_resume_discard();
+    return err;
+}
 void sleep_resume_init(const uint8_t build_id[32],bool normal_poweron){
     sleep_resume_discard();memset(&s_target,0,sizeof(s_target));memcpy(s_build,build_id,32);
-    nvs_handle_t h;if(nvs_open("if_sleep",NVS_READWRITE,&h)!=ESP_OK)return;
+    nvs_handle_t h;if(nvs_open("if_sleep",NVS_READONLY,&h)!=ESP_OK)return;
     uint8_t packed[4+sizeof(s_record.path)];size_t size=sizeof(packed);
     esp_err_t read=nvs_get_blob(h,"pending",packed,&size);
     // 先提交消费，之后即便开书崩溃也不能自动重试。/ Commit consumption before any parser can run.
-    esp_err_t erased=nvs_erase_key(h,"pending");
-    bool consumed=(erased==ESP_OK||erased==ESP_ERR_NVS_NOT_FOUND)&&nvs_commit(h)==ESP_OK;
     nvs_close(h);
+    bool consumed=read==ESP_OK&&settings_storage_erase("if_sleep","pending")==ESP_OK;
     if(!normal_poweron||read!=ESP_OK||!consumed||size<5||size>sizeof(packed)||packed[size-1]||
        strnlen((char*)packed+4,size-4)!=size-5||!valid_path((char*)packed+4))return;
     memcpy(&s_record.record_hash,packed,4);snprintf(s_record.path,sizeof(s_record.path),"%s",(char*)packed+4);
@@ -84,9 +89,7 @@ bool sleep_resume_save(const uint8_t *frame,size_t bytes,unsigned rotation){
     if(!ok){(void)remove(CACHE ".tmp");return false;}
     uint8_t packed[4+SLEEP_RESUME_PATH_MAX];memcpy(packed,&r.record_hash,4);
     size_t n=strlen(r.path)+1;memcpy(packed+4,r.path,n);
-    nvs_handle_t h;if(nvs_open("if_sleep",NVS_READWRITE,&h)!=ESP_OK)return false;
-    ok=nvs_set_blob(h,"pending",packed,n+4)==ESP_OK&&nvs_commit(h)==ESP_OK;
-    nvs_close(h);return ok;
+    return settings_storage_put_blob("if_sleep","pending",packed,n+4)==ESP_OK;
 }
 bool sleep_resume_restore(uint8_t *front,uint8_t *back,size_t bytes,unsigned rotation,sleep_resume_target_t *target){
     if(!s_candidate||!front||!back||!target||bytes!=FRAME_BYTES)return false;

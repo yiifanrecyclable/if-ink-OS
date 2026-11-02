@@ -141,10 +141,13 @@ esp_err_t book_history_backup_write(FILE *file) {
         if(err!=ESP_OK) return err;
         nvs_iterator_t it=NULL; err=nvs_entry_find_in_handle(h,NVS_TYPE_ANY,&it);
         while(err==ESP_OK) {
-            nvs_entry_info_t info; err=nvs_entry_info(it,&info); if(err!=ESP_OK) break;
+            nvs_entry_info_t info; err=nvs_entry_info(it,&info);
+            if(err!=ESP_OK){nvs_release_iterator(it);nvs_close(h);return err;}
             uint8_t *value=NULL; size_t len=0; err=read_value(h,&info,&value,&len);
             if(err==ESP_OK && !backup_emit(&writer,ns,(uint8_t)info.type,info.key,value,len)) err=writer.error;
-            free(value); if(err!=ESP_OK) break;
+            free(value);
+            // 读取失败不是迭代结束，不能把缺项封成完整备份。/ A value read error is not iterator exhaustion; never seal an incomplete backup.
+            if(err!=ESP_OK){nvs_release_iterator(it);nvs_close(h);return err;}
             err=nvs_entry_next(&it);
         }
         nvs_release_iterator(it); nvs_close(h);

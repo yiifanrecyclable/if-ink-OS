@@ -45,6 +45,7 @@ idf_component_register(
         "sleep_resume.c"
         "bundled_assets.c"
         "settings.c"
+        "wallpaper_preferences.c"
         "time_service.c"
         "operation_log.c"
         "power/battery_history.c"

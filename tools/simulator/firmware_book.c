@@ -6,6 +6,12 @@
 #define app_book simulator_descriptor_book
 #include "../../main/apps/app_book.c"
 #include "ui_gesture.h"
+// 仅保留旧编辑页的宿主夹具，设备不再编译这个不可达入口。/ Keep the legacy editor fixture only in the host simulator.
+static void editor_start(void){
+    free(s_editor_cover);s_editor_cover=NULL;
+    copy_text(s_editor_title,sizeof(s_editor_title),s_managed.name);s_editor_notice[0]=0;
+    ui_text_input_open(&s_title_input,s_editor_title,sizeof(s_editor_title),true,false,UI_INPUT_CHINESE);s_view=EDIT;
+}
 static ui_gesture_t s_sim_reader_gesture;
 extern unsigned ttf_sim_font_loads;
 static unsigned s_sim_event_draws,s_sim_event_loads,s_sim_area_updates,s_sim_area_violations;

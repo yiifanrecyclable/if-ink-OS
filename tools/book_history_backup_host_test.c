@@ -9,6 +9,8 @@
 typedef struct { int ns; char key[16]; nvs_type_t type; size_t len; uint8_t data[1024]; } record_t;
 static record_t records[2][32];
 static int counts[2], active;
+static const char *fail_read_key;
+static esp_err_t fail_read_error;
 struct nvs_iterator_opaque { int ns, index; };
 
 static int namespace_index(const char *name) {
@@ -29,6 +31,7 @@ static esp_err_t put(int ns, const char *key, nvs_type_t type, const void *data,
     memcpy(r->data, data, len); return ESP_OK;
 }
 static esp_err_t get(int ns, const char *key, nvs_type_t type, void *data, size_t *len) {
+    if(fail_read_key&&!strcmp(key,fail_read_key))return fail_read_error;
     record_t *r = find_record(ns, key);
     if (!r || r->type != type) return ESP_ERR_NVS_NOT_FOUND;
     if (data && *len < r->len) return ESP_ERR_INVALID_SIZE;
@@ -196,6 +199,15 @@ int main(void) {
     content_banner_config_t legacy_banner=banner;legacy_banner.version=1;legacy_banner.show_text=0;assert(valid_record(6,NVS_TYPE_BLOB,"banner_v1",(const uint8_t *)&legacy_banner,652));
     invalid_banner=banner;invalid_banner.text_y=297;assert(!content_banner_valid(&invalid_banner));
     content_banner_config_t decoded;assert(content_banner_decode(&legacy_banner,652,&decoded)&&decoded.version==3&&decoded.text_y==CONTENT_BANNER_TEXT_AUTO);
+    // 已枚举键读取缺失/IO失败不能当作枚举结束。/ A missing/failed enumerated value must not masquerade as end of iteration.
+    fail_read_key="banner_v1";
+    const esp_err_t injected[]={ESP_ERR_NVS_NOT_FOUND,ESP_FAIL};
+    for(unsigned i=0;i<sizeof(injected)/sizeof(injected[0]);++i){
+        FILE *failed=tmpfile();assert(failed);fail_read_error=injected[i];
+        assert(book_history_backup_write(failed)==injected[i]);
+        rewind(failed);assert(!book_history_backup_validate(failed));fclose(failed);
+    }
+    fail_read_key=NULL;
     FILE *f=tmpfile(); assert(f);
     assert(book_history_backup_write(f)==ESP_OK);
     rewind(f); assert(book_history_backup_validate(f));

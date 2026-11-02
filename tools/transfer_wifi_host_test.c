@@ -42,13 +42,13 @@ static void test_body_deadline(void) {
 #define READ_PICO_TRANSFER_NVS_TEST
 typedef int esp_err_t;
 typedef unsigned nvs_handle_t;
-enum { ESP_OK, ESP_ERR_NVS_NOT_FOUND, ESP_ERR_INVALID_STATE, ESP_ERR_INVALID_ARG, ESP_FAIL };
+enum { ESP_OK, ESP_ERR_NVS_NOT_FOUND, ESP_ERR_INVALID_STATE, ESP_ERR_INVALID_ARG, ESP_ERR_NO_MEM, ESP_FAIL };
 enum { NVS_READONLY, NVS_READWRITE };
 static transfer_wifi_profiles_t committed, staged;
 static transfer_credentials_t legacy;
 static bool legacy_present;
 static bool present, pending_present;
-static int fail_open, fail_write, fail_commit, handles;
+static int fail_open, fail_write, fail_commit, handles,fail_read;
 static esp_err_t nvs_open(const char *name, int mode, nvs_handle_t *handle) {
     assert(!strcmp(name, "rp_wifi")); (void)mode;
     if (fail_open) return ESP_FAIL;
@@ -56,6 +56,7 @@ static esp_err_t nvs_open(const char *name, int mode, nvs_handle_t *handle) {
 }
 static esp_err_t nvs_get_blob(nvs_handle_t handle, const char *key, void *out, size_t *size) {
     assert(handle == 1);
+    if(fail_read)return ESP_FAIL;
     const void *record; size_t bytes;
     if (!strcmp(key, "profiles")) {
         if (!present) return ESP_ERR_NVS_NOT_FOUND;
@@ -120,6 +121,8 @@ static void test_saved_networks(void) {
     assert(load_profiles(&profiles) == ESP_ERR_INVALID_STATE);
     assert(store_credentials(&next) == ESP_ERR_INVALID_STATE);
     assert(store_credentials(NULL) == ESP_OK);
+    // 写后读失败只报告未确认；同值恢复读回后可重试。/ A failed post-write read is unconfirmed; retry the same value once reads recover.
+    assert(load_profiles(&profiles)==ESP_OK);fail_read=1;assert(store_profiles(&profiles)==ESP_FAIL&&!handles);fail_read=0;assert(store_profiles(&profiles)==ESP_OK&&!handles);
     legacy_present = false;
     clear_secret(&legacy, sizeof(legacy));
     clear_secret(&next, sizeof(next));

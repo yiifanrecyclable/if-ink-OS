@@ -14,9 +14,11 @@ with tempfile.TemporaryDirectory(prefix='appearance-',dir=ROOT/'build') as tmp:
  for folder in ['fonts','banner pic','pictures','markdown']:(card/folder).mkdir(parents=True)
  shutil.copyfile(ROOT/'assets/fonts/PicoSans-Medium.ttf',card/'fonts/PicoSans-Medium.ttf')
  (card/'banner pic/test.png').write_bytes(png(684,300));(card/'pictures/lock.png').write_bytes(png(684,1216));(card/'banner pic/bad.png').write_bytes(b'not a picture')
- def call(op='get',body=None,raw=None,fault=False,cancel=False):
+ def call(op='get',body=None,raw=None,fault=False,cancel=False,tf_fault=False,commit_fault=False):
   env={**os.environ,'PICO_SIM_CARD_ROOT':str(card),'PICO_SIM_EDITOR_OP':op,'PICO_SIM_EDITOR_JSON':raw if raw is not None else json.dumps(body or {},ensure_ascii=False)}
-  if fault:env['PICO_TEST_NVS_COMMIT_FAIL']='always'
+  if fault:env['PICO_TEST_NVS_SET_FAIL']='banner_v1'
+  if commit_fault:env['PICO_TEST_NVS_COMMIT_FAIL']='always'
+  if tf_fault:env['PICO_TEST_WALLPAPER_WRITE_FAIL']='1'
   if cancel:env['PICO_SIM_EDITOR_CANCEL']='1'
   p=subprocess.run([str(ROOT/'build/simulator/render'),'web-appearance','/sdcard/test.txt','0','48','build/simulator/reply.bin','build/simulator/titles.txt','0','','builtin'],cwd=work,env=env,capture_output=True,text=True,timeout=30)
   assert p.returncode==0,p.stderr
@@ -47,7 +49,7 @@ with tempfile.TemporaryDirectory(prefix='appearance-',dir=ROOT/'build') as tmp:
  (card/'fonts/font.otf').write_bytes(b'not supported');assert not any(f['name'].endswith('.otf') for f in call()[1]['fonts'])
  code,wall=call('wallpaper',{'revision':baseline['revision'],'path':'/sdcard/pictures/lock.png'});assert code==200 and wall['wallpaper']=='/sdcard/pictures/lock.png'
  (card/'pictures/second.png').write_bytes(png(684,1216))
- assert call('wallpaper',{'revision':wall['revision'],'path':'/sdcard/pictures/second.png'},fault=True)[0]==500
+ assert call('wallpaper',{'revision':wall['revision'],'path':'/sdcard/pictures/second.png'},tf_fault=True)[0]==500
  assert call()[1]['wallpaper']==wall['wallpaper']
  assert call('wallpaper',{'revision':wall['revision'],'path':'/sdcard/banner pic/bad.png'})[0]==422
  assert call()[1]['wallpaper']=='/sdcard/pictures/lock.png'
@@ -71,4 +73,13 @@ with tempfile.TemporaryDirectory(prefix='appearance-',dir=ROOT/'build') as tmp:
  assert call('preview',body)[0]==422
  assert call('preview',{**body,'show_text':False})[0]==422
  assert call()[1]['revision']==installed['revision']
+ # 中文：读取坏快照不导出默认设置，也不允许网页覆盖。/ English: corrupted snapshots neither export defaults nor permit web overwrite.
+ config=out/'nvs/if_content/banner_v1';good=config.read_bytes();config.write_bytes(b'broken snapshot')
+ assert call()[0]==500
+ assert call('banner',{**installed['banner'],'revision':installed['revision']})[0]==500
+ assert config.read_bytes()==b'broken snapshot';config.write_bytes(good)
+ # 中文：set已落盘而commit报错是未确认，不盲目覆盖回旧值。/ English: committed-set/failed-commit is unconfirmed, not permission to overwrite the old value again.
+ uncertain={**installed['banner'],'revision':installed['revision'],'text':'已写入但确认失败'}
+ assert call('banner',uncertain,commit_fault=True)[0]==500
+ assert call()[1]['banner']['text']==uncertain['text']
  print('PASS: real native appearance roundtrip, stable no-write preview/4bpp, font identity/coverage, damaged images, bounds/UTF8/duplicate keys, stale revision, wallpaper validation and old-setting preservation')

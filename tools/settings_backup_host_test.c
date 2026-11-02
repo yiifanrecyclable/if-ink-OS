@@ -19,6 +19,7 @@ size_t strlcpy(char *dst, const char *src, size_t cap) {
 }
 #endif
 
+#define PICO_HOST_SIMULATOR 1
 #define APP_SETTINGS_BACKUP_ROOT "build/book-tests/settings-card"
 #include "../main/settings.c"
 
@@ -93,13 +94,23 @@ esp_err_t nvs_flash_init(void) { return ESP_OK; }
 esp_err_t nvs_flash_erase(void) { return ESP_OK; }
 esp_err_t nvs_open(const char *ns, int mode, nvs_handle_t *h) { (void)ns; (void)mode; *h = 1; return ESP_OK; }
 void nvs_close(nvs_handle_t h) { (void)h; input_pending=false; }
-esp_err_t nvs_get_u8(nvs_handle_t h, const char *key, uint8_t *value) { (void)h; if (!strcmp(key, NVS_KEY_SYS_SIZE) && test_loaded_system_size) { *value = test_loaded_system_size; return ESP_OK; } return ESP_FAIL; }
-esp_err_t nvs_set_u8(nvs_handle_t h, const char *key, uint8_t value) { (void)h; if(!strcmp(key,NVS_KEY_BOOK_PX))persisted_book_px=value; return ESP_OK; }
-esp_err_t nvs_get_str(nvs_handle_t h, const char *key, char *value, size_t *size) { (void)h; (void)key; (void)value; (void)size; return ESP_FAIL; }
-esp_err_t nvs_set_str(nvs_handle_t h, const char *key, const char *value) { (void)h; (void)key; (void)value; return ESP_OK; }
+// 按真实类型精确读回，缺失键返回NOT_FOUND。/ Exact typed readback with NOT_FOUND for absent keys.
+static struct {char key[32];unsigned char data[512];size_t bytes;int type;} values[64];
+static int slot(const char *key,bool create){
+ for(int i=0;i<64;++i)if(!strcmp(values[i].key,key))return i;
+ if(create)for(int i=0;i<64;++i)if(!values[i].key[0]){strcpy(values[i].key,key);return i;}
+ return -1;
+}
+esp_err_t nvs_get_u8(nvs_handle_t h,const char *key,uint8_t *value){(void)h;
+ if(!strcmp(key,NVS_KEY_SYS_SIZE)&&test_loaded_system_size){*value=test_loaded_system_size;return ESP_OK;}
+ int i=slot(key,false);if(i<0)return ESP_ERR_NVS_NOT_FOUND;assert(values[i].type==1);*value=values[i].data[0];return ESP_OK;
+}
+esp_err_t nvs_set_u8(nvs_handle_t h,const char *key,uint8_t value){(void)h;int i=slot(key,true);assert(i>=0);values[i].type=1;values[i].bytes=1;values[i].data[0]=value;if(!strcmp(key,NVS_KEY_BOOK_PX))persisted_book_px=value;return ESP_OK;}
+esp_err_t nvs_get_str(nvs_handle_t h,const char *key,char *value,size_t *size){(void)h;int i=slot(key,false);if(i<0)return ESP_ERR_NVS_NOT_FOUND;assert(values[i].type==2);if(value){if(*size<values[i].bytes)return ESP_ERR_NVS_INVALID_LENGTH;memcpy(value,values[i].data,values[i].bytes);}*size=values[i].bytes;return ESP_OK;}
+esp_err_t nvs_set_str(nvs_handle_t h,const char *key,const char *value){(void)h;int i=slot(key,true);assert(i>=0&&strlen(value)<sizeof(values[i].data));values[i].type=2;values[i].bytes=strlen(value)+1;memcpy(values[i].data,value,values[i].bytes);return ESP_OK;}
 esp_err_t nvs_erase_key(nvs_handle_t h, const char *key) { (void)h; (void)key; return ESP_OK; }
 esp_err_t nvs_commit(nvs_handle_t h) { (void)h; ++commit_count;if(commit_fails)return ESP_FAIL;if(input_pending){input_saved=input_staged;input_present=true;}return ESP_OK; }
-esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *out,size_t *n){(void)h;assert(!strcmp(key,"preferences"));if(!input_present)return ESP_ERR_NVS_NOT_FOUND;assert(*n>=sizeof(input_saved));memcpy(out,&input_saved,sizeof(input_saved));*n=sizeof(input_saved);return ESP_OK;}
+esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *out,size_t *n){(void)h;assert(!strcmp(key,"preferences"));if(!input_present)return ESP_ERR_NVS_NOT_FOUND;if(out){assert(*n>=sizeof(input_saved));memcpy(out,&input_saved,sizeof(input_saved));}*n=sizeof(input_saved);return ESP_OK;}
 esp_err_t nvs_set_blob(nvs_handle_t h,const char *key,const void *in,size_t n){(void)h;assert(!strcmp(key,"preferences")&&n==sizeof(input_staged));memcpy(&input_staged,in,n);input_pending=true;return ESP_OK;}
 
 int main(void) {
@@ -384,6 +395,7 @@ int main(void) {
     app_settings_init(); assert(app_settings_system_font_size() == 160);
     test_loaded_system_size = 200; s_system_size = 120;
     app_settings_init(); assert(app_settings_system_font_size() == 160);
+    test_loaded_system_size=0;
     // 普通写入失败应恢复整组旧资料，不覆盖用户备份。/ Ordinary write failures restore all old state without replacing the user backup.
     s_book_px=70;history_value=70;strcpy(saved_wifi.ssid,"BackupWifi");saved_wifi.configured=1;strcpy(saved_wifi.password,"test-pass");
     strcpy(saved_cloud.folder,"BackupCloud");assert(app_settings_backup_save()==ESP_OK);
@@ -432,3 +444,6 @@ int main(void) {
     puts("settings backup host test passed (including numeric status dates, display preferences, four size presets and legacy restore)");
     return 0;
 }
+
+esp_err_t wallpaper_preferences_load(wallpaper_preferences_t *out){(void)out;return ESP_ERR_NOT_FOUND;}
+esp_err_t wallpaper_preferences_save(const wallpaper_preferences_t *in){(void)in;return ESP_OK;}

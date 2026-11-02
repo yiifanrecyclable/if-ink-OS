@@ -8,6 +8,9 @@
 
 static const EpdRect k_dialog = {92, 378, 500, 370};
 static const EpdRect k_restart = {146, 494, 156, 156};
+static bool s_unsaved,s_restarting;
+void ui_power_dialog_set_unsaved(bool unsaved,bool restarting){s_unsaved=unsaved;s_restarting=restarting;}
+static EpdRect unsaved_button(int i){return(EpdRect){112+i*156,590,148,92};}
 static const EpdRect k_shutdown = {382, 494, 156, 156};
 
 // 电源与重启图标来自 Lucide；底色由 ui_draw_icon 按实际像素合成，
@@ -29,6 +32,13 @@ static void draw_restart_mark(uint8_t *fb, int cx, int cy, uint8_t color) {
 void ui_power_dialog_draw(uint8_t *fb) {
     ui_fill_round_rect(fb, k_dialog, 38, 0xd0);
     ui_draw_round_rect(fb, k_dialog, 38, 0x70);
+    if(s_unsaved){
+        ui_text(fb,342,440,36,UI_MSG("有数据尚未保存"),EPD_DRAW_ALIGN_CENTER,false);
+        ui_text(fb,342,510,24,UI_MSG("继续操作可能丢失未保存数据"),EPD_DRAW_ALIGN_CENTER,false);
+        const char *labels[]={UI_MSG("重试"),s_restarting?UI_MSG("仍然重启"):UI_MSG("仍然关机"),UI_MSG("取消")};
+        for(int i=0;i<3;++i){EpdRect r=unsaved_button(i);ui_draw_round_rect(fb,r,8,UI_GRAY_BLACK);ui_text_vc(fb,r.x+r.width/2,r.y+r.height/2,ui_text_fit_px(UI_TEXT_BODY,labels[i],r.width-12,26),labels[i],EPD_DRAW_ALIGN_CENTER,false);}
+        return;
+    }
     ui_text(fb, UI_LOCK_WIDTH / 2, 412, 40, UI_MSG("电源选项"), EPD_DRAW_ALIGN_CENTER, false);
     ui_text(fb, UI_LOCK_WIDTH / 2, 462, 21, UI_MSG("选择操作，轻触弹窗外取消"), EPD_DRAW_ALIGN_CENTER, false);
 
@@ -44,6 +54,11 @@ ui_power_action_t ui_power_dialog_handle(const ui_gesture_event_t *event) {
     if (!event) return UI_POWER_ACTION_NONE;
     if (event->type != UI_GESTURE_TAP) return UI_POWER_ACTION_NONE;
     if (!ui_rect_hit(k_dialog, event->x0, event->y0)) return UI_POWER_ACTION_CANCEL;
+    if(s_unsaved){
+        const ui_power_action_t actions[]={UI_POWER_ACTION_RETRY,UI_POWER_ACTION_DISCARD,UI_POWER_ACTION_CANCEL};
+        for(int i=0;i<3;++i)if(ui_rect_hit(unsaved_button(i),event->x0,event->y0))return actions[i];
+        return UI_POWER_ACTION_NONE;
+    }
     if (ui_rect_hit(k_restart, event->x0, event->y0)) return UI_POWER_ACTION_RESTART;
     if (ui_rect_hit(k_shutdown, event->x0, event->y0)) return UI_POWER_ACTION_SHUTDOWN;
     return UI_POWER_ACTION_NONE;

@@ -46,7 +46,7 @@ static int s_count, s_page, s_selected;
 static uint8_t *s_gray;
 static unsigned s_width, s_height;
 static char s_message[96];
-static bool s_viewing;
+static bool s_viewing,s_direct;
 static char s_requested_path[256];
 
 bool app_image_request_open(const char *path) {
@@ -189,7 +189,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         ui_text_vc(fb, 623, box.y + 42, 25, "›", EPD_DRAW_ALIGN_RIGHT, false);
     }
     if (s_message[0]) ui_text(fb, 36,UI_PAGE_Y(1035), 21, s_message, EPD_DRAW_ALIGN_LEFT, false);
-    ui_nav_draw(fb, 3);
+    ui_nav_draw(fb, 2);
 }
 
 static bool present(app_ctx_t *ctx, app_redraw_t redraw) {
@@ -201,6 +201,7 @@ static bool present(app_ctx_t *ctx, app_redraw_t redraw) {
 }
 static void on_enter(app_ctx_t *ctx) {
     (void)ctx;
+    s_direct=s_requested_path[0]!=0;
     s_page = 0; s_viewing = false; s_message[0] = 0; scan_images();
     if (s_requested_path[0]) {
         if (s_count) load_image(0);
@@ -215,23 +216,24 @@ static app_redraw_t move_image(int delta) {
     if (!load_image(next)) s_viewing = false;
     return APP_REDRAW_FULL;
 }
+static app_redraw_t image_return(app_ctx_t *ctx){
+    free(s_gray);s_gray=NULL;s_viewing=false;
+    if(s_direct){app_files_request_image_return();ctx->request_return=true;return APP_REDRAW_NONE;}
+    return APP_REDRAW_PAGE;
+}
 static app_redraw_t on_key(app_ctx_t *ctx, int key) {
     if (key == UI_KEY_2) { ctx->request_app = app_home_page(); return APP_REDRAW_NONE; }
-    if (s_viewing) {
-        s_viewing = false; free(s_gray); s_gray = NULL; return APP_REDRAW_PAGE;
-    }
+    if(s_direct||s_viewing)return image_return(ctx);
     ctx->request_return = true;
     return APP_REDRAW_NONE;
 }
 static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *event) {
-    (void)ctx;
+    if(s_direct&&event->type==UI_GESTURE_TAP)return image_return(ctx);
     if (s_viewing) {
         if (event->type == UI_GESTURE_SWIPE_L) return move_image(1);
         if (event->type == UI_GESTURE_SWIPE_R) return move_image(-1);
         if (event->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
-        if (event->x0 < UI_LOCK_WIDTH / 3) return move_image(-1);
-        if (event->x0 > UI_LOCK_WIDTH * 2 / 3) return move_image(1);
-        s_viewing = false; free(s_gray); s_gray = NULL; return APP_REDRAW_PAGE;
+        return image_return(ctx);
     }
     if (event->type == UI_GESTURE_SWIPE_L && (s_page + 1) * IMAGE_ROWS < s_count) {
         ++s_page;

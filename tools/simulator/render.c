@@ -263,7 +263,7 @@ static bool preview_editor_cancelled(void *context){(void)context;return getenv(
 int main(int argc, char **argv) {
     if (argc < 10||argc>12) { fprintf(stderr, "render screen book page px frame list mask days font [events]\n"); return 2; }
     memset(fb, 0xff, sizeof(fb));
-    app_settings_init();
+    app_settings_init();app_settings_wallpaper_media_ready();
     if (ttf_font_open(argv[9]) != ESP_OK) return 3;
     app_font_activate_system();
     if(!strcmp(argv[1],"web-document")){
@@ -326,6 +326,7 @@ int main(int argc, char **argv) {
     bool active_builtin=ttf_font_is_builtin();
     ttf_font_unload();
     if (failed) return 5;
+    const char *probe=getenv("PICO_SIM_SETTINGS_TRACE_PHASE");if(probe)app_settings_trace_storage(probe);
     printf("{\"pages\":%zu,\"width\":684,\"height\":1216,\"settings_page\":%d,\"transfer_view\":%d,\"route\":%d,\"book_view\":%d,\"reader_panel\":%d,\"reader_fullscreen\":%s,\"reader_page\":%d,\"reader_px\":%d,\"files_view\":%d,\"files_folder\":%d,\"image_view\":%d,\"book_path\":", pages,settings_page,transfer_view,simulator_route,simulator_book_view,simulator_reader_panel,simulator_reader_fullscreen?"true":"false",simulator_reader_page,simulator_reader_px,simulator_files_view,simulator_files_folder,simulator_image_view);
     json_string(simulator_book_path());
     printf(",\"image_path\":");json_string(simulator_image_path());
@@ -354,10 +355,13 @@ int main(int argc, char **argv) {
     for(int i=0;i<12;++i){if(i)printf(",");printf("%d",simulator_home_geometry(i));}printf("]");
     printf(",\"update_state\":%d,\"update_confirmation\":%s",simulator_settings_update_state(),simulator_settings_update_confirmation()?"true":"false");
     printf(",\"update_channel\":%d",simulator_settings_update_channel());
+    extern const char *simulator_settings_notice(void);printf(",\"settings_notice\":");json_string(simulator_settings_notice());
     printf(",\"settings_geometry\":[");for(int i=0;i<14;++i){if(i)printf(",");printf("%d",simulator_settings_geometry(i));}printf("]");
     printf(",\"document_page_first\":");json_string(simulator_document_page_first());
     printf(",\"wallpaper_rotating\":%s,\"wallpaper_path\":",app_settings_wallpaper_rotating()?"true":"false");json_string(app_settings_wallpaper_path());
     printf(",\"wallpaper_last\":");json_string(app_settings_wallpaper_last());
+    extern int simulator_wallpaper_count(void);extern const char *simulator_wallpaper_item(int);
+    printf(",\"wallpaper_items\":[");for(int i=0;i<simulator_wallpaper_count();++i){if(i)printf(",");json_string(simulator_wallpaper_item(i));}printf("]");
     printf(",\"system_size\":%u,\"lock_style\":%u",app_settings_system_font_size(),app_settings_lock_style());
     printf(",\"system_language\":%u",(unsigned)app_settings_language());
     printf(",\"idle_sleep_minutes\":%u",app_settings_idle_sleep_minutes());

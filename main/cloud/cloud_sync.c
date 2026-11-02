@@ -73,22 +73,33 @@ bool cloud_config_valid(const cloud_config_t *c, bool secret) {
         return false;
     return (!secret || c->password[0]) && !strpbrk(c->password, "\r\n");
 }
+esp_err_t cloud_config_load_checked(cloud_config_t *c) {
+    if (!c) return ESP_ERR_INVALID_ARG;
+    cloud_config_t loaded = {0};
+    strcpy(loaded.folder, CLOUD_DEFAULT_FOLDER);
+    nvs_handle_t h;
+    esp_err_t e = nvs_open("rp_cloud", NVS_READONLY, &h);
+    if (e == ESP_ERR_NVS_NOT_FOUND) { *c = loaded; return ESP_OK; }
+    if (e != ESP_OK) return e;
+    char *values[] = {loaded.folder, loaded.account, loaded.password};
+    size_t caps[] = {sizeof(loaded.folder), sizeof(loaded.account), sizeof(loaded.password)};
+    const char *keys[] = {"folder", "account", "password"};
+    for (size_t i = 0; i < 3 && e == ESP_OK; ++i) {
+        size_t n = caps[i];
+        e = nvs_get_str(h, keys[i], values[i], &n);
+        if (e == ESP_ERR_NVS_NOT_FOUND) e = ESP_OK;
+    }
+    nvs_close(h);
+    if (e == ESP_OK && !cloud_config_valid(&loaded, false)) e = ESP_ERR_INVALID_RESPONSE;
+    if (e == ESP_OK) *c = loaded;
+    clear_secret(&loaded, sizeof(loaded));
+    return e;
+}
 void cloud_config_load(cloud_config_t *c) {
+    if (!c) return;
     memset(c, 0, sizeof(*c));
     strcpy(c->folder, CLOUD_DEFAULT_FOLDER);
-    nvs_handle_t h;
-    if (nvs_open("rp_cloud", NVS_READONLY, &h) != ESP_OK)
-        return;
-    size_t n = sizeof(c->folder);
-    if (nvs_get_str(h, "folder", c->folder, &n) != ESP_OK)
-        strcpy(c->folder, CLOUD_DEFAULT_FOLDER);
-    n = sizeof(c->account);
-    if (nvs_get_str(h, "account", c->account, &n) != ESP_OK)
-        c->account[0] = 0;
-    n = sizeof(c->password);
-    if (nvs_get_str(h, "password", c->password, &n) != ESP_OK)
-        c->password[0] = 0;
-    nvs_close(h);
+    (void)cloud_config_load_checked(c);
 }
 esp_err_t cloud_config_save(const cloud_config_t *c) {
     if (s_task || !cloud_config_valid(c, false))
@@ -105,6 +116,20 @@ esp_err_t cloud_config_save(const cloud_config_t *c) {
     if (e == ESP_OK)
         e = nvs_commit(h);
     nvs_close(h);
+    if (e == ESP_OK) {
+        char stored[sizeof(c->password)];
+        e = nvs_open("rp_cloud", NVS_READONLY, &h);
+        if (e == ESP_OK) {
+            const char *keys[]={"folder","account","password"};
+            const char *values[]={c->folder,c->account,c->password};
+            for(unsigned i=0;i<3&&e==ESP_OK;++i){
+                size_t n=sizeof(stored);e=nvs_get_str(h,keys[i],stored,&n);
+                if(e==ESP_OK&&(n!=strlen(values[i])+1||memcmp(stored,values[i],n)))e=ESP_ERR_INVALID_RESPONSE;
+            }
+            nvs_close(h);
+        }
+        clear_secret(stored,sizeof(stored));
+    }
     return e;
 }
 esp_err_t cloud_config_forget(void) {
@@ -118,27 +143,24 @@ esp_err_t cloud_config_forget(void) {
     if (e == ESP_OK)
         e = nvs_commit(h);
     nvs_close(h);
+    if (e == ESP_OK) {
+        e = nvs_open("rp_cloud", NVS_READONLY, &h);
+        if (e == ESP_ERR_NVS_NOT_FOUND) return ESP_OK;
+        if (e == ESP_OK) {
+            const char *keys[] = {"folder","account","password"};
+            for (unsigned i=0;i<3&&e==ESP_OK;++i) {
+                size_t n=0;esp_err_t found=nvs_get_str(h,keys[i],NULL,&n);
+                e=found==ESP_ERR_NVS_NOT_FOUND?ESP_OK:found==ESP_OK?ESP_ERR_INVALID_RESPONSE:found;
+            }
+            nvs_close(h);
+        }
+    }
     return e;
 }
 esp_err_t cloud_config_backup_export(cloud_config_t *c) {
     if (!c) return ESP_ERR_INVALID_ARG;
-    memset(c, 0, sizeof(*c));
-    strcpy(c->folder, CLOUD_DEFAULT_FOLDER);
-    if (s_task) return ESP_ERR_INVALID_STATE;
-    nvs_handle_t h;
-    esp_err_t e = nvs_open("rp_cloud", NVS_READONLY, &h);
-    if (e == ESP_ERR_NVS_NOT_FOUND) return ESP_OK;
-    if (e != ESP_OK) return e;
-    char *values[] = {c->folder, c->account, c->password};
-    size_t caps[] = {sizeof(c->folder), sizeof(c->account), sizeof(c->password)};
-    const char *keys[] = {"folder", "account", "password"};
-    for (size_t i = 0; i < 3 && e == ESP_OK; ++i) {
-        size_t n = caps[i];
-        e = nvs_get_str(h, keys[i], values[i], &n);
-        if (e == ESP_ERR_NVS_NOT_FOUND) e = ESP_OK;
-    }
-    nvs_close(h);
-    if (e == ESP_OK && !cloud_config_valid(c, false)) e = ESP_ERR_INVALID_RESPONSE;
+    if (s_task) { clear_secret(c, sizeof(*c)); return ESP_ERR_INVALID_STATE; }
+    esp_err_t e = cloud_config_load_checked(c);
     if (e != ESP_OK) clear_secret(c, sizeof(*c));
     return e;
 }
@@ -745,7 +767,8 @@ static esp_err_t begin(bool download) {
         else
             return ESP_ERR_INVALID_STATE;
     }
-    cloud_config_load(&s_config);
+    esp_err_t config_error = cloud_config_load_checked(&s_config);
+    if (config_error != ESP_OK) { clear_secret(&s_config, sizeof(s_config)); return config_error; }
     xSemaphoreTake(s_lock, portMAX_DELAY);
     s_status.configured = cloud_config_valid(&s_config, true);
     ui_snprintf(s_status.folder, sizeof(s_status.folder), "%s", s_config.folder);

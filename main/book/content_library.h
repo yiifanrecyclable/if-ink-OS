@@ -88,3 +88,10 @@ esp_err_t content_markdown_sizes_set(const uint8_t sizes[4]);
 const char *content_markdown_font(void);
 bool content_markdown_font_valid(const char *path);
 esp_err_t content_markdown_font_set(const char *path);
+
+/// 编辑和备份使用checked读取，错误时保持输出不变。/ Checked reads for edits/backups preserve output on error.
+esp_err_t content_banner_load_checked(content_banner_config_t *config);
+esp_err_t content_reading_target_load_checked(uint8_t *minutes);
+esp_err_t content_options_load_checked(bool documents, bool legacy_recent, content_options_t *options);
+esp_err_t content_markdown_sizes_checked(uint8_t sizes[4]);
+esp_err_t content_markdown_font_checked(char *path, size_t capacity);

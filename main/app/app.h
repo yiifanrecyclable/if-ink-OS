@@ -115,6 +115,9 @@ struct app_desc_s {
     void (*on_media_ready)(app_ctx_t* ctx);
     /// 锁屏前保存页面的阅读状态。/ Persist page state before lock rendering.
     void (*on_before_lock)(app_ctx_t* ctx);
+    /// 可选：返回保存结果；失败时锁屏仅浅睡，主动断电需用户确认；替代on_before_lock。
+    /// Optional: report persistence status; failures permit light sleep and require confirmation for power-off; replaces on_before_lock.
+    esp_err_t (*prepare_sleep)(app_ctx_t* ctx);
     /// 后台传输/刷写期间暂停自动休眠；不改变手动电源操作。/ Suspend idle sleep during background work, without changing manual power actions.
     bool (*prevent_idle_sleep)(app_ctx_t* ctx);
     /// 可选：消费电源键短按；返回 NONE 时沿用锁屏，DONE 表示已消费但无需刷新。

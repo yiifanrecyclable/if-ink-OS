@@ -35,6 +35,8 @@
 #include "app_registry.h"
 #include "app_content_open.h"
 #include "continuous_du.h"
+#include "ui_nav.h"
+#include "ui_i18n.h"
 #include "display.h"
 #include "e0470_epaper_waveform.h"
 #include "esp_log.h"
@@ -78,7 +80,12 @@ void app_lock_ignore_for(int64_t ms) {
     s_lock_ignore_until_ms = esp_timer_get_time() / 1000 + ms;
 }
 
+static void storage_notice(const char *message){
+    ui_nav_notice_show(message,esp_timer_get_time()/1000);
+}
+
 void app_present(app_ctx_t* ctx, const app_desc_t* app, app_redraw_t redraw) {
+    if(app_settings_take_save_error()!=ESP_OK){storage_notice(UI_MSG("保存失败，请重试"));redraw=APP_REDRAW_PAGE;}
     enum EpdDrawError result = EPD_DRAW_SUCCESS;
     // 唤醒必须先画完整目标；仍调用页面自己的present来完成阅读等状态收尾。
     // Draw a complete post-wake target while retaining each page's present-state bookkeeping.
@@ -260,6 +267,7 @@ static bool poll_media(app_ctx_t* ctx, const app_desc_t* current,
     *mounted = ready;
     if (ready) { *invalidated = false; s_media_recovery_requested = false; }
     if (gained) {
+        app_settings_wallpaper_media_ready();
         esp_err_t installed = bundled_assets_install();
         if (installed != ESP_OK) ESP_LOGW(TAG,"Optional artwork install deferred: %s",esp_err_to_name(installed));
         if (current->on_media_ready) current->on_media_ready(ctx);
@@ -275,26 +283,33 @@ static bool poll_media(app_ctx_t* ctx, const app_desc_t* current,
 }
 
 // 返回目标先清成当前主页面，阅读回调再补充文件路径。/ Start with the current root; the reader callback supplies its path.
-static void prepare_lock_resume(app_ctx_t *ctx,const app_desc_t *current){
-    operation_log_event(OPLOG_SLEEP,1,0,0,0,0);
-    operation_log_finish();
+static bool prepare_lock_resume(app_ctx_t *ctx,const app_desc_t *current){
     unsigned tab=0;for(unsigned i=0;i<4;++i)if(app_at(i)==current)tab=i;
     sleep_resume_set_target(tab,NULL);
-    if(current->on_before_lock)current->on_before_lock(ctx);
+    esp_err_t error=ESP_OK;
+    if(current->prepare_sleep)error=current->prepare_sleep(ctx);
+    else if(current->on_before_lock)current->on_before_lock(ctx);
+    if(error!=ESP_OK){app_settings_trace_storage_result("page_save_failed",error);storage_notice(UI_MSG("保存失败，请重试"));return false;}
+    operation_log_event(OPLOG_SLEEP,1,0,0,0,0);operation_log_finish();return true;
 }
 
 // 电源动作先保存当前页面，再定稿一张不带时钟的静态画面；避免关机后留下会误读的冻结时间。
 // Save the current page first, then settle a clock-free static frame so shutdown never leaves a misleading frozen time.
-static void run_power_action(app_ctx_t *ctx, const app_desc_t *current, bool restart) {
-    if (current->on_before_lock) current->on_before_lock(ctx);
-    operation_log_event(OPLOG_SLEEP,2,restart,0,0,0);
-    operation_log_finish();
-    ui_power_final_draw(ctx->fb, restart);
-    guard_draw_result(ctx->hl, update_display_full(ctx->hl));
-    app_lock_wait_key_idle(800);
-    epd_poweroff();
-    if (restart) app_restart_host();
-    app_enter_host_sleep(APP_SLEEP_OFF);
+static bool run_power_action(app_ctx_t *ctx,const app_desc_t *current,bool restart,bool discard_unsaved){
+    bool saved=prepare_lock_resume(ctx,current);
+    if(!saved&&!discard_unsaved)return false;
+    esp_err_t error=sleep_resume_clear();
+    if(error!=ESP_OK){app_settings_trace_storage_result("resume_clear_failed",error);if(!discard_unsaved)return false;}
+    error=read_pico_sd_flush();
+    if(error!=ESP_OK){app_settings_trace_storage_result("power_sd_preflight",error);if(!discard_unsaved)return false;}
+    app_settings_trace_storage(restart?"menu_restart":"menu_power_off");
+    operation_log_event(OPLOG_SLEEP,2,restart,0,0,0);operation_log_finish();
+    ui_power_final_draw(ctx->fb,restart);guard_draw_result(ctx->hl,update_display_full(ctx->hl));
+    app_lock_wait_key_idle(800);epd_poweroff();
+    error=restart?app_restart_host_ex(discard_unsaved):app_enter_host_sleep_ex(APP_SLEEP_OFF,discard_unsaved);
+    if(error!=ESP_OK){app_settings_trace_storage_result("menu_power_failed",error);storage_notice(UI_MSG("电源操作失败，请重试"));}
+    ctx->now_ms=esp_timer_get_time()/1000;ctx->pressed=ctx->released=false;
+    app_present(ctx,current,APP_REDRAW_PAGE);return true;
 }
 
 void app_loop_run(const app_loop_config_t* config) {
@@ -322,6 +337,7 @@ void app_loop_run(const app_loop_config_t* config) {
     ui_gesture_t gesture = {0};
     ui_gesture_t power_gesture = {0};
     bool power_dialog_open = false;
+    bool pending_power_restart=false;
     int menu_pressed = UI_MENU_HIT_NONE;
     menu_feedback_t feedback = {0};
     int menu_leaf = 0;
@@ -340,7 +356,7 @@ void app_loop_run(const app_loop_config_t* config) {
     (void)read_pico_sd_get_info(&initial_media);
     bool media_mounted = initial_media.mounted || (ttf_font_ready() && !ttf_font_is_builtin());
     bool media_invalidated = false;
-    if (initial_media.mounted && !usb_storage_active()) (void)bundled_assets_install();
+    if (initial_media.mounted && !usb_storage_active()) {app_settings_wallpaper_media_ready();(void)bundled_assets_install();}
     s_media_recovery_requested = false;
     read_pico_pmu_suppress_key_until_release();
     app_lock_ignore_for(APP_LOCK_IGNORE_BOOT_MS);
@@ -352,6 +368,7 @@ void app_loop_run(const app_loop_config_t* config) {
     poll_media(&ctx, current, &media_mounted, &media_invalidated);
     // 首帧必须整屏 GC16：fb 里还是 app_main 画的开机图，DU 盖不掉。
     // First frame must be full GC16: fb still holds the splash; DU cannot cover it.
+    if(app_settings_load_status()!=ESP_OK)storage_notice(UI_MSG("部分设置读取异常，请检查"));
     app_present(&ctx, current, APP_REDRAW_FULL);
     ESP_LOGI(TAG, "UI ready on %s", current->title);
 
@@ -371,6 +388,11 @@ void app_loop_run(const app_loop_config_t* config) {
         operation_log_sample(&touch,err,pressed,released,app_book_reader_body_visible());
         debounce_touch(&latest, &touch, released);
         ctx.now_ms = esp_timer_get_time() / 1000;
+        if(ui_nav_notice_tick(ctx.now_ms)){
+            // 全屏阅读也恢复原内容，不凭空补出状态栏。/ Restore the original content even when fullscreen hides the status bar.
+            if(current->render)current->render(&ctx,ctx.fb);else ui_nav_status(ctx.fb);
+            guard_draw_result(ctx.hl,update_display_area_with(ctx.hl,&E0470_WAVEFORM,MODE_GL16,(EpdRect){0,0,UI_LOCK_WIDTH,UI_STATUS_HEIGHT}));
+        }
         if(err==ESP_OK&&(touch.touched||released))last_activity_ms=ctx.now_ms;
         if (ctx.now_ms - last_network_poll_ms >= 500) {
             last_network_poll_ms = ctx.now_ms;
@@ -414,26 +436,35 @@ void app_loop_run(const app_loop_config_t* config) {
                     ui_gesture_reset(&power_gesture);
                     if (menu_open) present_menu(&ctx, current, menu_leaf, &feedback);
                     else app_present(&ctx, current, APP_REDRAW_PAGE);
-                } else if (action == UI_POWER_ACTION_SHUTDOWN) {
-                    if (!app_settings_staged_shutdown()) {
-                        run_power_action(&ctx, current, false);
-                    } else {
-                        power_dialog_open = false;
-                        ui_gesture_reset(&power_gesture);
-                        prepare_lock_resume(&ctx,current);
+                } else if((action==UI_POWER_ACTION_SHUTDOWN||(action==UI_POWER_ACTION_RETRY&&!pending_power_restart))&&app_settings_staged_shutdown()){
+                    pending_power_restart=false;ui_gesture_reset(&power_gesture);
+                    bool saved=prepare_lock_resume(&ctx,current);
+                    power_dialog_open=!saved;
+                    if(!saved){
+                        ui_power_dialog_set_unsaved(true,false);
+                        if(current->render)current->render(&ctx,ctx.fb);
+                        ui_power_dialog_draw(ctx.fb);
+                        guard_draw_result(ctx.hl,update_display_mode(ctx.hl,APP_PAGE_REFRESH_MODE));
+                    }else{
+                        app_settings_trace_storage("menu_staged_sleep");
                         extern const app_desc_t app_book;
-                        enter_lock_and_sleep(ctx.hl, &s_lock_ignore_until_ms, ctx.acc,
-                                             current == &app_book && app_book_reader_body_visible());
-                        ctx.now_ms = esp_timer_get_time() / 1000;
-                        last_activity_ms=ctx.now_ms;
-                        poll_media(&ctx, current, &media_mounted, &media_invalidated);
-                        last_media_poll_ms = ctx.now_ms;
-                        ctx.pressed = false;
-                        ctx.released = false;
-                        app_present(&ctx, current, APP_REDRAW_PAGE);
+                        app_lock_set_save_confirmed(true);
+                        enter_lock_and_sleep(ctx.hl,&s_lock_ignore_until_ms,ctx.acc,current==&app_book&&app_book_reader_body_visible());
+                        ctx.now_ms=esp_timer_get_time()/1000;last_activity_ms=ctx.now_ms;
+                        poll_media(&ctx,current,&media_mounted,&media_invalidated);last_media_poll_ms=ctx.now_ms;
+                        ctx.pressed=ctx.released=false;app_present(&ctx,current,APP_REDRAW_PAGE);
                     }
-                } else if (action == UI_POWER_ACTION_RESTART) {
-                    run_power_action(&ctx, current, true);
+                } else if(action==UI_POWER_ACTION_SHUTDOWN||action==UI_POWER_ACTION_RESTART||action==UI_POWER_ACTION_RETRY||action==UI_POWER_ACTION_DISCARD){
+                    if(action==UI_POWER_ACTION_SHUTDOWN||action==UI_POWER_ACTION_RESTART)pending_power_restart=action==UI_POWER_ACTION_RESTART;
+                    bool done=run_power_action(&ctx,current,pending_power_restart,action==UI_POWER_ACTION_DISCARD);
+                    power_dialog_open=!done;ui_gesture_reset(&power_gesture);
+                    if(!done){
+                        ui_power_dialog_set_unsaved(true,pending_power_restart);
+                        if(current->render)current->render(&ctx,ctx.fb);
+                        ui_power_dialog_draw(ctx.fb);
+                        guard_draw_result(ctx.hl,update_display_mode(ctx.hl,APP_PAGE_REFRESH_MODE));
+                    }
+                    ctx.now_ms=esp_timer_get_time()/1000;last_activity_ms=ctx.now_ms;
                 }
             }
             ctx.consumed = true;
@@ -568,8 +599,7 @@ void app_loop_run(const app_loop_config_t* config) {
                     bool reader_power_lock = !menu_open && current == &app_book &&
                         app_book_reader_body_visible() && app_settings_reader_power_turn();
                     if (reader_power_lock) {
-                        prepare_lock_resume(&ctx,current);
-                        enter_lock_and_sleep(ctx.hl, &s_lock_ignore_until_ms, ctx.acc, true);
+                        app_lock_set_save_confirmed(prepare_lock_resume(&ctx,current));enter_lock_and_sleep(ctx.hl, &s_lock_ignore_until_ms, ctx.acc, true);
                         ctx.now_ms = esp_timer_get_time() / 1000;
                         last_activity_ms=ctx.now_ms;
                         poll_media(&ctx, current, &media_mounted, &media_invalidated);
@@ -580,6 +610,7 @@ void app_loop_run(const app_loop_config_t* config) {
                         app_present(&ctx, current, APP_REDRAW_PAGE);
                     } else {
                         power_dialog_open = true;
+                        ui_power_dialog_set_unsaved(false,false);
                         ui_gesture_reset(&power_gesture);
                         ui_power_dialog_draw(ctx.fb);
                         guard_draw_result(ctx.hl, update_display_area_with(
@@ -596,9 +627,8 @@ void app_loop_run(const app_loop_config_t* config) {
                         present_page(&ctx, current, &gesture, power_redraw);
                         ctx.consumed = true;
                     } else {
-                        prepare_lock_resume(&ctx,current);
                         extern const app_desc_t app_book;
-                        enter_lock_and_sleep(ctx.hl, &s_lock_ignore_until_ms, ctx.acc,
+                        app_lock_set_save_confirmed(prepare_lock_resume(&ctx,current));enter_lock_and_sleep(ctx.hl, &s_lock_ignore_until_ms, ctx.acc,
                                              !menu_open && current == &app_book && app_book_reader_body_visible());
                         ctx.now_ms = esp_timer_get_time() / 1000;
                         last_activity_ms=ctx.now_ms;
@@ -733,9 +763,8 @@ void app_loop_run(const app_loop_config_t* config) {
                 held_key=-1;cancel_gesture(&ctx,current,&gesture);
                 if(menu_pressed>=0)menu_feedback(&ctx,current,menu_leaf,menu_pressed,false,&feedback);
                 menu_pressed=UI_MENU_HIT_NONE;
-                prepare_lock_resume(&ctx,current);
                 extern const app_desc_t app_book;
-                enter_lock_and_sleep(ctx.hl,&s_lock_ignore_until_ms,ctx.acc,!menu_open&&current==&app_book&&app_book_reader_body_visible());
+                app_lock_set_save_confirmed(prepare_lock_resume(&ctx,current));enter_lock_and_sleep(ctx.hl,&s_lock_ignore_until_ms,ctx.acc,!menu_open&&current==&app_book&&app_book_reader_body_visible());
                 ctx.now_ms=esp_timer_get_time()/1000;last_activity_ms=last_idle_poll_ms=ctx.now_ms;
                 poll_media(&ctx,current,&media_mounted,&media_invalidated);last_media_poll_ms=ctx.now_ms;
                 ctx.consumed=true;ctx.pressed=ctx.released=false;was_touched=false;

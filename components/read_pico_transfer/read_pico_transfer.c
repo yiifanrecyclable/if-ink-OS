@@ -1579,8 +1579,9 @@ static int copy_sd_file(const char *source, const char *target, uint64_t free_by
     return status;
 }
 
+static bool s_file_metadata_failed;
 static void forget_sd_book(const char *path) {
-    if (s_cfg.file_deleted_cb) { s_cfg.file_deleted_cb(path); return; }
+    if (s_cfg.file_deleted_cb) { if(s_cfg.file_deleted_cb(path)!=ESP_OK)s_file_metadata_failed=true;return; }
     const char *ext = strrchr(path, '.');
     if (s_cfg.file_changed_cb && ext && (!strcasecmp(ext, ".epub") || !strcasecmp(ext, ".txt")))
         (void)s_cfg.file_changed_cb(path);
@@ -1668,8 +1669,7 @@ static void notify_sd_move_tree(const char *old_path, const char *new_path, unsi
     struct stat st;
     if (stat(new_path, &st)) return;
     if (S_ISREG(st.st_mode)) {
-        s_cfg.file_moved_cb(old_path, new_path,
-                            st.st_size >= 0 && (uint64_t)st.st_size <= UINT32_MAX ? (uint32_t)st.st_size : 0);
+        if(s_cfg.file_moved_cb(old_path,new_path,st.st_size>=0&&(uint64_t)st.st_size<=UINT32_MAX?(uint32_t)st.st_size:0)!=ESP_OK)s_file_metadata_failed=true;
         return;
     }
     if (!S_ISDIR(st.st_mode)) return;
@@ -1727,6 +1727,7 @@ static void sync_upload_root_after_edit(const char *action, const char *source, 
 }
 
 static esp_err_t files_mutation_handler(httpd_req_t *req) {
+    s_file_metadata_failed=false;
     if (!management_request(req)) return files_error(req, "403 Forbidden", "{\"error\":\"请从设备显示的地址打开\"}");
     if (s_cfg.is_flash) return files_error(req, "400 Bad Request", "{\"error\":\"TF 卡尚未就绪\"}");
     char body[800] = {0};
@@ -1824,6 +1825,7 @@ static esp_err_t files_mutation_handler(httpd_req_t *req) {
     portEXIT_CRITICAL(&s_lock);
     set_error(ESP_OK);
     cJSON_Delete(json);
+    if(s_file_metadata_failed)return files_error(req,"500 Internal Server Error","{\"error\":\"文件已变更，但关联设置或阅读记录未保存，请检查\"}");
     if (status == 200) return files_error(req, "200 OK", "{\"ok\":true}");
     if (status == 404) return files_error(req, "404 Not Found", "{\"error\":\"文件或目录不存在\"}");
     if (status == 409) return files_error(req, "409 Conflict", "{\"error\":\"目标文件已存在\"}");

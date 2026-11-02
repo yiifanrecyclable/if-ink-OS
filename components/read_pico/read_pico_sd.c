@@ -10,6 +10,7 @@
 #include "read_pico_sd.h"
 
 #include <errno.h>
+#include <stdio.h>
 #include <stddef.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -280,6 +281,18 @@ esp_err_t read_pico_sd_sync(void) {
     read_pico_sd_info_t info = { .error = ESP_ERR_INVALID_STATE };
     publish_info(&info);
     return ESP_OK;
+}
+
+esp_err_t read_pico_sd_flush(void) {
+    read_pico_sd_info_t info={0};esp_err_t err=read_pico_sd_get_info(&info);
+    if(!info.present&&err!=ESP_ERR_NOT_FINISHED)return ESP_OK;
+    if(err!=ESP_OK||!info.mounted)return err==ESP_OK?ESP_ERR_INVALID_STATE:err;
+    if(!begin_operation())return ESP_ERR_NOT_FINISHED;
+    // SDMMC的写扇区调用同步完成；CTRL_SYNC本身为空操作。保留已打开的只读句柄以支持失败返回。
+    // SDMMC sector writes complete synchronously and CTRL_SYNC is a no-op; preserve read handles for failed handoffs.
+    err=fflush(NULL)==0?sdmmc_get_status(card):ESP_FAIL;
+    publish_info(&info);
+    return err;
 }
 
 esp_err_t read_pico_sd_format(void) {

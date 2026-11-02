@@ -82,9 +82,9 @@ One file, one `app_desc_t`. Order matches `app_registry.c`.
 | `app_image.c` | 内置灰阶图与 TF 卡 JPG/PNG 图片对比。/ Built-in gray chart and SD JPG/PNG image comparison. | `book_cover`, `read_pico_sd` |
 | `app_transfer.c` | 设备热点/已有 WiFi 传 TXT/EPUB，触屏/网页配网与热点二维码，离页停止；停止按钮返回进入前的位置。/ AP/STA upload with touchscreen/web provisioning and hotspot QR; stops and returns to the entry origin. | `read_pico_transfer`, `book_store` |
 
-加页：在 `main/apps/` 新建文件，实现需要的回调，把它加入 `app_registry.c` 的 `s_apps[]`。锁屏前状态保存通过 `on_before_lock` 回调接入主循环。
+加页：在 `main/apps/` 新建文件，实现需要的回调，把它加入 `app_registry.c` 的 `s_apps[]`。锁屏前状态保存优先用可返回错误的 `prepare_sleep` 回调；旧页面兼容 `on_before_lock`。
 
-To add a page: create it in `main/apps/`, implement its callbacks, and append it to `s_apps[]`. Use `on_before_lock` to flush state before lock rendering.
+To add a page: create it in `main/apps/`, implement its callbacks, and append it to `s_apps[]`. Use checked `prepare_sleep` to flush state before lock rendering; legacy pages may retain `on_before_lock`.
 
 ## `app_desc_t` 契约 / Contract
 
@@ -104,7 +104,7 @@ Defined in [`main/app/app.h`](main/app/app.h). The loop presents via `app_presen
 
 - `render()`：纯绘制。禁止 I2C 写、蜂鸣、睡眠、改设置。KEY2 整屏强刷会复用它。/ Paint only. No I2C writes, buzzer, sleep, or settings. KEY2 reuses it.
 - `on_enter()`：上电、唤醒传感器、拉一次数据。/ Power-up and first sample.
-- `on_before_lock()` 可选：锁屏绘制前保存阅读进度与统计。/ Optional pre-lock flush of reading progress and statistics.
+- `prepare_sleep()` 可选：锁屏/关机前保存进度与统计，失败时锁屏仅浅睡、主动关机需确认；提供它时不再额外调用旧 `on_before_lock()`。/ Optional checked pre-lock/power flush; failures retain RAM in light sleep or require explicit discard confirmation for power-off. Replaces, rather than duplicates, the legacy `on_before_lock()` callback.
 - `on_media_lost()` 可选：主循环检测已挂载卡失效时调用，先停止文件/后台消费者，不画屏、不重挂载；返回后主循环回退字体并重绘。/ Optional mounted-media-loss callback: stop file/background consumers without drawing or remounting; the loop then falls back fonts and redraws.
 - `on_exit()`：掉电、停传感器。/ Power-down.
 - `present()`：自定义推屏。返回 true 表示已经刷过，主循环不再推。/ Custom present; true means done.

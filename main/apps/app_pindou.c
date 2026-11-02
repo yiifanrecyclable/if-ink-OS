@@ -111,6 +111,8 @@ static void on_enter(app_ctx_t *ctx) {
     s_board_save_pending=false;
     s_notice[0]=0;s_dialog=0;s_area=(EpdRect){0};s_toolbar_dirty=false;
 }
+// 仅保存可续作草稿，不隐式导出壁纸或改变用户的保存标记。/ Persist a resumable draft without exporting wallpaper or changing the user's saved marker.
+static esp_err_t prepare_sleep(app_ctx_t *ctx){(void)ctx;return !s_board||beads_board_save(s_board)?ESP_OK:ESP_FAIL;}
 static void beads_on_exit(app_ctx_t *ctx) { (void)ctx;free(s_board);s_board=NULL; }
 static app_redraw_t on_key(app_ctx_t *ctx,int key) { (void)key;return request_exit(ctx); }
 static app_redraw_t on_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev) {
@@ -156,6 +158,6 @@ static bool present(app_ctx_t *ctx,app_redraw_t redraw) {
 static bool no_menu(app_ctx_t *ctx) { (void)ctx;return false; }
 const app_desc_t app_pindou={
     .title=UI_MSG("数字拼豆"),.detail="Cyber Beads",.enter_full=true,.owns_keys=true,
-    .on_enter=on_enter,.on_exit=beads_on_exit,.render=render,.on_gesture=on_gesture,.on_key=on_key,
+    .on_enter=on_enter,.on_exit=beads_on_exit,.prepare_sleep=prepare_sleep,.render=render,.on_gesture=on_gesture,.on_key=on_key,
     .area_hint=area_hint,.present=present,.menu_handle_enabled=no_menu,
 };

@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #pragma once
-#define ESP_LOGW(...) ((void)0)
-#define ESP_LOGE(...) ((void)0)
-#define ESP_LOGI(...) ((void)0)
+#include <stdio.h>
+#define ESP_LOGW(tag,...) ((void)(tag),(void)snprintf(NULL,0,__VA_ARGS__))
+#define ESP_LOGE(tag,...) ((void)(tag),(void)snprintf(NULL,0,__VA_ARGS__))
+#define ESP_LOGI(tag,...) ((void)(tag),(void)snprintf(NULL,0,__VA_ARGS__))

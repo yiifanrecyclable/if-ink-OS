@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "nvs.h"
+#include "../settings_storage.h"
 
 static reader_input_preferences_t s_prefs = {.version=1};
 static bool s_loaded;
@@ -32,29 +33,36 @@ static void unique_actions(reader_input_preferences_t *p){
     unsigned seen=0;
     for(unsigned i=0;i<READER_SHORTCUT_COUNT;++i){unsigned a=p->actions[i];if(!a)continue;if(seen&(1u<<a))p->actions[i]=0;else seen|=1u<<a;}
 }
-static void load(void) {
-    if(s_loaded)return;
+static esp_err_t load(void) {
+    if(s_loaded)return ESP_OK;
+    reader_input_preferences_t p={.version=1};
     nvs_handle_t h;
-    if(nvs_open("rp_input",NVS_READONLY,&h)==ESP_OK){
-        reader_input_preferences_t p;size_t size=sizeof(p);
-        if(nvs_get_blob(h,"preferences",&p,&size)==ESP_OK&&size==sizeof(p)&&reader_input_preferences_valid(&p)){unique_actions(&p);s_prefs=p;}
+    esp_err_t err=nvs_open("rp_input",NVS_READONLY,&h);
+    if(err==ESP_OK){
+        size_t size=sizeof(p);err=nvs_get_blob(h,"preferences",&p,&size);
+        if(err==ESP_OK&&(size!=sizeof(p)||!reader_input_preferences_valid(&p)))err=ESP_ERR_INVALID_RESPONSE;
         nvs_close(h);
     }
-    s_loaded=true;
+    if(err==ESP_ERR_NVS_NOT_FOUND){p=(reader_input_preferences_t){.version=1};err=ESP_OK;}
+    if(err==ESP_OK){unique_actions(&p);s_prefs=p;s_loaded=true;}
+    return err;
 }
-void reader_input_export(reader_input_preferences_t *p){load();if(p)*p=s_prefs;}
+void reader_input_export(reader_input_preferences_t *p){(void)load();if(p)*p=s_prefs;}
+esp_err_t reader_input_export_checked(reader_input_preferences_t *p){
+    if(!p)return ESP_ERR_INVALID_ARG;
+    s_loaded=false;esp_err_t err=load();if(err==ESP_OK)*p=s_prefs;return err;
+}
 esp_err_t reader_input_import(const reader_input_preferences_t *p){
     if(!reader_input_preferences_valid(p))return ESP_ERR_INVALID_ARG;
     reader_input_preferences_t normalized=*p;unique_actions(&normalized);p=&normalized;
-    nvs_handle_t h;esp_err_t err=nvs_open("rp_input",NVS_READWRITE,&h);if(err!=ESP_OK)return err;
-    err=nvs_set_blob(h,"preferences",p,sizeof(*p));if(err==ESP_OK)err=nvs_commit(h);nvs_close(h);
+    esp_err_t err=settings_storage_put_blob("rp_input","preferences",p,sizeof(*p));
     if(err==ESP_OK){s_prefs=*p;s_loaded=true;}return err;
 }
 reader_action_t reader_input_action(unsigned slot){load();return slot<READER_SHORTCUT_COUNT?(reader_action_t)s_prefs.actions[slot]:READER_ACTION_NONE;}
 reader_tap_layout_t reader_input_tap_layout(void){load();return s_prefs.version==2?(reader_tap_layout_t)s_prefs.actions[8]:READER_TAP_COLUMNS;}
 esp_err_t reader_input_set_tap_layout(reader_tap_layout_t layout){
     if(layout!=READER_TAP_COLUMNS&&layout!=READER_TAP_ROWS)return ESP_ERR_INVALID_ARG;
-    reader_input_preferences_t p;reader_input_export(&p);p.version=2;p.actions[8]=(uint8_t)layout;
+    reader_input_preferences_t p;esp_err_t loaded=reader_input_export_checked(&p);if(loaded!=ESP_OK)return loaded;p.version=2;p.actions[8]=(uint8_t)layout;
     return reader_input_import(&p);
 }
 reader_tap_region_t reader_input_tap_region(reader_tap_layout_t layout,unsigned zone,int width,int height){
@@ -64,7 +72,7 @@ reader_tap_region_t reader_input_tap_region(reader_tap_layout_t layout,unsigned 
 }
 esp_err_t reader_input_assign(unsigned slot,unsigned action){
     if(slot>=READER_SHORTCUT_COUNT||action>=READER_ACTION_COUNT)return ESP_ERR_INVALID_ARG;
-    reader_input_preferences_t p;reader_input_export(&p);
+    reader_input_preferences_t p;esp_err_t loaded=reader_input_export_checked(&p);if(loaded!=ESP_OK)return loaded;
     for(unsigned i=0;action&&i<READER_SHORTCUT_COUNT;++i)if(i!=slot&&p.actions[i]==action)return ESP_ERR_INVALID_STATE;
     p.actions[slot]=(uint8_t)action;return reader_input_import(&p);
 }
@@ -81,12 +89,22 @@ bool reader_input_needs_help(const char *path){
 }
 esp_err_t reader_input_ack_help(const char *path,bool hide_all){
     if(!path||!*path)return ESP_ERR_INVALID_ARG;
-    reader_input_preferences_t p;reader_input_export(&p);p.hide_help=hide_all?1:0;
+    reader_input_preferences_t p;esp_err_t loaded=reader_input_export_checked(&p);if(loaded!=ESP_OK)return loaded;p.hide_help=hide_all?1:0;
     nvs_handle_t h;esp_err_t err=nvs_open("rp_input",NVS_READWRITE,&h);if(err!=ESP_OK)return err;
     char key[16];help_key(path,key);err=nvs_set_u8(h,key,1);
     if(err==ESP_OK)err=nvs_set_blob(h,"preferences",&p,sizeof(p));
     if(err==ESP_OK)err=nvs_commit(h);
     nvs_close(h);
+    if(err==ESP_OK){
+        err=nvs_open("rp_input",NVS_READONLY,&h);
+        if(err==ESP_OK){
+            reader_input_preferences_t stored;size_t size=sizeof(stored);uint8_t seen=0;
+            err=nvs_get_u8(h,key,&seen);if(err==ESP_OK&&seen!=1)err=ESP_ERR_INVALID_RESPONSE;
+            if(err==ESP_OK)err=nvs_get_blob(h,"preferences",&stored,&size);
+            if(err==ESP_OK&&(size!=sizeof(stored)||memcmp(&stored,&p,sizeof(p))))err=ESP_ERR_INVALID_RESPONSE;
+            nvs_close(h);
+        }
+    }
     if(err==ESP_OK)s_prefs=p;
     return err;
 }

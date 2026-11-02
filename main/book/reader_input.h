@@ -33,6 +33,8 @@ reader_tap_region_t reader_input_tap_region(reader_tap_layout_t layout,unsigned 
 esp_err_t reader_input_assign(unsigned slot, unsigned action);
 bool reader_input_preferences_valid(const reader_input_preferences_t *prefs);
 void reader_input_export(reader_input_preferences_t *prefs);
+/// 导出/编辑必须检查加载结果，失败不覆盖输出。/ Export/edit checks load errors and leaves output unchanged on failure.
+esp_err_t reader_input_export_checked(reader_input_preferences_t *prefs);
 esp_err_t reader_input_import(const reader_input_preferences_t *prefs);
 bool reader_input_needs_help(const char *path);
 esp_err_t reader_input_ack_help(const char *path, bool hide_all);

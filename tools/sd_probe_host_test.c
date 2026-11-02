@@ -92,3 +92,5 @@ int main(void) {
     puts("sd_probe: empty boot, insertion, removal and explicit remount passed");
     return 0;
 }
+
+esp_err_t sdmmc_get_status(sdmmc_card_t *card){(void)card;return ESP_OK;}

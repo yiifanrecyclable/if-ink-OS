@@ -27,6 +27,8 @@ typedef enum {
     APP_WAKE_TIMEOUT,
 } app_wake_source_t;
 
+/// 当前页未确认保存时仅浅睡保留RAM，不进入深睡。/ Keep RAM in light sleep when page saves are unconfirmed.
+void app_lock_set_save_confirmed(bool confirmed);
 void enter_lock_and_sleep(
     EpdiyHighlevelState* hl, int64_t* ignore_until_ms, sc7a20h_handle_t acc,
     bool reader_background
@@ -42,15 +44,17 @@ app_wake_source_t app_light_sleep_wait(sc7a20h_handle_t acc);
 /// ESP light sleep until key, pickup, or timeout; 0 means no deadline.
 app_wake_source_t app_light_sleep_wait_timed(sc7a20h_handle_t acc, uint32_t timeout_ms);
 app_wake_source_t app_last_wake_source(void);
-/// 软睡或关机，拉掉 EN 后停住，不会返回。
-/// Soft sleep or power-off: drop EN and halt; does not return.
-void app_enter_host_sleep(app_sleep_mode_t mode);
+/// 电源交接失败时返回错误，保留挂载及阅读状态；成功断电不返回。
+/// Return an error on a failed handoff, retaining the mount and reader state; successful power-off never returns.
+esp_err_t app_enter_host_sleep(app_sleep_mode_t mode);
+/// 仅在用户确认丢弃未保存数据后允许忽略同步错误；活动传输仍不打断。/ Ignore sync errors only after explicit discard confirmation, never interrupt active transfers.
+esp_err_t app_enter_host_sleep_ex(app_sleep_mode_t mode,bool discard_unsaved);
 /// 将当前系统时间写入常供电 PMU RTC；主控断电后由 PMU 继续走时。
 /// Sync system time to the always-on PMU RTC so it keeps ticking while the host is off.
 esp_err_t app_sync_time_to_pmu(void);
-/// 让 PMU 正常重启主控；先保存 RTC，调用后不会返回。
-/// Ask the PMU for a normal host restart after preserving RTC; does not return.
-void app_restart_host(void);
+/// 让PMU重启；拒绝或未实际重启则返回错误，避免无限等待。/ Ask the PMU to restart; return on rejection or a missing reset instead of hanging.
+esp_err_t app_restart_host(void);
+esp_err_t app_restart_host_ex(bool discard_unsaved);
 
 #ifdef __cplusplus
 }

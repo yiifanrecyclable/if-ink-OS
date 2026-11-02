@@ -49,6 +49,15 @@ with tempfile.TemporaryDirectory(prefix='file-thumbnails-',dir=R/'build') as tmp
     assert len(cached)==8
     frame('/sdcard/pictures',modes=1)
     assert cached=={f.name:(f.stat().st_mtime_ns,f.read_bytes()) for f in store.glob('*.bin')}
+    # 标题、空白及切换按钮边缘均不得回退；只有左侧返回按钮。/ Titles, whitespace and toggle edges must never act as Back.
+    for directory in ('/sdcard/pictures/album','/sdcard/banner pic/nested','/sdcard/books'):
+        for x0,y0 in ((342,83),(342,120),(550,83),(650,83),(610,150),(150,100)):
+            same=frame(directory,f't,{x0},{y0},{x0},{y0}')
+            assert same['files_dir']==directory,(directory,x0,y0,same['files_dir'])
+    for size in (100,120,140,160):
+        for x0,y0 in ((576,52),(647,114),(612,83)):
+            same=frame('/sdcard/pictures/album',f't,{x0},{y0},{x0},{y0}',size=size)
+            assert same['files_dir']=='/sdcard/pictures/album' and same['files_grid']
     tap=lambda a,b:f't,{a},{b},{a},{b}'
     child=frame('/sdcard/pictures',toggle+';'+tap(x+w//2,y+h//2))
     assert child['files_dir']=='/sdcard/pictures/album' and child['files_grid'] and child['files_thumbs'][0]

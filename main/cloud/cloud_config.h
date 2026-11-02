@@ -10,6 +10,8 @@ typedef struct {
     char folder[241], account[129], password[257];
 } cloud_config_t;
 void cloud_config_load(cloud_config_t *config);
+/// 编辑读取失败不输出默认凭据；缺失键沿用未配置值。/ Checked editing load; errors preserve output, missing keys use unconfigured defaults.
+esp_err_t cloud_config_load_checked(cloud_config_t *config);
 esp_err_t cloud_config_save(const cloud_config_t *config);
 esp_err_t cloud_config_forget(void);
 bool cloud_config_valid(const cloud_config_t *config, bool require_secret);

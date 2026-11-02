@@ -111,4 +111,8 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='banner-layers-') as te
         right=[x for x in range(342,624) if tone(frame,x,1098)<8]
         assert left and right and max(left)-min(left)==max(right)-min(right)
         assert max(left)<min(right)-16
+    # 读取坏快照后保存按钮不能把临时默认值写回。/ Failed snapshot load must never save temporary defaults.
+    config.write_bytes(b'broken snapshot')
+    info,_=render(events=tap(480,1098))
+    assert not info.get('quote_committed',False) and config.read_bytes()==b'broken snapshot'
     print('PASS: independent background/date/text, text/date halos, four alignment icons and full-height text movement, font/size drafts, short height sliders, file browsing, Save/Cancel, missing-image fallback and v1 migration.')

@@ -13,3 +13,7 @@ typedef int esp_err_t;
 #define ESP_ERR_NVS_NO_FREE_PAGES 0x110d
 #define ESP_ERR_NVS_NEW_VERSION_FOUND 0x1110
 static inline const char *esp_err_to_name(int err) { (void)err; return "test"; }
+
+#define ESP_ERR_NOT_SUPPORTED 0x106
+
+#define ESP_ERR_NOT_FINISHED 0x10c

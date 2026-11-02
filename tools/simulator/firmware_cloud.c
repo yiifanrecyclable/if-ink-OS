@@ -13,6 +13,7 @@ static cloud_entry_t preview_entries[CLOUD_ENTRY_MAX];
 int simulator_cloud_command,simulator_cloud_index=-1,simulator_cloud_page;
 static bool initializing;
 void cloud_config_load(cloud_config_t *c){memset(c,0,sizeof(*c));snprintf(c->folder,sizeof(c->folder),"%s",preview_cloud.folder[0]?preview_cloud.folder:CLOUD_DEFAULT_FOLDER);snprintf(c->account,sizeof(c->account),"%s",preview_account);if(preview_cloud.configured)strcpy(c->password,"*");}
+esp_err_t cloud_config_load_checked(cloud_config_t *c){if(!c)return ESP_ERR_INVALID_ARG;cloud_config_load(c);return ESP_OK;}
 bool cloud_config_valid(const cloud_config_t *c,bool secret){
     return c&&memchr(c->folder,0,sizeof(c->folder))&&memchr(c->account,0,sizeof(c->account))&&memchr(c->password,0,sizeof(c->password))&&
         cloud_relative_path(c->folder)&&cloud_utf8_valid(c->account,strlen(c->account))&&!strpbrk(c->account,":\r\n")&&

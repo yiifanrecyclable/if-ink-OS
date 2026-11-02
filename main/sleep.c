@@ -35,11 +35,13 @@
 #include "read_pico_board.h"
 #include "read_pico_pmu.h"
 #include "read_pico_transfer.h"
+#include "read_pico_sd.h"
 #include "sc7a20h_lab.h"
 #include "settings.h"
 #include "ui_kit.h"
 #include "ui_image_dither.h"
 #include "ui_wallpaper.h"
+#include "ui_nav.h"
 
 static const char* TAG = "read_pico";
 
@@ -293,26 +295,27 @@ app_wake_source_t app_light_sleep_wait(sc7a20h_handle_t acc) {
     return app_light_sleep_wait_timed(acc, 0);
 }
 
-void app_enter_host_sleep(app_sleep_mode_t mode) {
-    app_time_service_stop();
-    (void)app_sync_time_to_pmu();
-    pmu_selftest_prepare_powerdown();
-    if (mode == APP_SLEEP_OFF) {
-        ESP_LOGI(TAG, "power off %s", esp_err_to_name(read_pico_pmu_power_off()));
-    } else {
-        for (int attempt = 0; attempt < 3; ++attempt) {
-            esp_err_t err = read_pico_pmu_report_sleep();
-            ESP_LOGI(TAG, "SOFT_SLEEP attempt %d: %s", attempt + 1, esp_err_to_name(err));
-            if (err == ESP_OK) break;
-            vTaskDelay(pdMS_TO_TICKS(200));
-            if (attempt == 2) {
-                // A failed PMU handoff must not leave an unresponsive e-paper lock forever.
-                ESP_LOGE(TAG, "SOFT_SLEEP handoff failed; restart host");
-                esp_restart();
-            }
-        }
+esp_err_t app_enter_host_sleep_ex(app_sleep_mode_t mode,bool discard_unsaved) {
+    if(mode!=APP_SLEEP_OFF&&mode!=APP_SLEEP_DEEP)return ESP_ERR_INVALID_ARG;
+    if(!read_pico_transfer_pause_for_sleep()){app_settings_trace_storage_result("power_transfer_busy",ESP_ERR_INVALID_STATE);return ESP_ERR_INVALID_STATE;}
+    esp_err_t err=read_pico_sd_flush();
+    if(err!=ESP_OK){app_settings_trace_storage_result("power_sd_flush",err);if(!discard_unsaved){read_pico_transfer_resume_after_sleep();return err;}}
+    app_time_service_stop();(void)app_sync_time_to_pmu();
+    // 不调用会卸载TF的产测下电准备，失败时当前书籍/字体仍可继续使用。
+    // Do not use factory preparation that unmounts SD; the current book/font remains usable after failure.
+    display_poweroff();
+    app_settings_trace_storage(mode==APP_SLEEP_OFF?"pre_power_off":"pre_soft_sleep");
+    unsigned attempts=mode==APP_SLEEP_OFF?1:3;
+    for(unsigned i=0;i<attempts;++i){
+        err=mode==APP_SLEEP_OFF?read_pico_pmu_power_off():read_pico_pmu_report_sleep();
+        if(err==ESP_OK){vTaskDelay(pdMS_TO_TICKS(5000));err=ESP_ERR_TIMEOUT;break;}
+        if(i+1<attempts)vTaskDelay(pdMS_TO_TICKS(200));
     }
-    while (true) vTaskDelay(pdMS_TO_TICKS(1000));
+    app_settings_trace_storage_result("power_handoff_failed",err);
+    ESP_LOGW(TAG,"power handoff failed: %s",esp_err_to_name(err));
+    read_pico_transfer_resume_after_sleep();
+    read_pico_pmu_suppress_key_until_release();display_resume_clean_next();
+    return err;
 }
 
 esp_err_t app_sync_time_to_pmu(void) {
@@ -333,15 +336,24 @@ esp_err_t app_sync_time_to_pmu(void) {
     return err;
 }
 
-void app_restart_host(void) {
-    app_time_service_stop();
-    (void)app_sync_time_to_pmu();
-    pmu_selftest_prepare_powerdown();
-    esp_err_t err = read_pico_pmu_action(PMU_ACTION_HOST_NORMAL_RESTART, 250, 0x5052);
-    ESP_LOGI(TAG, "normal restart: %s", esp_err_to_name(err));
-    if (err != ESP_OK) esp_restart();
-    while (true) vTaskDelay(pdMS_TO_TICKS(1000));
+esp_err_t app_restart_host_ex(bool discard_unsaved) {
+    if(!read_pico_transfer_pause_for_sleep()){app_settings_trace_storage_result("power_transfer_busy",ESP_ERR_INVALID_STATE);return ESP_ERR_INVALID_STATE;}
+    esp_err_t err=read_pico_sd_flush();
+    if(err!=ESP_OK){app_settings_trace_storage_result("power_sd_flush",err);if(!discard_unsaved){read_pico_transfer_resume_after_sleep();return err;}}
+    app_time_service_stop();(void)app_sync_time_to_pmu();display_poweroff();
+    app_settings_trace_storage("pre_restart");
+    err=read_pico_pmu_action(PMU_ACTION_HOST_NORMAL_RESTART,250,0x5052);
+    if(err==ESP_OK){vTaskDelay(pdMS_TO_TICKS(5000));err=ESP_ERR_TIMEOUT;}
+    app_settings_trace_storage_result("restart_handoff_failed",err);
+    ESP_LOGW(TAG,"restart handoff failed: %s",esp_err_to_name(err));
+    read_pico_transfer_resume_after_sleep();read_pico_pmu_suppress_key_until_release();display_resume_clean_next();
+    return err;
 }
+
+esp_err_t app_enter_host_sleep(app_sleep_mode_t mode){return app_enter_host_sleep_ex(mode,false);}
+esp_err_t app_restart_host(void){return app_restart_host_ex(false);}
+static bool s_lock_save_confirmed=true;
+void app_lock_set_save_confirmed(bool confirmed){s_lock_save_confirmed=confirmed;}
 
 void enter_lock_and_sleep(
     EpdiyHighlevelState* hl, int64_t* ignore_until_ms, sc7a20h_handle_t acc,
@@ -349,12 +361,12 @@ void enter_lock_and_sleep(
 ) {
     // Refuse to interrupt an active upload. The caller repaints its page when
     // this function returns, and the user can lock again after the transfer.
-    app_time_service_stop();
     bool radio_paused = read_pico_transfer_pause_for_sleep();
     if (!radio_paused) {
         ESP_LOGW(TAG, "lock postponed while transfer is busy");
         return;
     }
+    app_time_service_stop();
     uint8_t* framebuffer = epd_hl_get_framebuffer(hl);
     epd_hl_set_all_white(hl);
     // 用户修订：锁屏仅显示壁纸，缺少自定义文件时使用内建默认画面。
@@ -376,12 +388,18 @@ void enter_lock_and_sleep(
     // A short press only locks and light-sleeps; deep shutdown belongs to the long-press menu.
     ESP_LOGI(TAG, "lock LIGHT");
     display_poweroff();
-    app_wake_source_t wake = app_light_sleep_wait_timed(acc, APP_LOCK_LIGHT_SLEEP_MS);
-    if (wake == APP_WAKE_TIMEOUT) {
-        // PMU SOFT_SLEEP drops the ESP rail while keeping its RTC alive. A short
-        // power-key press boots the host; the e-paper keeps this lock image.
-        if(lock_presented)(void)sleep_resume_save(framebuffer,(size_t)epd_width()*epd_height()/2,(unsigned)epd_get_rotation());
-        app_enter_host_sleep(APP_SLEEP_DEEP);
+    // 保存失败仍锁屏浅睡；超时不会唤醒到正文反复耗电，也不会丢弃RAM。
+    // Failed saves still lock/light-sleep; timeouts neither reopen the reader nor discard RAM.
+    for(;;){
+        app_wake_source_t wake=app_light_sleep_wait_timed(acc,APP_LOCK_LIGHT_SLEEP_MS);
+        if(wake!=APP_WAKE_TIMEOUT)break;
+        if(!s_lock_save_confirmed)continue;
+        bool cached=lock_presented&&sleep_resume_save(framebuffer,(size_t)epd_width()*epd_height()/2,(unsigned)epd_get_rotation());
+        if(!cached){app_settings_trace_storage_result("sleep_cache_failed",ESP_FAIL);s_lock_save_confirmed=false;continue;}
+        (void)app_enter_host_sleep(APP_SLEEP_DEEP);
+        if(!read_pico_transfer_pause_for_sleep())break;
+        // 交接失败后继续浅睡，保留锁屏；不会自动反复发送下电命令。/ Keep the lock in light sleep after a failed handoff without repeated power requests.
+        s_lock_save_confirmed=false;
     }
     read_pico_pmu_suppress_key_until_release();
     read_pico_transfer_resume_after_sleep();

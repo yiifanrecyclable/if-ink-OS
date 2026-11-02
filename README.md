@@ -21,3 +21,9 @@ Obsidian 推送插件为独立项目，本固件发布包不包含插件及任�
 ### Reading progress storage
 
 With an available SD card, resume positions, percentages and recent ordering live in the hidden `.readpico/progress` directory. Keep it when copying or backing up the card. Records use CRC-checked dual slots with sync and readback verification; write failures remain pending. Legacy NVS records remain readable and subsequent updates go to SD; without SD, NVS remains the fallback. Settings backup/restore includes the new store and accepts older backups. Unsaved positions already lost after a restart cannot be recovered.
+
+### Settings persistence and power failures
+
+Preferences apply only after write, commit and independent readback. A failed save retains the last confirmed in-memory value and permits retry; failed verification means unconfirmed, not necessarily unwritten. Read errors never count as empty configuration for subsequent edits, and incomplete snapshots cannot be exported as backups. Settings failures never trigger automatic NVS erasure.
+
+Lock/power actions check current-page progress or draft saves. Failed saves still allow light sleep with RAM retained, while deep sleep is deferred; explicit power actions offer Retry, Proceed anyway and Cancel, with possible loss of unsaved data acknowledged before proceeding. Failed PMU shutdown/restart handoffs restore the usable page without unmounting SD or closing reading resources. The existing staged and full-off choices are retained.

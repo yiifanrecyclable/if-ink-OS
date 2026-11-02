@@ -10,3 +10,6 @@ static inline void ui_text_set_system_font(bool enabled) { (void)enabled; }
 
 #define UI_SETTLE_DU_MAX 6
 #define UI_SETTLE_IDLE_MS 2000
+
+#define UI_LOCK_WIDTH 684
+#define UI_STATUS_HEIGHT 56

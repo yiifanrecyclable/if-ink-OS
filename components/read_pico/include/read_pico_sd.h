@@ -46,6 +46,9 @@ esp_err_t read_pico_sd_format(void);
 /// 已挂载则卸载落盘。探测未完成返回 ESP_ERR_NOT_FINISHED。
 /// / Unmount if mounted so writes land. ESP_ERR_NOT_FINISHED while probing.
 esp_err_t read_pico_sd_sync(void);
+/// 电源交接屏障：调用方先fsync/关闭所有写句柄；确认卡状态但保留挂载及阅读句柄。
+/// Power barrier: callers fsync/close writers first; verify card status while retaining the mount and reader handles.
+esp_err_t read_pico_sd_flush(void);
 
 #ifdef __cplusplus
 }

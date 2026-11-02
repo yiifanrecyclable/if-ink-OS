@@ -97,6 +97,13 @@ static char s_move_origin_dir[288];
 static char s_editor[121], s_editor_ext[16], s_editor_notice[96];
 static ui_text_input_t s_text_input;
 static void scan_folder(int folder);
+// 仅图片查看返回时恢复浏览位置，普通进入应用仍从根界面开始。
+// Restore browser context only on an image return, not on a normal Apps entry.
+static struct {bool valid;int folder,page;char dir[288];} s_image_origin;
+static bool s_image_restore;
+static int s_image_restore_page=-1;
+void app_files_request_image_return(void){s_image_restore=s_image_origin.valid;}
+
 
 static const char *const names[] = {UI_MSG("书籍"), UI_MSG("图片"), UI_MSG("字体"), UI_MSG("存储卡管理")};
 static const char *folder_root(int folder) {
@@ -202,7 +209,7 @@ static void migrate_book_state(const char *old_path, const char *new_path, uint3
     bool had_progress = book_progress_load(old_path, size, &progress);
     char last[BOOK_STORE_PATH_MAX] = {0};
     bool was_last = book_progress_last_path(last, sizeof(last)) && !strcmp(last, old_path);
-    if (had_progress) (void)book_progress_save(new_path, &progress);
+    if(had_progress&&book_progress_save(new_path,&progress)!=ESP_OK){file_notice(UI_MSG("保存失败，请重试"));return;}
     (void)book_progress_forget(old_path);
     if (was_last) (void)book_progress_set_last_path(new_path);
     (void)book_title_clear(old_path);
@@ -288,8 +295,7 @@ static void sync_moved_settings(const char *old_path, const char *new_path) {
         ttf_font_scan();
     }
     if (rebased_path(app_settings_system_font_path(), old_path, new_path, updated, sizeof(updated))) {
-        app_settings_set_system_font_path(updated);
-        app_font_activate_system();
+        if(app_settings_set_system_font_path(updated)==ESP_OK)app_font_activate_system();
     }
     if (rebased_path(app_settings_font_path(), old_path, new_path, updated, sizeof(updated)))
         app_settings_set_font_path(updated);
@@ -711,15 +717,18 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
 
 static void on_enter(app_ctx_t *ctx) {
     s_now_ms=ctx->now_ms;ui_nav_notice_clear();s_status_area=(EpdRect){0};
-    s_folder = s_requested_folder; s_requested_folder = -1;
+    bool restore=s_image_restore&&s_image_origin.valid&&s_requested_folder<0;s_image_restore=false;
+    s_folder = restore?s_image_origin.folder:s_requested_folder;s_requested_folder = -1;
     s_view = FILE_VIEW_LIST;
     s_delete_confirm = false;
-    ui_snprintf(s_dir, sizeof(s_dir), "/sdcard");
+    ui_snprintf(s_dir,sizeof(s_dir),"%s",restore?s_image_origin.dir:"/sdcard");
+    s_image_restore_page=restore?s_image_origin.page:-1;
     s_page = 0; s_scan_pending = true;
     read_pico_sd_start_probe();
     read_pico_sd_get_info(&s_sd);
     if (s_folder >= 0) scan_folder(s_folder);
     else { s_count = 0; s_message[0] = 0; }
+    if(restore&&s_sd.mounted){int last=s_count?(s_count-1)/visible_rows():0;s_page=s_image_restore_page<last?s_image_restore_page:last;s_image_restore_page=-1;s_scan_pending=false;}
 }
 static void on_media_lost(app_ctx_t *ctx) {
     (void)ctx; s_status_area=(EpdRect){0};clear_thumbnails();s_folder = -1; s_count = 0; s_scan_pending = false;
@@ -743,6 +752,7 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
     s_scan_pending = false;
     if (s_folder >= 0) scan_folder(s_folder);
     else { s_count = 0; s_message[0] = 0; }
+    if(s_image_restore_page>=0){int last=s_count?(s_count-1)/visible_rows():0;s_page=s_image_restore_page<last?s_image_restore_page:last;s_image_restore_page=-1;}
     return APP_REDRAW_PAGE;
 }
 
@@ -754,7 +764,9 @@ static void open_selected(app_ctx_t *ctx) {
         if (app_book_request_open(s_selected.path)) ctx->request_app = &app_book;
     } else if (!strcasecmp(ext, ".jpg") || !strcasecmp(ext, ".jpeg") || !strcasecmp(ext, ".png")) {
         extern const app_desc_t app_image;
-        if (app_image_request_open(s_selected.path)) ctx->request_app = &app_image;
+        if(app_image_request_open(s_selected.path)){
+            s_image_origin.valid=true;s_image_origin.folder=s_folder;s_image_origin.page=s_page;strlcpy(s_image_origin.dir,s_dir,sizeof(s_image_origin.dir));ctx->request_app=&app_image;
+        }
     } else if (!strcasecmp(ext, ".ttf") || !strcasecmp(ext, ".otf")) {
         if (ttf_font_open(s_selected.path) == ESP_OK) {
             app_settings_set_system_font_path(s_selected.path);
@@ -848,7 +860,7 @@ static app_redraw_t action_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev)
             file_notice(UI_MSG("图片无法读取，请重新选择"));return APP_REDRAW_PAGE;
         }
         if(app_settings_save_wallpaper_path(s_selected.path)!=ESP_OK){
-            file_notice(UI_MSG("保存失败，请检查设置存储空间"));return APP_REDRAW_PAGE;
+            file_notice(UI_MSG("壁纸保存失败，请重试"));return APP_REDRAW_PAGE;
         }
         app_settings_set_lock_style(1);
         file_notice(UI_MSG("已设为息屏壁纸"));return APP_REDRAW_PAGE;
@@ -914,7 +926,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         }
         if (ev->type == UI_GESTURE_SWIPE_R && s_page > 0) { --s_page; return APP_REDRAW_PAGE; }
         if (ev->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
-        if (ev->y0 < UI_PAGE_Y(185)) {
+        if (ui_rect_hit((EpdRect){24,UI_PAGE_Y(79),68,68},ev->x0,ev->y0)) {
             if (strcmp(s_dir, "/sdcard")) {
                 char *slash = strrchr(s_dir, '/'); if (slash) *slash = 0;
                 scan_folder(3);
@@ -943,7 +955,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     int tab = ui_nav_hit(ev->x0, ev->y0);
     if (!long_press && tab >= 0) { ui_nav_request(ctx, tab); return APP_REDRAW_NONE; }
     if (s_folder >= 0) {
-        if (!long_press && ev->y0 < UI_PAGE_Y(185)) {
+        if (!long_press && ui_rect_hit((EpdRect){24,UI_PAGE_Y(79),68,68},ev->x0,ev->y0)) {
             if (s_folder == 3 && strcmp(s_dir, "/sdcard")) {
                 char *slash = strrchr(s_dir, '/'); if (slash) *slash = 0;
                 scan_folder(3);

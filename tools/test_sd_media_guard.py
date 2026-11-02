@@ -53,6 +53,8 @@ typedef int BaseType_t;
 #define ESP_LOGI(...) ((void)0)
 static bool present=true, drop_during_mount=false, unmount_fail=false;
 static int mounts, unmounts, formats;
+static bool status_fail;
+static esp_err_t sdmmc_get_status(sdmmc_card_t *card){(void)card;return status_fail?ESP_FAIL:ESP_OK;}
 static bool made_books, made_fonts, made_pictures;
 static sdmmc_card_t mock_card={.cid={"MOCK"},.csd={2048,512}};
 static void (*pending)(void*);
@@ -97,6 +99,9 @@ int main(void) {
     finish_probe();
     assert(read_pico_sd_get_info(&info)==ESP_OK && info.mounted && info.capacity_bytes);
     assert(made_books && made_fonts && made_pictures);
+    assert(read_pico_sd_flush()==ESP_OK&&unmounts==0);
+    status_fail=true;assert(read_pico_sd_flush()==ESP_FAIL&&unmounts==0);status_fail=false;
+    assert(read_pico_sd_get_info(&info)==ESP_OK&&info.mounted);
     present=false;
     assert(read_pico_sd_get_info(&info)==ESP_ERR_NOT_FOUND);
     assert(!info.mounted && !info.needs_format && !info.capacity_bytes && !info.free_bytes && !info.name[0]);

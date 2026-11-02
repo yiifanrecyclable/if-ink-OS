@@ -14,9 +14,13 @@ typedef enum {
     UI_POWER_ACTION_CANCEL,
     UI_POWER_ACTION_SHUTDOWN,
     UI_POWER_ACTION_RESTART,
+    UI_POWER_ACTION_RETRY,
+    UI_POWER_ACTION_DISCARD,
 } ui_power_action_t;
 
 EpdRect ui_power_dialog_rect(void);
 void ui_power_dialog_draw(uint8_t *fb);
+/// 保存失败确认，重试/仍然执行/取消。/ Unsaved confirmation: retry, proceed or cancel.
+void ui_power_dialog_set_unsaved(bool unsaved,bool restarting);
 ui_power_action_t ui_power_dialog_handle(const ui_gesture_event_t *event);
 void ui_power_final_draw(uint8_t *fb, bool restarting);

@@ -106,30 +106,26 @@ static void transfer_directory_moved(const char *old_path, const char *new_path)
     }
 }
 
-static void transfer_file_deleted(const char *path) {
-    if (transfer_book_file(path)) {
-        (void)book_progress_forget(path);
-        (void)book_title_clear(path);
-    }
-    if (!strcmp(app_settings_system_font_path(), path)) app_settings_set_system_font_path("");
-    if (!strcmp(app_settings_font_path(), path)) app_settings_set_font_path("");
-    if (!strcmp(app_settings_wallpaper_path(), path)) app_settings_set_wallpaper_path("");
+static esp_err_t transfer_file_deleted(const char *path){
+    if(transfer_book_file(path)){esp_err_t err=book_progress_forget(path);if(err!=ESP_OK)return err;(void)book_title_clear(path);}
+    if(!strcmp(app_settings_system_font_path(),path))return app_settings_set_system_font_path("");
+    if(!strcmp(app_settings_font_path(),path))return app_settings_set_font_path("");
+    if(!strcmp(app_settings_wallpaper_path(),path))return app_settings_set_wallpaper_path("");
+    return ESP_OK;
 }
-
-static void transfer_file_moved(const char *old_path, const char *new_path, uint32_t size) {
-    if (transfer_book_file(old_path)) {
-        book_progress_t progress = {0};
-        bool saved = book_progress_load(old_path, size, &progress);
-        char last[BOOK_STORE_PATH_MAX] = {0};
-        bool was_last = book_progress_last_path(last, sizeof(last)) && !strcmp(last, old_path);
-        if (saved) (void)book_progress_save(new_path, &progress);
-        (void)book_progress_forget(old_path);
-        if (was_last) (void)book_progress_set_last_path(new_path);
+static esp_err_t transfer_file_moved(const char *old_path,const char *new_path,uint32_t size){
+    if(transfer_book_file(old_path)){
+        book_progress_t progress={0};bool saved=book_progress_load(old_path,size,&progress);
+        char last[BOOK_STORE_PATH_MAX]={0};bool was_last=book_progress_last_path(last,sizeof(last))&&!strcmp(last,old_path);
+        esp_err_t err=saved?book_progress_save(new_path,&progress):ESP_OK;if(err!=ESP_OK)return err;
+        err=book_progress_forget(old_path);if(err!=ESP_OK)return err;
+        if(was_last){err=book_progress_set_last_path(new_path);if(err!=ESP_OK)return err;}
+        (void)book_title_clear(old_path);
     }
-    if (transfer_book_file(old_path)) (void)book_title_clear(old_path);
-    if (!strcmp(app_settings_system_font_path(), old_path)) app_settings_set_system_font_path(new_path);
-    if (!strcmp(app_settings_font_path(), old_path)) app_settings_set_font_path(new_path);
-    if (!strcmp(app_settings_wallpaper_path(), old_path)) app_settings_set_wallpaper_path(new_path);
+    if(!strcmp(app_settings_system_font_path(),old_path))return app_settings_set_system_font_path(new_path);
+    if(!strcmp(app_settings_font_path(),old_path))return app_settings_set_font_path(new_path);
+    if(!strcmp(app_settings_wallpaper_path(),old_path))return app_settings_set_wallpaper_path(new_path);
+    return ESP_OK;
 }
 
 

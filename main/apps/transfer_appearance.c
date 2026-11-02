@@ -75,10 +75,10 @@ static esp_err_t response(read_pico_transfer_editor_reply_t *out,int status,cons
     char *text=cJSON_PrintUnformatted(root);cJSON_Delete(root);
     out->status=status;out->data=(uint8_t*)text;out->size=text?strlen(text):0;return text?ESP_OK:ESP_ERR_NO_MEM;
 }
-static void revision(char value[9]){
-    content_banner_config_t cfg;content_banner_load(&cfg);uint32_t hash=2166136261u;
-    const uint8_t *bytes=(const uint8_t*)&cfg;
-    for(size_t i=0;i<sizeof(cfg);++i)hash=(hash^bytes[i])*16777619u;
+static void revision(const content_banner_config_t *cfg,char value[9]){
+    uint32_t hash=2166136261u;
+    const uint8_t *bytes=(const uint8_t*)cfg;
+    for(size_t i=0;i<sizeof(*cfg);++i)hash=(hash^bytes[i])*16777619u;
     for(const char *p=app_settings_wallpaper_path();*p;++p)hash=(hash^(uint8_t)*p)*16777619u;
     snprintf(value,9,"%08lx",(unsigned long)hash);
 }
@@ -121,7 +121,8 @@ static cJSON *banner_json(const content_banner_config_t *cfg){
     return o;
 }
 static esp_err_t settings_reply(read_pico_transfer_editor_reply_t *out){
-    content_banner_config_t cfg;content_banner_load(&cfg);char rev[9],date[160];revision(rev);
+    content_banner_config_t cfg;if(content_banner_load_checked(&cfg)!=ESP_OK)return response(out,500,"设置读取失败，请重试");
+    char rev[9],date[160];revision(&cfg,rev);
     uint32_t day=0;bool valid=false;date_now(&day,&valid);ui_banner_date_line(day,valid,date,sizeof(date));
     cJSON *o=cJSON_CreateObject(),*fonts=cJSON_CreateArray();if(!o||!fonts){cJSON_Delete(o);cJSON_Delete(fonts);return ESP_ERR_NO_MEM;}
     cJSON_AddBoolToObject(o,"ok",true);cJSON_AddStringToObject(o,"revision",rev);
@@ -159,7 +160,7 @@ static bool draft(const cJSON *o,content_banner_config_t *cfg){
     cfg->quote_px=size;cfg->align=align;cfg->valign=valign;cfg->date_y=date;cfg->text_y=text;return content_banner_valid(cfg);
 }
 bool transfer_appearance_path_writable(const char *path){
-    content_banner_config_t cfg;content_banner_load(&cfg);
+    content_banner_config_t cfg;if(content_banner_load_checked(&cfg)!=ESP_OK)return false;
     const char *assets[]={cfg.mode?cfg.image:"",cfg.show_text?cfg.font:""};size_t n=strlen(path);
     for(unsigned i=0;i<2;++i)if(assets[i][0]&&!strncasecmp(path,assets[i],n)&&(!assets[i][n]||assets[i][n]=='/'))return false;
     return true;
@@ -179,7 +180,9 @@ esp_err_t transfer_appearance_dispatch(const char *op,const char *body,read_pico
         cJSON *reply=cJSON_CreateObject();cJSON_AddStringToObject(reply,"path",found?path:"");
         out->data=(uint8_t*)cJSON_PrintUnformatted(reply);cJSON_Delete(reply);out->status=200;out->size=out->data?strlen((char*)out->data):0;return out->data?ESP_OK:ESP_ERR_NO_MEM;
     }
-    char rev[9],sent[9];revision(rev);
+    content_banner_config_t current;
+    if(content_banner_load_checked(&current)!=ESP_OK){cJSON_Delete(o);return response(out,500,"设置读取失败，请重试");}
+    char rev[9],sent[9];revision(&current,rev);
     if(!string(o,"revision",sent,sizeof(sent))||strcmp(sent,rev)){cJSON_Delete(o);return response(out,409,"设备设置已经变化，请重新读取后再编辑");}
     if(!strcmp(op,"wallpaper")){
         char path[288];bool valid=string(o,"path",path,sizeof(path))&&readable_image(path);cJSON_Delete(o);
@@ -214,12 +217,10 @@ esp_err_t transfer_appearance_dispatch(const char *op,const char *body,read_pico
         snprintf(cfg.font,sizeof(cfg.font),"%s",installed);
     }
     if(cancelled&&cancelled(context))return response(out,503,"操作已取消，请重新读取设置核实");
-    content_banner_config_t before;content_banner_load(&before);
     if(content_banner_save(&cfg)!=ESP_OK){
-        (void)content_banner_save(&before);
         return response(out,500,"保存失败，请重新读取设置核实");
     }
-    content_banner_config_t saved;content_banner_load(&saved);
-    if(memcmp(&saved,&cfg,sizeof(cfg)))return response(out,500,"保存结果未确认，请重新读取设置核实");
+    content_banner_config_t saved;
+    if(content_banner_load_checked(&saved)!=ESP_OK||memcmp(&saved,&cfg,sizeof(cfg)))return response(out,500,"保存结果未确认，请重新读取设置核实");
     out->changed=true;return settings_reply(out);
 }

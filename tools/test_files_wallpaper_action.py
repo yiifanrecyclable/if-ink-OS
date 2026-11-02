@@ -20,10 +20,11 @@ with tempfile.TemporaryDirectory(prefix='files-wallpaper-',dir=R/'build') as tmp
     (card/'banner pic/banner.png').write_bytes(png(684,300,85))
     original={f:hashlib.sha256(f.read_bytes()).hexdigest() for f in card.rglob('*') if f.is_file()}
     env={**os.environ,'PICO_SIM_CARD_ROOT':str(card)}
-    def frame(directory='/sdcard/pictures/inner',events='',grid=0,view='files-0',fault=False):
+    def frame(directory='/sdcard/pictures/inner',events='',grid=0,view='files-0',fault=False,tf_fault=False):
         a=[str(R/'build/simulator/render'),view,'','3','48','build/simulator/frame.bin','build/simulator/titles.txt','0','0','builtin',events,directory]
         e={**env,'PICO_SIM_FILES_GRID':str(grid)}
         if fault:e['PICO_TEST_NVS_COMMIT_FAIL']='always'
+        if tf_fault:e['PICO_TEST_WALLPAPER_WRITE_FAIL']='1'
         p=subprocess.run(a,cwd=work,env=e,capture_output=True,text=True,timeout=30)
         assert p.returncode==0,p.stderr[-1800:]
         return json.loads(p.stdout)
@@ -54,16 +55,19 @@ with tempfile.TemporaryDirectory(prefix='files-wallpaper-',dir=R/'build') as tmp
     for path in ('/sdcard/pictures/inner','/sdcard/pictures/inner/plain.txt','/sdcard/pictures/inner/bad.png','/sdcard/banner pic/banner.png'):
         parent,opened=select(path);assert not frame(parent,opened)['files_card_geometry'][2]
     # Selecting a file replaces rotation, and works from the thumbnail grid and another image root.
-    ns=out/'nvs/read_pico';ns.mkdir(parents=True,exist_ok=True);(ns/'wallpaper').write_bytes(b'/sdcard/pictures/inner/\0')
-    assert frame()['wallpaper_rotating']
+    ns=out/'nvs/read_pico';ns.mkdir(parents=True,exist_ok=True)
+    geometry=frame(view='settings-29')['settings_geometry'];step=geometry[7]
+    rotation=f't,180,{392+step+step//2},180,{392+step+step//2};t,180,{392+step//2},180,{392+step//2};t,180,283,180,283'
+    assert frame(events=rotation,view='settings-29')['wallpaper_rotating']
     parent,opened=select('/sdcard/pictures/inner/photo.JPG',grid=1)
     state=frame(parent,opened+';'+wallpaper_button(parent,opened,grid=1),grid=1)
     assert state['wallpaper_path'].endswith('photo.JPG') and not state['wallpaper_rotating']
     previous=state['wallpaper_path']
     parent,opened=select(chosen)
     apply=wallpaper_button(parent,opened)
-    state=frame(parent,opened+';'+apply,fault=True)
-    assert state['files_message']=='保存失败，请检查设置存储空间' and frame()['wallpaper_path']==previous,state
+    state=frame(parent,opened+';'+apply,tf_fault=True)
+    assert state['files_message']=='壁纸保存失败，请重试' and frame()['wallpaper_path']==previous,state
+    assert frame(parent,opened+';'+apply,fault=True)['wallpaper_path']==chosen
     # English confirmation uses the same action and durable field, without changing image bytes.
     (ns/'language').write_bytes(b'\1')
     state=frame(parent,opened+';'+apply);assert state['wallpaper_path']==chosen and state['files_message']=='Sleep wallpaper applied'

@@ -8,6 +8,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "esp_err.h"
 #define SLEEP_RESUME_PATH_MAX 288
 typedef struct { uint8_t tab; char path[SLEEP_RESUME_PATH_MAX]; } sleep_resume_target_t;
 /// 设置本次锁屏的返回目标，空路径表示主页面。/ Set the lock return target; an empty path means a main root.
@@ -20,6 +21,8 @@ bool sleep_resume_save(const uint8_t *frame,size_t bytes,unsigned rotation);
 bool sleep_resume_restore(uint8_t *front,uint8_t *back,size_t bytes,unsigned rotation,sleep_resume_target_t *target);
 /// 已验证后不再保留内存中的启动候选。/ Discard the in-memory startup candidate.
 void sleep_resume_discard(void);
+/// 显式电源动作前撤销持久恢复标记，不删除逐本进度或快照文件。/ Revoke the persisted token before explicit power actions without deleting progress or cached artwork.
+esp_err_t sleep_resume_clear(void);
 
 /// 是否存在本次开机尚未验证的快照候选。/ Whether this boot has a snapshot candidate to validate.
 bool sleep_resume_pending(void);

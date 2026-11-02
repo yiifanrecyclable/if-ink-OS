@@ -12,7 +12,9 @@ extern int simulator_route;
 static app_redraw_t preview_settings_gesture(app_ctx_t *ctx,const ui_gesture_event_t *event){
  if(s_page==SETTINGS_ONLINE_UPDATE)(void)on_tick(ctx);
  app_redraw_t result=on_gesture(ctx,event);
+ if(app_settings_take_save_error()!=ESP_OK){ui_nav_notice_show(UI_MSG("保存失败，请重试"),ctx->now_ms);result=APP_REDRAW_PAGE;}
  if(s_page==SETTINGS_ONLINE_UPDATE)(void)on_tick(ctx);
+ if(s_page==SETTINGS_WALLPAPER_PREVIEW&&(result==APP_REDRAW_PAGE||result==APP_REDRAW_FULL))render(ctx,ctx->fb);
  return result;
 }
 int simulator_settings(uint8_t *fb,int page,int scroll,const char *events){
@@ -29,6 +31,7 @@ int simulator_settings(uint8_t *fb,int page,int scroll,const char *events){
  if(s_page==SETTINGS_HOME_QUOTE)quote_preview_prepare(s_quote_px,false);
  s_year=2026;s_month=10;s_day=5;s_hour=12;s_minute=0;
  if(s_page==SETTINGS_ONLINE_UPDATE)(void)if_update_check();
+ if(s_page==SETTINGS_WALLPAPER_PREVIEW)render(&ctx,fb);
  simulator_replay(&ctx,preview_settings_gesture,on_key,events);render(&ctx,fb);
  if(ctx.request_app){extern const app_desc_t app_transfer;simulator_route=ctx.request_app==&app_transfer?5:app_index_of(ctx.request_app);}
  return s_home_quote_editor&&s_page==SETTINGS_TEXT_EDIT?23:s_page;
@@ -50,3 +53,8 @@ const char *simulator_banner_font(void){return s_banner_draft.font;}
 const char *simulator_banner_image(void){return s_banner_draft.image;}
 
 const char *simulator_banner_item(unsigned i){return i<(unsigned)s_banner_image_count?s_banner_items[i].path:"";}
+
+const char *simulator_settings_notice(void){return s_notice;}
+
+int simulator_wallpaper_count(void){return s_wallpaper_count;}
+const char *simulator_wallpaper_item(int i){return s_wallpapers&&i>=0&&i<s_wallpaper_count?s_wallpapers[i].path:"";}

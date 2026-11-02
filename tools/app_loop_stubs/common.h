@@ -46,8 +46,8 @@ read_pico_pmu_key_action_t read_pico_pmu_take_key_action(void);
 void enter_lock_and_sleep(EpdiyHighlevelState*, int64_t*, void*, bool);
 void app_lock_wait_key_idle(int);
 typedef enum { APP_SLEEP_SOFT, APP_SLEEP_OFF } app_sleep_mode_t;
-void app_enter_host_sleep(app_sleep_mode_t);
-void app_restart_host(void);
+esp_err_t app_enter_host_sleep(app_sleep_mode_t);
+esp_err_t app_restart_host(void);
 void epd_poweroff(void);
 const char* app_settings_font_path(void);
 bool app_settings_reader_power_turn(void);
@@ -75,3 +75,8 @@ static inline int pmu_battery_percent(const pmu_snapshot_t *p) { (void)p; return
 static inline bool pmu_battery_charging(const pmu_snapshot_t *p) { (void)p; return false; }
 
 esp_err_t read_pico_sd_detect(bool *present);
+
+void app_lock_set_save_confirmed(bool confirmed);
+esp_err_t app_enter_host_sleep_ex(app_sleep_mode_t mode,bool discard_unsaved);
+esp_err_t app_restart_host_ex(bool discard_unsaved);
+esp_err_t read_pico_sd_flush(void);

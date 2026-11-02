@@ -4,6 +4,23 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 未发布 / Unreleased
+
+## 0.2.0 beta r6 / 2026-11-02
+
+- 文件浏览标题栏仅左上角返回按钮退目录，标题/空白不再触发返回；图片视图切换与返回触区分离。/ Restrict file-browser Back to its upper-left button; titles/whitespace no longer navigate and image-view toggles remain separate.
+- 持续保存失败仍可锁屏浅睡；主动关机/重启提供重试、确认继续与取消。补充启动设置读取提示、电源错误阶段/错误码和受检轮播游标保存，失败提示不再猜测存储介质。/ Retain RAM in light sleep after save failures; offer retry/proceed/cancel for power actions, surface startup read errors, trace power error codes/phases and verify rotation cursor writes without guessing failed media.
+
+## 0.2.0 beta r5（本地测试） / 2026-11-02
+
+- 系统文字、休眠策略等偏好在写入、提交及独立读回确认后才应用；Banner、阅读偏好与连接配置读取失败时停止覆盖和不完整备份，保存结果未确认可重试。/ Apply preferences only after write, commit and independent readback; reject writes based on failed configuration reads and incomplete backups, allowing retries after unconfirmed saves.
+- 锁屏/关机前检查页面保存结果；PMU关机或重启交接失败会恢复可操作原页，保留TF挂载与阅读资源。一次性深睡恢复标记增加保存与消费确认。/ Check pre-lock saves; failed PMU power/restart handoffs return to the usable page with SD and reading resources intact. Confirm one-shot sleep token writes and consumption.
+
+- 增加系统文字的即时NVS回读与电源/启动诊断，记录原始错误码、RAM/持久字号、字体路径摘要及NVS条目统计，不改变字体存储策略。/ Trace typography NVS writes/readbacks and power/boot boundaries with numeric errors, RAM/durable sizes, path hashes and NVS statistics, without changing font persistence policy.
+
+- 修复存储卡管理查看图片后的返回：单击图片任意位置返回原目录，保留分页及列表/缩略图模式；不再进入旧相册或误选设置导航。/ Return image taps to their originating file directory, page and view mode instead of the legacy gallery or Settings tab.
+- TF可用时，壁纸选择及轮播记录保存在 `.readpico/settings` 的CRC双副本中，同步并读回后才确认保存；兼容旧NVS选择与配置备份。设置页使用可确认的保存接口，显示失败原因，并对齐壁纸确认按钮的显示和触区。/ Store wallpaper choices and rotation state in synchronized, read-back-verified SD CRC dual slots, retaining legacy NVS reads and backup compatibility; check Settings saves, show failures and align confirmation hit bounds.
+
 ## 0.2.0 beta r4 / 2026-11-01
 
 - 文件操作卡片改为贴合底部导航栏的无外框面板，保留向上阴影与背景淡显，重命名/复制/移动/删除横排，四等分与底部导航的中心和分界线对齐。接近屏幕比例的图片提供“设为息屏壁纸”，操作结果以系统标题字号在额头中央短暂显示，约4秒后局部刷新恢复状态栏。/ Anchor a borderless file-action card above navigation with an upward shadow, faded backdrop and one-row actions. Screen-shaped images offer Set as sleep wallpaper; title-sized status notices clear after about four seconds using only a status-strip update.
