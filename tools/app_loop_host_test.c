@@ -20,6 +20,8 @@ void ui_power_dialog_draw(uint8_t* fb) {(void)fb;}
 ui_power_action_t ui_power_dialog_handle(const ui_gesture_event_t* event) {(void)event;return UI_POWER_ACTION_NONE;}
 void ui_power_final_draw(uint8_t* fb,bool restarting) {(void)fb;(void)restarting;}
 
+static unsigned cache_invalidations;
+void book_index_cache_invalidate_all(void){++cache_invalidations;}
 static jmp_buf done;
 typedef struct { int x, y, count, error; } sample_t;
 static sample_t samples[32];
@@ -139,6 +141,7 @@ static app_redraw_t tick(app_ctx_t*c) {
     return full_tick ? APP_REDRAW_FULL : APP_REDRAW_NONE;
 }
 static void reset(void) {
+    cache_invalidations=0;
     navigation_presents=0;
     media_test=sd_font=saved_sd_font=false;media_lost=media_ready=builtin_opens=font_opens=probes=remounts=0;loss_step=-1;
     memset(mounted_steps,0,sizeof(mounted_steps));memset(present_steps,0,sizeof(present_steps));
@@ -292,7 +295,7 @@ int main(void) {
     present_steps[1]=present_steps[2]=present_steps[3]=true;
     mounted_steps[2]=mounted_steps[3]=true;
     add(0,0,0,0);add(0,0,0,0);add(0,0,0,0);add(0,0,0,0);run();
-    assert(probes>=1&&media_ready==1&&!media_lost);
+    assert(probes>=1&&media_ready==1&&!media_lost&&cache_invalidations>=1);
     // 手势和长按在拔卡边界取消，不能把旧按住状态变成新的动作。
     // Removal cancels gestures and holds without turning an old contact into another action.
     reset();media_test=true;mounted_steps[0]=true;time_step=600000;first.on_media_lost=lost;first.on_gesture=gesture;

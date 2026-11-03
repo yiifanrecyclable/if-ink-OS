@@ -12,6 +12,8 @@ static char drawn_field[1025];
 void ui_clear_page(uint8_t *fb){(void)fb;}
 void ui_nav_status(uint8_t *fb){(void)fb;}
 void ui_nav_back(uint8_t *fb,int x,int y){(void)fb;(void)x;(void)y;}
+void ui_nav_close(uint8_t *fb){(void)fb;}
+EpdRect ui_nav_close_rect(void){return(EpdRect){24,UI_PAGE_Y(73),68,68};}
 void ui_fill_round_rect(uint8_t *fb,EpdRect r,int radius,uint8_t gray){(void)fb;(void)radius;(void)gray;++drawn_buttons;if(r.y>=UI_INPUT_FOOTER_TOP)footer_bottom=r.y+r.height;assert(r.y>=0&&r.y+r.height<=1216);}
 void ui_draw_round_rect(uint8_t *fb,EpdRect r,int radius,uint8_t gray){(void)fb;(void)r;(void)radius;(void)gray;}
 void ui_text_fixed(uint8_t *fb,int x,int y,int px,const char *s,enum EpdFontFlags align,bool inverted){(void)fb;(void)align;(void)inverted;if(x==58&&y==UI_PAGE_Y(286)&&px==ui_text_effective_px(UI_TEXT_BODY)){++field_calls;snprintf(drawn_field,sizeof(drawn_field),"%s",s);}}

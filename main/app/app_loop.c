@@ -51,6 +51,7 @@
 #include "settings.h"
 #include "sleep.h"
 #include "sleep_resume.h"
+#include "book/book_index_cache.h"
 #include "ttf_font.h"
 #include "app_font_context.h"
 #include "ui_kit.h"
@@ -283,6 +284,7 @@ static bool poll_media(app_ctx_t* ctx, const app_desc_t* current,
     if (ready) { *invalidated = false; s_media_recovery_requested = false; }
     record_store_media(ready);
     if (gained) {
+        book_index_cache_invalidate_all();
         s_records_maintenance_pending=true;
         maintain_content_records();
         app_settings_wallpaper_media_ready();

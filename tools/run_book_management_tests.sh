@@ -10,7 +10,7 @@ python3 tools/test_records_capacity.py
 mkdir -p build/book-tests/settings-card
 cc -std=gnu11 -Wall -Wextra -Werror -Itools/settings_backup_stubs \
     -ffunction-sections -fdata-sections -Icomponents/read_pico_transfer/include \
-    -Imain tools/settings_backup_host_test.c main/book/reader_input.c tools/records_codec_stub.c main/ui/ui_i18n.c "${link_gc[@]}" -o build/book-tests/settings-backup
+    -Imain tools/settings_backup_host_test.c main/ui/ui_wallpaper_rotation.c main/book/reader_input.c tools/records_codec_stub.c main/ui/ui_i18n.c "${link_gc[@]}" -o build/book-tests/settings-backup
 build/book-tests/settings-backup
 cc -std=gnu11 -Wall -Wextra -Werror -Itools/settings_backup_stubs \
     tools/book_history_backup_host_test.c main/book/content_library.c tools/progress_codec_stub.c tools/records_codec_stub.c -Imain/book -o build/book-tests/book-history-backup

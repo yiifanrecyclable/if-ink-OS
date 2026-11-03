@@ -360,6 +360,8 @@ int main(int argc, char **argv) {
     extern const char *simulator_settings_notice(void);printf(",\"settings_notice\":");json_string(simulator_settings_notice());
     printf(",\"settings_geometry\":[");for(int i=0;i<14;++i){if(i)printf(",");printf("%d",simulator_settings_geometry(i));}printf("]");
     printf(",\"document_page_first\":");json_string(simulator_document_page_first());
+    extern int simulator_wallpaper_picker_state(int);extern const char *simulator_wallpaper_picker_dir(void);
+    printf(",\"wallpaper_picker\":[");for(int i=0;i<9;i++){if(i)printf(",");printf("%d",simulator_wallpaper_picker_state(i));}printf("],\"wallpaper_directory\":");json_string(simulator_wallpaper_picker_dir());
     printf(",\"wallpaper_rotating\":%s,\"wallpaper_path\":",app_settings_wallpaper_rotating()?"true":"false");json_string(app_settings_wallpaper_path());
     printf(",\"wallpaper_last\":");json_string(app_settings_wallpaper_last());
     extern int simulator_wallpaper_count(void);extern const char *simulator_wallpaper_item(int);

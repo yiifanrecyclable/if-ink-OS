@@ -16,14 +16,14 @@ python tools/test_zip_reader.py
 python tools/test_book_epub.py
 
 flags=(-std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-omit-frame-pointer)
-includes=(-Itools/book_epub_stubs -Itools/zip_host_stubs -Imain/book)
+includes=(-Itools/book_epub_stubs -Itools/zip_host_stubs -Imain/book -Icomponents/md4c)
 cc "${flags[@]}" -Itools/html_text_stubs -Imain/book tools/html_text_host_test.c main/book/html_text.c -o build/book-tests/epub-html
 build/book-tests/epub-html
 
 # 同时链接 TXT 与 EPUB，防止分派变更破坏旧书源。
 # Link TXT and EPUB together so dispatch changes retain the existing source behavior.
 cc "${flags[@]}" "${includes[@]}" tools/book_source_host_test.c \
-    main/book/book_source.c main/book/book_txt.c main/book/gbk.c \
+    main/book/book_source.c main/book/book_markdown.c main/book/markdown_text.c components/md4c/md4c.c main/book/book_txt.c main/book/gbk.c \
     main/book/book_epub.c main/book/book_index_cache.c main/book/zip_reader.c main/book/html_text.c \
     -lz -o build/book-tests/epub-source
 shopt -s nullglob

@@ -45,6 +45,7 @@ idf_component_register(
         "sleep_resume.c"
         "bundled_assets.c"
         "settings.c"
+        "file_references.c"
         "wallpaper_preferences.c"
         "time_service.c"
         "operation_log.c"

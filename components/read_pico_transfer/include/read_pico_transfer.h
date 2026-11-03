@@ -50,6 +50,8 @@ typedef struct {
     esp_err_t (*file_moved_cb)(const char *old_path, const char *new_path, uint32_t size); ///< 网页重命名后的进度与字体路径迁移 / Migrate progress and font selection after rename
     void (*directory_deleted_cb)(const char *path); ///< 删除目录后清理目录设置 / Clear directory settings after deletion
     void (*directory_moved_cb)(const char *old_path, const char *new_path); ///< 重命名目录后更新目录设置 / Update directory settings after rename
+    esp_err_t (*file_edit_begin_cb)(const char *source,const char *target,bool *done); ///< 先保存全部设置引用；done表示重试已完成 / Persist references first; done marks an already-completed retry
+    esp_err_t (*file_edit_end_cb)(void); ///< 文件操作后修复全部引用，失败可重试 / Repair all references after the edit, retryable on failure
     read_pico_transfer_editor_fn editor_cb; ///< UI任务执行网页草稿 / UI task handles web drafts
     bool (*path_write_allowed_cb)(const char *path); ///< 拒绝修改正在使用的Banner资源 / Protect selected banner resources
     bool (*wallpaper_set_cb)(const char *path); ///< 图片上传完成后设为锁屏壁纸 / Select an uploaded image as lock wallpaper

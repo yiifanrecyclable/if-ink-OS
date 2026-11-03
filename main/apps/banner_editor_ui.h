@@ -156,7 +156,7 @@ static void banner_picker_draw(uint8_t *fb){
 static app_redraw_t banner_picker_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev){
     if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
     int nav=ui_nav_hit(ev->x0,ev->y0);if(nav>=0){ui_nav_request(ctx,nav);return APP_REDRAW_NONE;}
-    if(ev->y0<180){s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;}
+    if(settings_close_hit(ev)){s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;}
     if(ev->y0>=200&&ev->y0<280){content_banner_config_t next=s_banner_draft;next.mode=0;if(banner_preview_apply(&next,false))s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;}
     if(ev->y0>=286&&ev->y0<348&&ev->x0>=470){
         char *slash=strrchr(s_banner_directory,'/');if(slash&&slash>s_banner_directory+7)*slash=0;else ui_snprintf(s_banner_directory,sizeof(s_banner_directory),"/sdcard");

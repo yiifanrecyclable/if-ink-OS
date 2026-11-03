@@ -152,6 +152,8 @@ static int resolve_mutation_path(const char *root, const char *name,
 
 // 网页只接受 TF 卡内相对路径；每段单独检查，不能通过编码后的斜杠绕出根目录。
 // Accept only TF-relative paths; validate every segment after URL decoding.
+// 点号开头的目录/文件由系统或电脑维护，网页既不列出，也不允许绕过列表直接操作。
+// Dot-prefixed components stay hidden and are inaccessible through direct browser requests.
 static bool sd_relative_valid(const char *relative, bool allow_root) {
     size_t length = strlen(relative);
     if (!length) return allow_root;
@@ -164,8 +166,7 @@ static bool sd_relative_valid(const char *relative, bool allow_root) {
             continue;
         }
         size_t n = (size_t)(p - segment);
-        if (!n || n > 240 || (n == 1 && segment[0] == '.') ||
-            (n == 2 && segment[0] == '.' && segment[1] == '.') ||
+        if (!n || n > 240 || segment[0] == '.' ||
             segment[0] == ' ' || segment[n - 1] == ' ' || segment[n - 1] == '.') return false;
         if (!ch) return true;
         segment = p + 1;
@@ -1518,7 +1519,7 @@ static esp_err_t files_list_handler(httpd_req_t *req) {
         rewinddir(dir);
         struct dirent *entry;
         while ((entry = readdir(dir))) {
-            if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+            if (entry->d_name[0] == '.') continue;
             size_t len = strlen(entry->d_name);
             if (!len || len >= sizeof(items[0].name)) continue;
             char child[512];
@@ -1774,7 +1775,16 @@ static esp_err_t files_mutation_handler(httpd_req_t *req) {
     bool may_have_changed = false;
     struct stat st;
     bool source_exists = stat(source, &st) == 0;
-    if (!strcmp(action->valuestring, "delete") && from->valuestring[0] && source_exists) {
+    bool edit_refs=!strcmp(action->valuestring,"delete")||!strcmp(action->valuestring,"rename");
+    bool edit_done=false,edit_began=false;
+    esp_err_t ref_error=ESP_OK;
+    if(edit_refs&&s_cfg.file_edit_begin_cb){
+        ref_error=s_cfg.file_edit_begin_cb(source,has_target?target:NULL,&edit_done);
+        edit_began=ref_error==ESP_OK;
+    }
+    if(ref_error!=ESP_OK)status=ref_error==ESP_ERR_NOT_FOUND?404:500;
+    else if(edit_done)status=200;
+    else if (!strcmp(action->valuestring, "delete") && from->valuestring[0] && source_exists) {
         unsigned nodes = 0; uint64_t bytes = 0;
         status = inspect_sd_tree(source, 0, &nodes, &bytes);
         if (status == 200) {
@@ -1815,6 +1825,7 @@ static esp_err_t files_mutation_handler(httpd_req_t *req) {
             }
         }
     } else if (!source_exists) status = 404;
+    if(edit_began&&s_cfg.file_edit_end_cb&&s_cfg.file_edit_end_cb()!=ESP_OK)s_file_metadata_failed=true;
     if (status == 200 || may_have_changed) {
         portENTER_CRITICAL(&s_lock);
         s_status.changed_count++;
@@ -1825,6 +1836,7 @@ static esp_err_t files_mutation_handler(httpd_req_t *req) {
     portEXIT_CRITICAL(&s_lock);
     set_error(ESP_OK);
     cJSON_Delete(json);
+    if(ref_error!=ESP_OK&&ref_error!=ESP_ERR_NOT_FOUND)return files_error(req,"500 Internal Server Error","{\"error\":\"关联设置处理失败，请重试；本次未修改文件\"}");
     if(s_file_metadata_failed)return files_error(req,"500 Internal Server Error","{\"error\":\"文件已变更，但关联设置或阅读记录未保存，请检查\"}");
     if (status == 200) return files_error(req, "200 OK", "{\"ok\":true}");
     if (status == 404) return files_error(req, "404 Not Found", "{\"error\":\"文件或目录不存在\"}");

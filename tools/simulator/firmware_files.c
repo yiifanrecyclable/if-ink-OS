@@ -31,7 +31,11 @@ int simulator_files_card_geometry(int part){
 }
 const char *simulator_files_item(int row){return row>=0&&row<s_count?s_files[row].path:"";}
 const char *simulator_files_note(int row){const char *v=row>=0&&row<s_count?root_note(s_files[row].path):NULL;return v?v:"";}
-int simulator_files_item_image_folder(int row){return row>=0&&row<s_count&&s_files[row].is_dir&&image_tree(s_files[row].path)>=0;}
+int simulator_files_item_image_folder(int row){
+ if(row<0||row>=s_count||!s_files[row].is_dir)return 0;
+ if(grid_active()){int slot=row-s_page*visible_rows();return slot>=0&&slot<9&&s_thumbs[slot].image_folder;}
+ return image_tree(s_files[row].path)>=0;
+}
 int simulator_files_thumb_ready(int row){return row>=0&&row<9&&s_thumbs[row].pixels!=NULL;}
 
 void simulator_files(uint8_t *fb,int view,int folder,const char *dir,const char *events){
@@ -71,3 +75,7 @@ void simulator_files(uint8_t *fb,int view,int folder,const char *dir,const char 
  if(ctx.request_app)simulator_route=app_index_of(ctx.request_app);
  simulator_files_view=s_view;simulator_files_folder=s_folder;snprintf(simulator_files_dir,sizeof(simulator_files_dir),"%s",s_dir);
 }
+
+int simulator_wallpaper_picker_state(int part){const int values[]={s_picker,s_picker_rotation,s_picker_grid,s_view==FILE_VIEW_WALLPAPER_PREVIEW,s_picker_eligible,s_page,s_count,visible_rows(),file_pager_top()};return part<9?values[part]:0;}
+int simulator_wallpaper_picker_hit(int part){EpdRect r=part==0?picker_exit_rect():part==1?picker_up_rect():part==2?grid_toggle_rect():picker_button_rect();return r.x;}
+const char *simulator_wallpaper_picker_dir(void){return s_dir;}

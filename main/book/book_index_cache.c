@@ -1,16 +1,42 @@
 /*
  * SPDX-FileCopyrightText: 2026 mindreset
  * SPDX-License-Identifier: Apache-2.0
- * 中文：按路径、大小与修改时间失效的图书索引缓存。
- * English: Book index cache invalidated by path, size and modification time.
+ * 中文：按路径、大小、修改时间与媒体会话失效的图书索引缓存。
+ * English: Book index cache invalidated by path, size, mtime and media session.
  */
 #include "book_index_cache.h"
 
 #include <errno.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <stdatomic.h>
+#ifdef ESP_PLATFORM
+#include "esp_random.h"
+#else
+#include <time.h>
+#include <unistd.h>
+#endif
 
-#define CACHE_MAGIC UINT32_C(0x52494331)
+#define CACHE_MAGIC UINT32_C(0x52494332)
+static _Atomic uint32_t s_epoch;
+uint32_t book_index_cache_epoch(void){
+    uint32_t value=atomic_load(&s_epoch);
+    if(!value){
+#ifdef ESP_PLATFORM
+        uint32_t seed=esp_random();
+#else
+        struct timespec now={0};clock_gettime(CLOCK_REALTIME,&now);
+        uint32_t seed=(uint32_t)now.tv_nsec^(uint32_t)now.tv_sec^(uint32_t)getpid();
+#endif
+        if(!seed)seed=1;
+        uint32_t empty=0;atomic_compare_exchange_strong(&s_epoch,&empty,seed);
+        value=atomic_load(&s_epoch);
+    }
+    return value;
+}
+void book_index_cache_invalidate_all(void){
+    (void)book_index_cache_epoch();atomic_fetch_add(&s_epoch,1);
+}
 
 static uint64_t cache_hash(const char* source, const char* tag) {
     uint64_t hash = UINT64_C(14695981039346656037);
@@ -32,6 +58,7 @@ bool book_index_cache_prepare(const char* source, const char* tag, uint32_t vers
     *header = (book_index_cache_header_t){
         .magic = CACHE_MAGIC, .version = version, .source_size = (uint32_t)st.st_size,
         .modified = (int64_t)st.st_mtime, .path_hash = hash,
+        .media_epoch = book_index_cache_epoch(),
     };
     int n = snprintf(path, cap, "/sdcard/.readpico/index/%016llx-%s.bin",
                      (unsigned long long)hash, tag);
@@ -46,7 +73,8 @@ FILE* book_index_cache_open_read(const char* path, const book_index_cache_header
     bool ok = fread(&found, 1, sizeof(found), file) == sizeof(found) &&
         found.magic == expected->magic && found.version == expected->version &&
         found.source_size == expected->source_size && found.modified == expected->modified &&
-        found.path_hash == expected->path_hash;
+        found.path_hash == expected->path_hash && found.media_epoch == expected->media_epoch &&
+        expected->media_epoch == book_index_cache_epoch();
     if (!ok) { fclose(file); return NULL; }
     return file;
 }

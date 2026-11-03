@@ -148,12 +148,28 @@ bool ui_wallpaper_draw_rounded(uint8_t *fb, const char *path, EpdRect area, int 
     return draw_image(fb, path, area, radius);
 }
 
-typedef struct {uint8_t *fb;EpdRect area;} wallpaper_draw_context_t;
-static bool rotation_draw(const char *path,void *context){wallpaper_draw_context_t *draw=context;return ui_wallpaper_draw(draw->fb,path,draw->area);}
-bool ui_wallpaper_check_directory(uint8_t *fb,const char *directory){
-    wallpaper_draw_context_t draw={fb,{0,0,8,8}};char selected[288];
-    return wallpaper_rotation_pick(directory,NULL,0,rotation_draw,&draw,selected,sizeof(selected));
+bool ui_wallpaper_probe_image(const char *path,bool screen_ratio){
+    if(!wallpaper_card_path_valid(path))return false;
+    const char *ext=strrchr(path,'.');bool png=ext&&!strcasecmp(ext,".png");
+    if(!ext||(!png&&strcasecmp(ext,".jpg")&&strcasecmp(ext,".jpeg")))return false;
+    struct stat st;if(stat(path,&st)||!S_ISREG(st.st_mode)||st.st_size<=0||st.st_size>2*1024*1024)return false;
+    uint8_t *data=heap_caps_malloc((size_t)st.st_size,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);if(!data)return false;
+    FILE *f=fopen(path,"rb");if(!f){free(data);return false;}
+    bool ok=fread(data,1,(size_t)st.st_size,f)==(size_t)st.st_size&&!ferror(f);if(fclose(f))ok=false;
+    unsigned w=0,h=0;ok=ok&&book_image_dimensions(data,(size_t)st.st_size,png,&w,&h)&&w&&h&&(uint64_t)w*h<=8u*1024u*1024u;
+    if(ok&&screen_ratio){int64_t actual=(int64_t)w*UI_LOCK_HEIGHT,expected=(int64_t)h*UI_LOCK_WIDTH;ok=llabs(actual-expected)*100<=expected*5;}
+    uint8_t test[64];if(ok)ok=book_image_grayscale(data,(size_t)st.st_size,png,8,8,test);
+    free(data);return ok;
 }
+bool ui_wallpaper_eligible(const char *path){return ui_wallpaper_probe_image(path,true);}
+typedef struct {uint8_t *fb;EpdRect area;} wallpaper_draw_context_t;
+static bool rotation_draw(const char *path,void *context){wallpaper_draw_context_t *draw=context;return ui_wallpaper_eligible(path)&&ui_wallpaper_draw(draw->fb,path,draw->area);}
+static bool rotation_check(const char *path,void *context){(void)context;return ui_wallpaper_eligible(path);}
+wallpaper_rotation_status_t ui_wallpaper_check_subtree(const char *directory){
+    char selected[288];wallpaper_rotation_status_t status;
+    wallpaper_rotation_pick_checked(directory,NULL,0,rotation_check,NULL,selected,sizeof(selected),&status);return status;
+}
+bool ui_wallpaper_check_directory(uint8_t *fb,const char *directory){(void)fb;return ui_wallpaper_check_subtree(directory)==WALLPAPER_ROTATION_OK;}
 bool ui_wallpaper_draw_lock(uint8_t *fb){
     EpdRect area={0,0,UI_LOCK_WIDTH,UI_LOCK_HEIGHT};
     if(!app_settings_wallpaper_rotating()){
@@ -164,5 +180,6 @@ bool ui_wallpaper_draw_lock(uint8_t *fb){
     wallpaper_draw_context_t draw={fb,area};char selected[288];
     bool ok=wallpaper_rotation_pick(app_settings_wallpaper_path(),app_settings_wallpaper_last(),esp_random(),rotation_draw,&draw,selected,sizeof(selected));
     if(ok)app_settings_note_wallpaper(selected);
+    else ok=ui_wallpaper_draw(fb,"/sdcard/pictures/默认壁纸.png",area);
     return ok;
 }

@@ -20,6 +20,11 @@ jobs:
           python3 tools/test_settings_validation.py
           python3 tools/test_power_handoff.py
           python3 tools/test_sleep_save_failure.py
+          python3 tools/test_sleep_wake_sources.py
+          python3 tools/test_sd_media_guard.py
+          python3 tools/test_ui_bitmap.py
+          python3 tools/test_foundation_hardening.py
+          python3 tools/test_file_reference_http.py
 
   build:
     runs-on: ubuntu-latest

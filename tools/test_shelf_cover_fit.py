@@ -45,8 +45,11 @@ with tempfile.TemporaryDirectory(prefix='shelf-fit-',dir=R/'build') as tmp:
     assert geometries[0][7]>geometries[1][7]>geometries[2][7]
     assert tracks[0][1]==geometries[0][1]+geometries[0][7]+8
     cache=card/'.readpico/covers';fitted=list(cache.glob('*-fit2.bin'));assert len(fitted)==4
-    before={p.name:(p.stat().st_mtime_ns,p.read_bytes()) for p in fitted};frame()
-    assert before=={p.name:(p.stat().st_mtime_ns,p.read_bytes()) for p in fitted}
+    # Each renderer is a cold boot: only the epoch/header changes; rendered payload stays deterministic.
+    def payload(p):
+        raw=p.read_bytes();w,h=struct.unpack_from("=II",raw,12);return (w,h,raw[-w*h:])
+    before={p.name:payload(p) for p in fitted};frame()
+    assert before=={p.name:payload(p) for p in fitted}
     # 首页使用同一个完整比例缓存，覆盖三种比例及无封面书。/ Home shares full-cover caches across portrait, square, landscape and coverless books.
     for name,(source_w,source_h) in sizes.items():
         frame('book-1','/sdcard/books/'+name)
@@ -58,7 +61,7 @@ with tempfile.TemporaryDirectory(prefix='shelf-fit-',dir=R/'build') as tmp:
         assert tone(pixels,x+2,y)==15 and tone(pixels,x+7,y)==0
         assert tone(pixels,x+w//2,y+h//2)<15
     assert not [p for p in cache.glob('*.bin') if not p.name.endswith('-fit2.bin')]
-    assert before=={p.name:(p.stat().st_mtime_ns,p.read_bytes()) for p in fitted}
+    assert before=={p.name:payload(p) for p in fitted}
     # 大字模式仍使用两列并限制封面不超出单元格。/ Large type retains two columns and bounded covers.
     nvs=out/'nvs/read_pico';nvs.mkdir(parents=True,exist_ok=True);(nvs/'sys_size').write_bytes(bytes([140]))
     for scale in (140,160):
@@ -77,4 +80,4 @@ with tempfile.TemporaryDirectory(prefix='shelf-fit-',dir=R/'build') as tmp:
         assert grid[2][5]+grid[2][7]//2==grid[3][5]+grid[3][7]//2
         assert grid[0][12]==grid[1][12]==grid[2][12]==grid[3][12]
 
-print('shelf covers: portrait/square/landscape aspect ratios, bounded cached pixels, repeat cache hits, vertically centered covers, uniform caption/progress columns, 7px corners, shared full-aspect Home covers and 3x3/2x2 geometry passed')
+print('shelf covers: portrait/square/landscape aspect ratios, bounded cached pixels, cold-session regeneration, vertically centered covers, uniform caption/progress columns, 7px corners, shared full-aspect Home covers and 3x3/2x2 geometry passed')

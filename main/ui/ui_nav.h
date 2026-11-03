@@ -36,5 +36,10 @@ void ui_nav_draw_pager(uint8_t *fb,int count,const char *unit,int page,int pages
 void ui_nav_wifi_icon(uint8_t *fb, int cx, int cy, int size, uint8_t gray);
 /// 二级页面共用的圆形返回按钮。/ Shared circular back control for secondary pages.
 void ui_nav_back(uint8_t *fb, int x, int y);
+/// 设置子页共用的无圈退出按钮及紧凑触区；目录上级箭头使用相同3px圆头笔画。
+/// Borderless Settings close control with a bounded hit box; parent arrows share its 3px round stroke.
+EpdRect ui_nav_close_rect(void);
+void ui_nav_close(uint8_t *fb);
+void ui_nav_parent(uint8_t *fb,EpdRect rect,bool enabled);
 int ui_nav_hit(uint16_t x, uint16_t y);
 void ui_nav_request(app_ctx_t *ctx, int index);

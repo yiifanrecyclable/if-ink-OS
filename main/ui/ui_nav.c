@@ -28,6 +28,31 @@
 
 EpdRect ui_nav_rect(void) { return (EpdRect){0,UI_NAV_TOP,UI_LOCK_WIDTH,UI_NAV_HEIGHT}; }
 
+EpdRect ui_nav_close_rect(void){return(EpdRect){24,UI_PAGE_Y(73),68,68};}
+static void header_stroke(uint8_t *fb,int x0,int y0,int x1,int y1,uint8_t gray){
+    int vx=x1-x0,vy=y1-y0,len=vx*vx+vy*vy;
+    int left=(x0<x1?x0:x1)-2,right=(x0>x1?x0:x1)+2;
+    int top=(y0<y1?y0:y1)-2,bottom=(y0>y1?y0:y1)+2;
+    for(int y=top;y<=bottom;y++)for(int x=left;x<=right;x++){
+        float t=len?(float)((x-x0)*vx+(y-y0)*vy)/len:0;
+        if(t<0)t=0;
+        if(t>1)t=1;
+        float dx=x-x0-t*vx,dy=y-y0-t*vy;
+        if(dx*dx+dy*dy<=2.25f)epd_draw_pixel(x,y,gray,fb);
+    }
+}
+void ui_nav_close(uint8_t *fb){
+    EpdRect r=ui_nav_close_rect();int x=r.x+r.width/2,y=r.y+r.height/2;
+    header_stroke(fb,x-10,y-10,x+10,y+10,UI_GRAY_BLACK);
+    header_stroke(fb,x-10,y+10,x+10,y-10,UI_GRAY_BLACK);
+}
+void ui_nav_parent(uint8_t *fb,EpdRect r,bool enabled){
+    int x=r.x+r.width/2,y=r.y+r.height/2;uint8_t gray=enabled?UI_GRAY_BLACK:0xb0;
+    header_stroke(fb,x-13,y,x+13,y,gray);
+    header_stroke(fb,x-13,y,x-3,y-10,gray);
+    header_stroke(fb,x-13,y,x-3,y+10,gray);
+}
+
 void ui_nav_back(uint8_t *fb, int x, int y) {
     // 参考系统题头缩小返回键，中心仍保持在 y=113。/ Match the smaller reference back control while retaining the title centerline.
     ui_fill_round_rect(fb, (EpdRect){x, y + 13, 44, 44}, 22, UI_GRAY_WHITE);

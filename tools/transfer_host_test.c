@@ -77,6 +77,14 @@ static void test_directory_upload(void) {
     for (const char **p = (const char *[]){"%2E%2E/x", "books/../x", "%2Fetc/x", "books/%00x", "x%5Cy", "x/", "books//x", "x%3Ay", NULL}; *p; ++p)
         assert(!sd_decode_relative(*p, relative, false));
     assert(sd_decode_relative("", relative, true) && !sd_decode_relative("", relative, false));
+    for(const char **p=(const char*[]){".readpico",".readpico/settings/wallpaper.a","pictures/.cache/a.png","books/%2ehidden/a.txt","%2ETrashes","._metadata",NULL};*p;++p)
+        assert(!sd_decode_relative(*p,relative,true));
+    assert(!sd_relative_valid("books/.private/readme.txt",false));
+    assert(!sd_relative_valid("pictures/.hidden",false));
+    assert(sd_decode_relative("diagnostics/ifink-settings.csv",relative,false));
+    assert(sd_decode_relative("pictures/photo.v2.png",relative,false));
+    assert(if_fixed_relative("books")&&if_fixed_relative("fonts")&&if_fixed_relative("pictures")&&if_fixed_relative("banner pic")&&if_fixed_relative("markdown"));
+    assert(!if_fixed_relative("pictures/album"));
     snprintf(target, sizeof(target), "%s/books", root); assert(!mkdir(target, 0700));
     remaining = 53;
     file_result_t r = upload_directory_file(root, "books/资料 %+#.bin", 53, 53, false, buf, sizeof(buf), receive, NULL, NULL, change_callback);
@@ -103,8 +111,11 @@ static void test_directory_upload(void) {
     assert(r.status == 507 && !r.changed);
     r = upload_directory_file(root, "books", 9, 100, false, buf, sizeof(buf), receive, NULL, NULL, NULL);
     assert(r.status == 400 && !r.changed);
-    // 无扩展名、点开头及零字节文件都可以上传。/ Extensionless, dot-prefixed and empty files are accepted.
-    for (const char **p = (const char *[]){"README", ".env", "Pico-update.bin", NULL}; *p; ++p) {
+    // 普通无扩展名和零字节文件仍可上传；隐藏路径不通过网页开放。
+    // Ordinary extensionless/empty files remain supported; hidden paths are not exposed to the browser.
+    r=upload_directory_file(root,".env",0,0,false,buf,sizeof(buf),receive,NULL,NULL,NULL);
+    assert(r.status==400&&!r.changed);
+    for (const char **p = (const char *[]){"README", "Pico-update.bin", NULL}; *p; ++p) {
         r = upload_directory_file(root, *p, 0, 0, false, buf, sizeof(buf), receive, NULL, NULL, change_callback);
         assert(r.status == 200 && r.changed && !cleanup_calls);
         snprintf(target, sizeof(target), "%s/%s", root, *p);

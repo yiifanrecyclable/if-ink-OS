@@ -43,7 +43,9 @@
 #include "read_pico_transfer.h"
 #include "read_pico_sd.h"
 #include "settings.h"
+#include "file_references.h"
 #include "ttf_font.h"
+#include "app_font_context.h"
 #include "ui_gesture.h"
 #include "ui_kit.h"
 #include "ui_text_input.h"
@@ -108,9 +110,6 @@ static void transfer_directory_moved(const char *old_path, const char *new_path)
 
 static esp_err_t transfer_file_deleted(const char *path){
     if(transfer_book_file(path)){esp_err_t err=book_progress_forget(path);if(err!=ESP_OK)return err;(void)book_title_clear(path);}
-    if(!strcmp(app_settings_system_font_path(),path))return app_settings_set_system_font_path("");
-    if(!strcmp(app_settings_font_path(),path))return app_settings_set_font_path("");
-    if(!strcmp(app_settings_wallpaper_path(),path))return app_settings_set_wallpaper_path("");
     return ESP_OK;
 }
 static esp_err_t transfer_file_moved(const char *old_path,const char *new_path,uint32_t size){
@@ -122,9 +121,6 @@ static esp_err_t transfer_file_moved(const char *old_path,const char *new_path,u
         if(was_last){err=book_progress_set_last_path(new_path);if(err!=ESP_OK)return err;}
         (void)book_title_clear(old_path);
     }
-    if(!strcmp(app_settings_system_font_path(),old_path))return app_settings_set_system_font_path(new_path);
-    if(!strcmp(app_settings_font_path(),old_path))return app_settings_set_font_path(new_path);
-    if(!strcmp(app_settings_wallpaper_path(),old_path))return app_settings_set_wallpaper_path(new_path);
     return ESP_OK;
 }
 
@@ -186,7 +182,7 @@ static bool stop_upload_if_idle(void);
 
 static void transfer_header(uint8_t *fb, const char *title, const char *subtitle) {
     ui_nav_status(fb);
-    ui_nav_back(fb, 36,UI_PAGE_Y(79));
+    if(s_wifi_settings_only)ui_nav_close(fb);else ui_nav_back(fb,36,UI_PAGE_Y(79));
     ui_text_vc(fb, 342,UI_PAGE_Y(107), 34, title, EPD_DRAW_ALIGN_CENTER, false);
     if (subtitle && subtitle[0]) ui_text(fb, 36,UI_PAGE_Y(153), 20, subtitle, EPD_DRAW_ALIGN_LEFT, false);
     if (subtitle && subtitle[0]) ui_hairline(fb,UI_PAGE_Y(190), 36, 612, UI_GRAY_LIGHT);
@@ -863,7 +859,7 @@ static void transfer_on_exit(app_ctx_t* ctx) {
     s_usb_entry = false;
     s_direct_entry = false;
     display_set_bulk_io(false);
-    if (s_any_changed) book_store_notify_changed();
+    if (s_any_changed){book_store_notify_changed();app_font_activate_system();}
     ESP_LOGI(TAG, "leave keep_sta=%d heap before=%u after=%u internal_before=%u internal_after=%u",
              keep_sta,
              (unsigned)s_heap_before, (unsigned)heap_caps_get_free_size(MALLOC_CAP_8BIT),
@@ -908,6 +904,7 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
                 .file_moved_cb = transfer_file_moved,
                 .directory_deleted_cb = transfer_directory_deleted,
                 .directory_moved_cb = transfer_directory_moved,
+                .file_edit_begin_cb = file_references_begin, .file_edit_end_cb = file_references_finish,
                 .wallpaper_set_cb = NULL,
                 .editor_cb = transfer_appearance_dispatch, .path_write_allowed_cb = transfer_appearance_path_writable,
                 .title_get_cb = NULL, .title_set_cb = NULL};
@@ -1028,7 +1025,9 @@ static app_redraw_t on_gesture(app_ctx_t* ctx, const ui_gesture_event_t* ev) {
             return APP_REDRAW_NONE;
         }
     }
-    if (ev->type == UI_GESTURE_TAP && ev->y0 < UI_PAGE_Y(160) && ev->x0 < 120) {
+    if (ev->type == UI_GESTURE_TAP && (s_wifi_settings_only ?
+        ui_rect_hit(ui_nav_close_rect(),ev->x0,ev->y0)&&ui_rect_hit(ui_nav_close_rect(),ev->x,ev->y) :
+        ev->y0 < UI_PAGE_Y(160) && ev->x0 < 120)) {
         if (s_usb_entry || usb_storage_active()) return stop_usb_for_navigation(ctx, false);
         if (s_view == TRANSFER_PASSWORD) { clear_password(); s_view = TRANSFER_NETWORKS; return APP_REDRAW_PAGE; }
         if (s_view == TRANSFER_NETWORKS) {

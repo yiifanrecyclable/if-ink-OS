@@ -139,12 +139,14 @@ with tempfile.TemporaryDirectory(prefix='apps-beads-',dir=ROOT/'build') as tmp:
         assert state['screen']=='image-view' and state['image_path']=='/sdcard/pictures/preview-test/alpha.png',state
         first_frame=(out/'frame.bin').read_bytes()
         state=gesture(640,500)
+        assert state['screen']=='files-card' and state['files_dir']=='/sdcard/pictures/preview-test',state
+        # 图片任意点按返回原目录；从第二行重新进入的是第二张图片。
+        # Any image tap returns to its originating directory; the second row opens the second image.
+        state=gesture(180,330)
         assert state['screen']=='image-view' and state['image_path']=='/sdcard/pictures/preview-test/beta.png',state
         assert (out/'frame.bin').read_bytes()!=first_frame
-        # 连续重放要从最初选中的路径开始，否则会重复跳图。/ Replays must start at the entry path, not advance twice from the current image.
         state=gesture(40,500)
-        assert state['image_path']=='/sdcard/pictures/preview-test/alpha.png'
-        assert (out/'frame.bin').read_bytes()==first_frame
+        assert state['screen']=='files-card' and state['files_dir']=='/sdcard/pictures/preview-test',state
     finally:
         if previous is None:os.environ.pop('PICO_SIM_CARD_ROOT',None)
         else:os.environ['PICO_SIM_CARD_ROOT']=previous

@@ -15,6 +15,7 @@
 #include "read_pico_sd.h"
 #include "esp_vfs_fat.h"
 
+void book_index_cache_invalidate_all(void){}
 static bool sd_mounted;
 static bool sd_invalid_present;
 static int mount_calls, mount_error, mkdir_error, is_directory = 1, fat_error;

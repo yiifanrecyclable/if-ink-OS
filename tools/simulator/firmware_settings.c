@@ -7,6 +7,9 @@ static int preview_settimeofday(const struct timeval *t,const void *zone){(void)
 #define settimeofday preview_settimeofday
 #define app_device_settings simulator_descriptor_settings
 #include "../../main/apps/app_device_settings.c"
+static void preview_wallpaper_tick(app_ctx_t *ctx){if(wallpaper_picker_page()||ui_nav_notice_text()[0])(void)on_tick(ctx);}
+#define SIM_REPLAY_RAW(ctx,type,x,y) do {if((type)=='n')(ctx)->now_ms+=(x);} while(0)
+#define SIM_REPLAY_TICK(ctx) preview_wallpaper_tick(ctx)
 #include "replay.h"
 extern int simulator_route;
 static app_redraw_t preview_settings_gesture(app_ctx_t *ctx,const ui_gesture_event_t *event){
@@ -24,8 +27,9 @@ int simulator_settings(uint8_t *fb,int page,int scroll,const char *events){
  app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);if(quote)home_quote_editor_open();
  if(page==SETTINGS_BANNER_IMAGE||page==SETTINGS_BANNER_BROWSER)banner_picker_open();
  if(page==SETTINGS_SYSTEM_FONT||page==SETTINGS_QUOTE_FONT)ttf_font_scan();
- if(page==SETTINGS_WALLPAPER_FIXED||page==SETTINGS_WALLPAPER_PREVIEW){wallpaper_scan();s_wallpaper_selected=s_wallpaper_count?0:-1;}
- if(page==SETTINGS_WALLPAPER_FOLDER)wallpaper_folder_open();
+ if(page==SETTINGS_WALLPAPER_PREVIEW)page=SETTINGS_WALLPAPER_FIXED;
+ if(page==SETTINGS_WALLPAPER_FIXED||page==SETTINGS_WALLPAPER_FOLDER)wallpaper_picker_open(&ctx,page==SETTINGS_WALLPAPER_FOLDER);
+
  if(page==SETTINGS_TEXT_EDIT)profile_editor_open(true);
  s_page=quote?SETTINGS_TEXT_EDIT:(page==SETTINGS_RETIRED_4||page==SETTINGS_RETIRED_7||page==SETTINGS_RETIRED_15||page==SETTINGS_RETIRED_16||page==SETTINGS_RETIRED_17||page==SETTINGS_RETIRED_18)?SETTINGS_MAIN:(settings_page_t)page;s_main_scroll=scroll;
  if(s_page==SETTINGS_HOME_QUOTE)quote_preview_prepare(s_quote_px,false);
@@ -56,5 +60,6 @@ const char *simulator_banner_item(unsigned i){return i<(unsigned)s_banner_image_
 
 const char *simulator_settings_notice(void){return s_notice;}
 
-int simulator_wallpaper_count(void){return s_wallpaper_count;}
-const char *simulator_wallpaper_item(int i){return s_wallpapers&&i>=0&&i<s_wallpaper_count?s_wallpapers[i].path:"";}
+extern int simulator_files_count(void);extern const char *simulator_files_item(int);
+int simulator_wallpaper_count(void){return wallpaper_picker_page()?simulator_files_count():0;}
+const char *simulator_wallpaper_item(int i){return wallpaper_picker_page()?simulator_files_item(i):"";}

@@ -17,7 +17,13 @@ typedef struct {
     uint32_t source_size;
     int64_t modified;
     uint64_t path_hash;
+    uint32_t media_epoch;
 } book_index_cache_header_t;
+
+/// 外部介质交接/文件提交后使所有旧索引失效；不读正文、不枚举书库。
+/// Retire cached identities after media handoff or file commits; no body reads or library scans.
+void book_index_cache_invalidate_all(void);
+uint32_t book_index_cache_epoch(void);
 
 /// 仅为 /sdcard 下的普通文件生成缓存键。/ Build a cache key only for regular files under /sdcard.
 bool book_index_cache_prepare(const char* source, const char* tag, uint32_t version,

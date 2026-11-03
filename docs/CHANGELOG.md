@@ -4,7 +4,23 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
-## 未发布 / Unreleased
+## 0.2.0 beta r9 / 2026-11-03
+
+- TXT/EPUB索引、元数据与封面统一按媒体会话及文件提交失效，避免同名同大小同修改时间替换后沿用旧内容；冷启动或外部介质交接后首次使用会重建派生缓存。/ Retire TXT/EPUB indexes, metadata and covers at media-session/file-commit boundaries; first use after a cold start or external handoff rebuilds derived caches.
+- 拼豆草稿记录最后成功导出的基线；恢复未导出的草稿仍可保存，已导出且未修改的画布不会重复导出，兼容旧草稿。/ Persist the last exported bead baseline, retaining draft exportability and unchanged-export protection with legacy draft support.
+- 网页与设备文件操作统一更新所有匹配的字体/壁纸引用；失败明确提示并保留重试意图，不再只更新首个引用或吞掉设置写入错误。/ Repair every matching font/wallpaper reference for browser and device file edits; report failures and retain retry intentions.
+
+- 修复十分钟转深睡时的确定性空指针崩溃：TF电源屏障移除当前Picolibc不支持的全局 `fflush(NULL)`，保留各写入方独立同步和卡状态校验；自动转深睡策略不变。/ Remove the unsupported global `fflush(NULL)` from the SD power barrier to fix its deterministic null dereference during timed deep handoff; retain per-writer syncing, card status checks and the automatic sleep policy.
+
+- 修复真机壁纸预览的左侧缺失、竖条纹及底部按钮区域污染：图片缓存改用旋转感知的逻辑像素接口，补充四种屏幕旋转布局的实际选择器回归。/ Fix wallpaper-preview clipping/vertical stripes and button-region corruption by using rotation-aware bitmap capture/draw, covered by actual picker tests in all four framebuffer orientations.
+
+- WiFi网页文件管理隐藏点号开头的系统目录/文件，并统一拦截直接路径访问和编辑；保留普通目录、固定功能目录内文件与诊断日志的访问。/ Hide dot-prefixed folders/files in browser management and reject direct-path access or editing, while retaining normal files and diagnostics access.
+
+- 修复锁屏等待中的异常被误当成按键唤醒：中断卡低、定时器/浅睡失败和十分钟后电源交接失败均保持锁屏，使用受限轮询保留真实按键出口；失败交接清除旧恢复标记并记录诊断。/ Keep the lock on IRQ/timer/light-sleep and ten-minute power-handoff failures; poll for real wake input and clear stale resume tokens after a failed handoff.
+
+- 设置各子页统一使用无圈×退出按钮，限定按下与抬起均在按钮内，标题及空白不再触发退出；壁纸选择的退出/上级按钮靠近并统一3px圆头线条。/ Use borderless close controls across Settings with bounded press/release targets and inert header space; align wallpaper close/parent controls with matching 3px round strokes.
+
+- 固定壁纸与轮播复用图片浏览器，支持独立退出/上级触区、列表/缩略图与当前选择标识；选择器标题绝对居中、退出×不带圆圈，缩略图按实际可用图片区分文件夹图标；轮播含子目录、禁止根目录，统一验证比例和解码，失败保留配置。/ Share image browsing across fixed/rotating wallpaper with independent exit/up controls, list/thumbnails and selection markers; include subfolders, reject root selection and validate aspect/decoding without replacing settings on failure.
 
 ## 0.2.0 beta r7 / 2026-11-03
 

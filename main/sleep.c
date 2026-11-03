@@ -172,6 +172,7 @@ app_wake_source_t app_light_sleep_wait_timed(sc7a20h_handle_t acc, uint32_t time
 
     app_wake_source_t wake = APP_WAKE_NONE;
     int64_t ioe_low_since_us = 0;
+    bool ioe_armed = true, poll_only = false;
     unsigned sleep_errors = 0;
     esp_err_t last_sleep_error = ESP_OK;
     int64_t last_sleep_error_log_ms = 0;
@@ -182,6 +183,7 @@ app_wake_source_t app_light_sleep_wait_timed(sc7a20h_handle_t acc, uint32_t time
         // 每次处理中断前先检查期限，避免 IO 扩展器低电平让票根永远停住。
         if (deadline_us && now_us >= deadline_us) {
             wake = APP_WAKE_TIMEOUT;
+            app_settings_trace_storage("lock_timer_expired");
             ESP_LOGI(TAG, "lock light sleep timeout after %u ms", (unsigned)timeout_ms);
             break;
         }
@@ -193,18 +195,19 @@ app_wake_source_t app_light_sleep_wait_timed(sc7a20h_handle_t acc, uint32_t time
             break;
         }
         read_pico_clear_ioe_int();
-        if (gpio_get_level((gpio_num_t)READ_PICO_IOE_INT_GPIO) == 0) {
+        if (ioe_armed && gpio_get_level((gpio_num_t)READ_PICO_IOE_INT_GPIO) == 0) {
             if (!ioe_low_since_us) ioe_low_since_us = now_us;
             if (now_us - ioe_low_since_us >= APP_LOCK_STUCK_IRQ_US) {
-                // Return to the active page instead of leaving an inert lock
-                // image when a non-key IOE interrupt cannot be cleared.
-                // 非按键中断一直清不掉时，退回可操作页面，避免像死机一样停在锁屏。
-                ESP_LOGW(TAG, "lock IOE_INT stuck low; recover active page");
-                wake = APP_WAKE_KEY;
-                break;
+                // 非按键中断不能冒充唤醒；屏蔽坏中断，靠定时轮询PMU保留真实按键出口。
+                // A stuck non-key IRQ is not a wake request. Mask it and poll the PMU for real keys.
+                gpio_wakeup_disable((gpio_num_t)READ_PICO_IOE_INT_GPIO);
+                ioe_armed = false;
+                app_settings_trace_storage_result("lock_irq_masked", ESP_ERR_INVALID_STATE);
+                ESP_LOGW(TAG, "lock IOE_INT stuck low; stay locked, poll key");
+            } else {
+                vTaskDelay(pdMS_TO_TICKS(20));
+                continue;
             }
-            vTaskDelay(pdMS_TO_TICKS(20));
-            continue;
         }
         ioe_low_since_us = 0;
         if (pickup && sc7a20h_int1_level(acc) > 0 && pickup_ia(acc)) {
@@ -217,7 +220,10 @@ app_wake_source_t app_light_sleep_wait_timed(sc7a20h_handle_t acc, uint32_t time
             pickup_wait_quiet(acc, 400, 1500);
             continue;
         }
-        int64_t sleep_us = APP_LOCK_KEY_POLL_US;
+        // Only the error fallback polls at 100ms; normal GPIO-assisted sleep keeps its 2s safety poll.
+        // 仅故障后每100ms轮询，正常休眠仍用GPIO即时唤醒和两秒兜底轮询。
+        if (poll_only) { vTaskDelay(pdMS_TO_TICKS(100)); continue; }
+        int64_t sleep_us = ioe_armed ? APP_LOCK_KEY_POLL_US : 100000;
         if (deadline_us) {
             int64_t remaining_us = deadline_us - esp_timer_get_time();
             if (remaining_us < sleep_us) sleep_us = remaining_us;
@@ -227,8 +233,8 @@ app_wake_source_t app_light_sleep_wait_timed(sc7a20h_handle_t acc, uint32_t time
         if (timer_error != ESP_OK) {
             ESP_LOGW(TAG, "lock sleep timer rejected: %s", esp_err_to_name(timer_error));
             if (++sleep_errors >= APP_LOCK_SLEEP_ERROR_LIMIT) {
-                wake = APP_WAKE_KEY;
-                break;
+                poll_only = true;
+                app_settings_trace_storage_result("lock_timer_poll", timer_error);
             }
             vTaskDelay(pdMS_TO_TICKS(100));
             continue;
@@ -266,9 +272,9 @@ app_wake_source_t app_light_sleep_wait_timed(sc7a20h_handle_t acc, uint32_t time
             }
             last_sleep_error = sleep_error;
             if (++sleep_errors >= APP_LOCK_SLEEP_ERROR_LIMIT) {
-                ESP_LOGE(TAG, "lock light sleep repeatedly rejected; recover active page");
-                wake = APP_WAKE_KEY;
-                break;
+                ESP_LOGE(TAG, "lock light sleep repeatedly rejected; stay locked, poll key");
+                poll_only = true;
+                app_settings_trace_storage_result("lock_sleep_poll", sleep_error);
             }
             // A rejected sleep must not spin at full CPU speed behind the static e-paper image.
             vTaskDelay(pdMS_TO_TICKS(100));
@@ -278,6 +284,7 @@ app_wake_source_t app_light_sleep_wait_timed(sc7a20h_handle_t acc, uint32_t time
         }
     }
 
+    if(wake==APP_WAKE_TIMEOUT)app_settings_trace_storage("lock_wake_cleanup");
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
     gpio_wakeup_disable((gpio_num_t)READ_PICO_IOE_INT_GPIO);
     if (acc_armed) {
@@ -287,7 +294,9 @@ app_wake_source_t app_light_sleep_wait_timed(sc7a20h_handle_t acc, uint32_t time
         sc7a20h_power_down(acc);
         sc7a20h_int1_begin(acc);
     }
+    if(wake==APP_WAKE_TIMEOUT)app_settings_trace_storage("lock_wake_record");
     app_settings_set_last_wake((uint8_t)(wake == APP_WAKE_TIMEOUT ? APP_WAKE_NONE : wake));
+    if(wake==APP_WAKE_TIMEOUT)app_settings_trace_storage("lock_timeout_return");
     return wake;
 }
 
@@ -297,12 +306,19 @@ app_wake_source_t app_light_sleep_wait(sc7a20h_handle_t acc) {
 
 esp_err_t app_enter_host_sleep_ex(app_sleep_mode_t mode,bool discard_unsaved) {
     if(mode!=APP_SLEEP_OFF&&mode!=APP_SLEEP_DEEP)return ESP_ERR_INVALID_ARG;
+    app_settings_trace_storage(mode==APP_SLEEP_DEEP?"soft_entry":"off_entry");
     if(!read_pico_transfer_pause_for_sleep()){app_settings_trace_storage_result("power_transfer_busy",ESP_ERR_INVALID_STATE);return ESP_ERR_INVALID_STATE;}
+    app_settings_trace_storage("power_sd_flush_begin");
     esp_err_t err=read_pico_sd_flush();
     if(err!=ESP_OK){app_settings_trace_storage_result("power_sd_flush",err);if(!discard_unsaved){read_pico_transfer_resume_after_sleep();return err;}}
-    app_time_service_stop();(void)app_sync_time_to_pmu();
+    app_settings_trace_storage_result("power_sd_flush_end",err);
+    app_time_service_stop();
+    app_settings_trace_storage("power_time_sync_begin");
+    esp_err_t sync=app_sync_time_to_pmu();
+    app_settings_trace_storage_result("power_time_sync_end",sync);
     // 不调用会卸载TF的产测下电准备，失败时当前书籍/字体仍可继续使用。
     // Do not use factory preparation that unmounts SD; the current book/font remains usable after failure.
+    app_settings_trace_storage("power_display_off_begin");
     display_poweroff();
     app_settings_trace_storage(mode==APP_SLEEP_OFF?"pre_power_off":"pre_soft_sleep");
     unsigned attempts=mode==APP_SLEEP_OFF?1:3;
@@ -367,6 +383,7 @@ void enter_lock_and_sleep(
         return;
     }
     app_time_service_stop();
+    app_settings_trace_storage("lock_diag_v1");
     uint8_t* framebuffer = epd_hl_get_framebuffer(hl);
     epd_hl_set_all_white(hl);
     // 用户修订：锁屏仅显示壁纸，缺少自定义文件时使用内建默认画面。
@@ -394,10 +411,19 @@ void enter_lock_and_sleep(
         app_wake_source_t wake=app_light_sleep_wait_timed(acc,APP_LOCK_LIGHT_SLEEP_MS);
         if(wake!=APP_WAKE_TIMEOUT)break;
         if(!s_lock_save_confirmed)continue;
+        app_settings_trace_storage("lock_cache_begin");
         bool cached=lock_presented&&sleep_resume_save(framebuffer,(size_t)epd_width()*epd_height()/2,(unsigned)epd_get_rotation());
         if(!cached){app_settings_trace_storage_result("sleep_cache_failed",ESP_FAIL);s_lock_save_confirmed=false;continue;}
-        (void)app_enter_host_sleep(APP_SLEEP_DEEP);
-        if(!read_pico_transfer_pause_for_sleep())break;
+        app_settings_trace_storage("lock_cache_saved");
+        esp_err_t handoff=app_enter_host_sleep(APP_SLEEP_DEEP);
+        app_settings_trace_storage_result("lock_handoff_return",handoff);
+        // 未实际下电的缓存不能在下一次无关重启时恢复旧页面。
+        // Do not leave a resume token for an unrelated reboot after a failed handoff.
+        esp_err_t cleared=sleep_resume_clear();
+        if(cleared!=ESP_OK)app_settings_trace_storage_result("lock_token_clear",cleared);
+        if(!read_pico_transfer_pause_for_sleep()){
+            app_settings_trace_storage_result("lock_repause_busy",ESP_ERR_INVALID_STATE);
+        }
         // 交接失败后继续浅睡，保留锁屏；不会自动反复发送下电命令。/ Keep the lock in light sleep after a failed handoff without repeated power requests.
         s_lock_save_confirmed=false;
     }

@@ -4,6 +4,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "epd_highlevel.h"
+#include "ui_wallpaper_rotation.h"
+
+/// 只读试解码图片；screen_ratio要求壁纸比例，否则接受横图，不生成缩略图缓存。
+/// Read-only image probe, optionally requiring the screen aspect; never writes a thumbnail cache.
+bool ui_wallpaper_probe_image(const char *path,bool screen_ratio);
 
 /// 按原比例居中裁切并铺满区域；预览与锁屏共用。
 /// Center-crop an SD image at its original aspect ratio to cover preview and lock screen.
@@ -17,3 +22,7 @@ bool ui_wallpaper_draw_rounded(uint8_t *framebuffer, const char *path, EpdRect a
 bool ui_wallpaper_draw_lock(uint8_t *framebuffer);
 /// 验证目录至少有一张可解码图片；不会保存或推进轮播。/ Validate at least one decodable image without persisting or advancing rotation.
 bool ui_wallpaper_check_directory(uint8_t *framebuffer, const char *directory);
+
+/// JPG/PNG真实解码及684:1216±5%比例验证，不修改画面。/ Validate decoding and 684:1216 aspect within 5%, without painting.
+bool ui_wallpaper_eligible(const char *path);
+wallpaper_rotation_status_t ui_wallpaper_check_subtree(const char *directory);

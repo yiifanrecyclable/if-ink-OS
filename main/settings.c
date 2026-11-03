@@ -506,7 +506,7 @@ esp_err_t app_settings_save_wallpaper_path(const char *path){
     return settings_result(NVS_KEY_WALLPAPER,err);
 }
 esp_err_t app_settings_set_wallpaper_directory(const char *path){
-    if(!wallpaper_card_path_valid(path))return ESP_ERR_INVALID_ARG;
+    if(!wallpaper_rotation_directory_valid(path))return ESP_ERR_INVALID_ARG;
     char directory[288];size_t n=strlen(path);
     if(snprintf(directory,sizeof(directory),"%s%s",path,n&&path[n-1]=='/'?"":"/")>=(int)sizeof(directory))return ESP_ERR_INVALID_ARG;
     return app_settings_save_wallpaper_path(directory);

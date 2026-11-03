@@ -288,9 +288,11 @@ esp_err_t read_pico_sd_flush(void) {
     if(!info.present&&err!=ESP_ERR_NOT_FINISHED)return ESP_OK;
     if(err!=ESP_OK||!info.mounted)return err==ESP_OK?ESP_ERR_INVALID_STATE:err;
     if(!begin_operation())return ESP_ERR_NOT_FINISHED;
-    // SDMMC的写扇区调用同步完成；CTRL_SYNC本身为空操作。保留已打开的只读句柄以支持失败返回。
-    // SDMMC sector writes complete synchronously and CTRL_SYNC is a no-op; preserve read handles for failed handoffs.
-    err=fflush(NULL)==0?sdmmc_get_status(card):ESP_FAIL;
+    // 调用方已fsync/关闭自己的写句柄；SDMMC写扇区同步完成，CTRL_SYNC本身为空操作。
+    // 本机Picolibc的fflush不接受NULL，全局flush会空指针崩溃，也不应触碰无关只读句柄。
+    // Writers must fsync/close their own handles first. SDMMC writes are synchronous and CTRL_SYNC is a no-op.
+    // Shipped Picolibc dereferences fflush(NULL); never walk unrelated streams at this card-status barrier.
+    err=sdmmc_get_status(card);
     publish_info(&info);
     return err;
 }

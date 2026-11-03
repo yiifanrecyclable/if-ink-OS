@@ -30,6 +30,7 @@
 #include "display.h"
 #include "e0470_epaper_waveform.h"
 #include "file_tree.h"
+#include "file_references.h"
 #include "file_thumbnail.h"
 #include "book_cover.h"
 #include "read_pico_sd.h"
@@ -42,6 +43,8 @@
 #include "ui_text_input.h"
 #include "ui_nav.h"
 #include "ui_wallpaper.h"
+#include "ui_bitmap.h"
+#include "app_wallpaper_picker.h"
 #include "ui_menu.h"
 #include "esp_log.h"
 #include "esp_heap_caps.h"
@@ -88,8 +91,16 @@ static void file_notice(const char *format,...){
 }
 static char s_dir[288] = "/sdcard";
 static read_pico_sd_info_t s_sd;
-typedef enum { FILE_VIEW_LIST, FILE_VIEW_ACTIONS, FILE_VIEW_RENAME, FILE_VIEW_MOVE } file_view_t;
+typedef enum { FILE_VIEW_LIST, FILE_VIEW_ACTIONS, FILE_VIEW_RENAME, FILE_VIEW_MOVE, FILE_VIEW_WALLPAPER_PREVIEW } file_view_t;
 static file_view_t s_view;
+static bool s_picker,s_picker_rotation,s_picker_done,s_picker_grid,s_picker_preview_ok,s_picker_eligible;
+static uint8_t *s_picker_preview;
+static bool picker_current(const file_item_t *item);
+static void picker_header(uint8_t *fb);
+static void picker_button(uint8_t *fb,const char *label,bool enabled);
+static void picker_render_preview(uint8_t *fb);
+static EpdRect file_pager_rect(int direction);
+
 static file_item_t s_selected;
 static bool s_delete_confirm;
 static int s_move_origin_folder, s_move_origin_page;
@@ -113,7 +124,7 @@ static const char *folder_root(int folder) {
     return s_dir;
 }
 static bool s_grid_modes[2];
-typedef struct { uint8_t *pixels; unsigned width,height; } file_thumb_t;
+typedef struct { uint8_t *pixels; unsigned width,height; bool image_folder; } file_thumb_t;
 static file_thumb_t s_thumbs[9];
 static int s_thumb_page=-1;
 static char s_thumb_dir[288];
@@ -123,15 +134,24 @@ static int image_tree(const char *path) {
     for(int i=0;i<2;++i){size_t n=strlen(roots[i]);if(!strncasecmp(path,roots[i],n)&&(!path[n]||path[n]=='/'))return i;}
     return -1;
 }
-static bool grid_available(void){return s_folder>=0&&s_view==FILE_VIEW_LIST&&image_tree(folder_root(s_folder))>=0;}
-static bool grid_active(void){int tree=s_folder>=0?image_tree(folder_root(s_folder)):-1;return grid_available()&&s_grid_modes[tree];}
-static int grid_columns(void){return image_tree(folder_root(s_folder))==1?2:3;}
-static int grid_rows(void){return image_tree(folder_root(s_folder))==1?4:3;}
+static bool grid_available(void){return s_folder>=0&&s_view==FILE_VIEW_LIST&&(s_picker||image_tree(folder_root(s_folder))>=0);}
+static bool grid_active(void){int tree=s_folder>=0?image_tree(folder_root(s_folder)):-1;return grid_available()&&(s_picker?s_picker_grid:s_grid_modes[tree]);}
+static int grid_columns(void){return !s_picker&&image_tree(folder_root(s_folder))==1?2:3;}
+static int grid_rows(void){return !s_picker&&image_tree(folder_root(s_folder))==1?4:3;}
 static int file_row_height(void) { return ui_list_row_height(true); }
-static int visible_rows(void) { return grid_active()?grid_columns()*grid_rows():ui_list_visible_rows(UI_PAGE_Y(214),s_view==FILE_VIEW_MOVE?865:UI_NAV_PAGER_TOP,file_row_height()); }
+static int file_pager_top(void){return UI_NAV_PAGER_TOP-(s_picker?90:0);}
+static int visible_rows(void) { return grid_active()?grid_columns()*grid_rows():ui_list_visible_rows(UI_PAGE_Y(214),s_view==FILE_VIEW_MOVE?865:file_pager_top(),file_row_height()); }
 static EpdRect grid_toggle_rect(void){return(EpdRect){576,UI_PAGE_Y(75),72,64};}
-static EpdRect grid_cell(int index){int cols=grid_columns(),height=(UI_NAV_PAGER_TOP-UI_PAGE_Y(214)-12)/grid_rows();return(EpdRect){36+(index%cols)*(612/cols),UI_PAGE_Y(214)+(index/cols)*height,612/cols,height};}
+static EpdRect grid_cell(int index){int cols=grid_columns(),height=(file_pager_top()-UI_PAGE_Y(214)-12)/grid_rows();return(EpdRect){36+(index%cols)*(612/cols),UI_PAGE_Y(214)+(index/cols)*height,612/cols,height};}
 static void clear_thumbnails(void){for(unsigned i=0;i<9;++i){free(s_thumbs[i].pixels);s_thumbs[i]=(file_thumb_t){0};}s_thumb_page=-1;s_thumb_dir[0]=0;}
+// 只在准备可见格子时验证子树，绘制时使用缓存；空目录和坏图片不冒充图片文件夹。
+// Probe visible folder subtrees before rendering; empty/corrupt-only folders keep the plain icon.
+static bool folder_image_accept(const char *path,void *context){
+    (void)context;return ui_wallpaper_probe_image(path,s_picker);
+}
+static bool folder_has_images(const char *path){
+    char selected[288];return wallpaper_rotation_pick(path,NULL,0,folder_image_accept,NULL,selected,sizeof(selected));
+}
 static void prepare_thumbnails(void){
     if(s_view!=FILE_VIEW_LIST)return;
     if(!grid_active()){clear_thumbnails();return;}
@@ -139,7 +159,7 @@ static void prepare_thumbnails(void){
     if(s_thumb_page==s_page&&!strcmp(s_thumb_dir,dir))return;
     clear_thumbnails();s_thumb_page=s_page;snprintf(s_thumb_dir,sizeof(s_thumb_dir),"%s",dir);
     for(int row=0;row<visible_rows();++row){int index=s_page*visible_rows()+row;if(index>=s_count)break;
-        if(s_files[index].is_dir)continue;
+        if(s_files[index].is_dir){s_thumbs[row].image_folder=folder_has_images(s_files[index].path);continue;}
         const char *ext=strrchr(s_files[index].name,'.');if(!ext||(strcasecmp(ext,".jpg")&&strcasecmp(ext,".jpeg")&&strcasecmp(ext,".png")))continue;
         file_thumb_t *thumb=&s_thumbs[row];thumb->pixels=heap_caps_malloc(FILE_THUMB_BYTES,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
         if(thumb->pixels&&!file_thumbnail_load(s_files[index].path,thumb->pixels,&thumb->width,&thumb->height)){free(thumb->pixels);*thumb=(file_thumb_t){0};}
@@ -266,41 +286,11 @@ static esp_err_t copy_selected_item(char out_name[128]) {
     return ESP_OK;
 }
 
-static bool rebased_path(const char *path, const char *old_path, const char *new_path,
-                         char *out, size_t cap) {
-    if (!file_tree_same_or_below(path, old_path)) return false;
-    int n = ui_snprintf(out, cap, "%s%s", new_path, path + strlen(old_path));
-    return n >= 0 && (size_t)n < cap;
-}
-
-static bool moved_settings_fit(const char *old_path, const char *new_path) {
-    char updated[288];
-    const char *paths[] = {app_settings_books_dir(), app_settings_fonts_dir(),
-        app_settings_system_font_path(), app_settings_font_path(), app_settings_wallpaper_path()};
-    const size_t limits[] = {96, 96, 160, 160, 288};
-    for (int i = 0; i < 5; ++i) {
-        if (!file_tree_same_or_below(paths[i], old_path)) continue;
-        if (!rebased_path(paths[i], old_path, new_path, updated, sizeof(updated)) ||
-            strlen(updated) >= limits[i]) return false;
-    }
-    return true;
-}
-
-static void sync_moved_settings(const char *old_path, const char *new_path) {
-    char updated[288];
-    if (rebased_path(app_settings_books_dir(), old_path, new_path, updated, sizeof(updated)))
-        (void)app_settings_set_books_dir(updated);
-    if (rebased_path(app_settings_fonts_dir(), old_path, new_path, updated, sizeof(updated))) {
-        (void)app_settings_set_fonts_dir(updated);
-        ttf_font_scan();
-    }
-    if (rebased_path(app_settings_system_font_path(), old_path, new_path, updated, sizeof(updated))) {
-        if(app_settings_set_system_font_path(updated)==ESP_OK)app_font_activate_system();
-    }
-    if (rebased_path(app_settings_font_path(), old_path, new_path, updated, sizeof(updated)))
-        app_settings_set_font_path(updated);
-    if (rebased_path(app_settings_wallpaper_path(), old_path, new_path, updated, sizeof(updated)))
-        app_settings_set_wallpaper_path(updated);
+static esp_err_t references_edit(const char *source,const char *target,bool *done){
+    char previous[160];copy_utf8(previous,sizeof(previous),app_settings_system_font_path());
+    esp_err_t err=done?file_references_begin(source,target,done):file_references_finish();
+    if(strcmp(previous,app_settings_system_font_path()))app_font_activate_system();
+    return err;
 }
 
 static void notify_moved_tree(const char *old_path, const char *new_path, unsigned depth) {
@@ -335,15 +325,7 @@ static void file_deleted(const char *path, bool directory, void *ctx) {
     if(!strncmp(path,DOCUMENT_ROOT"/",17)&&strrchr(path,'.')&&!strcasecmp(strrchr(path,'.'),".md"))(void)document_store_delete(path);
     if (is_book_path(path)) (void)book_progress_forget(path);
     (void)book_title_clear(path);
-    if (!strcmp(app_settings_system_font_path(), path)) {
-        app_settings_set_system_font_path("");
-        app_font_activate_system();
-    }
-    if (!strcmp(app_settings_font_path(), path)) app_settings_set_font_path("");
-    if (!strcmp(app_settings_wallpaper_path(), path)) {
-        app_settings_set_wallpaper_path("");
-        app_settings_set_lock_style(0);
-    }
+
 }
 
 static void repair_deleted_directories(void) {
@@ -393,16 +375,17 @@ static app_redraw_t move_selected(void) {
     if (!strcmp(destination, s_selected.path)) {
         file_notice(UI_MSG("已在此文件夹")); return APP_REDRAW_PAGE;
     }
-    if (!moved_settings_fit(s_selected.path, destination)) {
-        file_notice(UI_MSG("设置路径过长，无法移动")); return APP_REDRAW_PAGE;
-    }
-    esp_err_t err = file_tree_move(s_selected.path, destination);
-    if (err != ESP_OK) {
-        file_notice(err == ESP_ERR_INVALID_STATE ? UI_MSG("目标已有同名项目") :
-                 err == ESP_ERR_INVALID_ARG ? UI_MSG("不能移入自身文件夹") : UI_MSG("移动失败，请检查 TF 卡"));
+    bool done=false;
+    esp_err_t err=references_edit(s_selected.path,destination,&done);
+    if(err!=ESP_OK){file_notice(UI_MSG("关联设置保存失败，请重试"));return APP_REDRAW_PAGE;}
+    if(!done)err=file_tree_move(s_selected.path,destination);
+    esp_err_t refs=references_edit(NULL,NULL,NULL);
+    if(err!=ESP_OK||refs!=ESP_OK){
+        if(err==ESP_OK)book_store_notify_changed();
+        file_notice(refs!=ESP_OK?UI_MSG("文件已变更，关联设置未完成，请重试"):
+                 err==ESP_ERR_INVALID_STATE?UI_MSG("目标已有同名项目"):UI_MSG("移动失败，请检查 TF 卡"));
         return APP_REDRAW_PAGE;
     }
-    sync_moved_settings(s_selected.path, destination);
     notify_moved_tree(s_selected.path, destination, 0);
     book_store_notify_changed();
     leave_move(true);
@@ -455,6 +438,7 @@ static void scan_folder(int folder) {
             if (probe) { is_dir = true; item->size = 0; closedir(probe); }
         }
         if (!is_dir && !is_file) continue;
+        if(s_picker&&!is_dir&&!supported(1,entry->d_name))continue;
         if (s_view == FILE_VIEW_MOVE && !is_dir) continue;
         if (folder != 3 && (!is_file || !supported(folder, entry->d_name))) continue;
         if (strnlen(entry->d_name, sizeof(item->name)) >= sizeof(item->name)) continue;
@@ -462,6 +446,7 @@ static void scan_folder(int folder) {
         item->is_dir = is_dir;
         ++s_count;
     }
+    if(s_picker&&s_count==FILE_MAX&&readdir(dir))file_notice(UI_MSG("文件过多，请使用子目录"));
     closedir(dir);
     qsort(s_files, s_count, sizeof(s_files[0]), compare_files);
 }
@@ -490,8 +475,9 @@ static void render_grid(uint8_t *fb){
         if(thumb->pixels&&thumb->width&&thumb->height){unsigned w,h;book_cover_fit_size(thumb->width,thumb->height,(unsigned)box.width,(unsigned)box.height,&w,&h);
             int left=box.x+(box.width-(int)w)/2,top=box.y+(box.height-(int)h)/2;
             for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x){size_t pixel=(size_t)(y*thumb->height/h)*thumb->width+x*thumb->width/w;uint8_t byte=thumb->pixels[pixel/2];uint8_t shade=pixel&1?byte&15:byte>>4;epd_draw_pixel(left+(int)x,top+(int)y,(uint8_t)(shade<<4),fb);}
-        }else ui_draw_icon(fb,box.x+box.width/2,box.y+box.height/2,72,item->is_dir?UI_ICON_FOLDER_IMAGE:(supported(1,item->name)?UI_ICON_IMAGE:UI_ICON_FILE),item->is_dir?UI_GRAY_BLACK:0x88);
+        }else ui_draw_icon(fb,box.x+box.width/2,box.y+box.height/2,72,item->is_dir?(thumb->image_folder?UI_ICON_FOLDER_IMAGE:UI_ICON_FOLDER):(supported(1,item->name)?UI_ICON_IMAGE:UI_ICON_FILE),item->is_dir?UI_GRAY_BLACK:0x88);
         epd_draw_rect(box,UI_GRAY_ITEM_LINE,fb);
+        if(picker_current(item))for(int d=2;d<=4;d++)epd_draw_rect((EpdRect){box.x-d,box.y-d,box.width+2*d,box.height+2*d},UI_GRAY_BLACK,fb);
         char name[128];ui_snprintf(name,sizeof(name),"%s",item->name);
         while(*name&&ui_text_fixed_width_px(ui_text_effective_px(UI_TEXT_CAPTION),name)>box.width){size_t n=strlen(name)-1;while(n&&((unsigned char)name[n]&0xc0)==0x80)--n;name[n]=0;}
         ui_text_vc(fb,cell.x+cell.width/2,box.y+box.height+text_height/2+6,UI_TEXT_CAPTION,name,EPD_DRAW_ALIGN_CENTER,false);
@@ -550,14 +536,7 @@ static void editor_start(void) {
 static void probe_wallpaper_action(void){
     s_wallpaper_eligible=false;
     if(s_selected.is_dir||!supported(1,s_selected.name)||s_selected.size<=0||s_selected.size>2*1024*1024)return;
-    FILE *f=fopen(s_selected.path,"rb");if(!f)return;
-    size_t length=(size_t)s_selected.size;
-    uint8_t *data=heap_caps_malloc(length,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
-    unsigned w=0,h=0;const char *ext=strrchr(s_selected.name,'.');
-    bool ok=data&&fread(data,1,length,f)==length&&!ferror(f)&&book_image_dimensions(data,length,!strcasecmp(ext,".png"),&w,&h)&&w&&h;
-    fclose(f);free(data);
-    int64_t actual=(int64_t)w*UI_LOCK_HEIGHT,expected=(int64_t)h*UI_LOCK_WIDTH;
-    s_wallpaper_eligible=ok&&llabs(actual-expected)*100<=expected*5;
+    s_wallpaper_eligible=ui_wallpaper_eligible(s_selected.path);
 }
 static bool selected_wallpaper_image(void){return s_wallpaper_eligible;}
 static int file_action_height(void){return ui_text_line_height(UI_TEXT_BODY)+48;}
@@ -632,9 +611,10 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         render_rename(fb);
         return;
     }
+    if(s_picker&&s_view==FILE_VIEW_WALLPAPER_PREVIEW){picker_render_preview(fb);return;}
     if (s_folder >= 0) {
-        ui_nav_back(fb, 36,UI_PAGE_Y(79));
-        ui_text_vc(fb, 342,UI_PAGE_Y(107), 34, s_view == FILE_VIEW_MOVE ? UI_MSG("选择目标文件夹") : names[s_folder], EPD_DRAW_ALIGN_CENTER, false);
+        if(s_picker)picker_header(fb);else ui_nav_back(fb, 36,UI_PAGE_Y(79));
+        if(!s_picker)ui_text_vc(fb, 342,UI_PAGE_Y(107), 34, s_view == FILE_VIEW_MOVE ? UI_MSG("选择目标文件夹") : names[s_folder], EPD_DRAW_ALIGN_CENTER, false);
         if(grid_available()){EpdRect toggle=grid_toggle_rect();ui_draw_icon(fb,toggle.x+toggle.width/2,toggle.y+toggle.height/2,42,grid_active()?UI_ICON_LIST:UI_ICON_LAYOUT_GRID,UI_GRAY_BLACK);}
         char path[144];
         ui_snprintf(path, sizeof(path), UI_MSG("TF卡%s"), folder_root(s_folder) + 7);
@@ -663,7 +643,8 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             char detail[32]; file_detail(detail, sizeof(detail), &s_files[index]);
             ui_text_fixed_vc(fb, 101, y+12+ui_text_line_height(UI_TEXT_BODY)+ui_text_line_height(UI_TEXT_CAPTION)/2, ui_text_effective_px(UI_TEXT_CAPTION), detail, EPD_DRAW_ALIGN_LEFT, false);
             if(tag)ui_text_fixed_vc(fb,588,y+file_row_height()/2,ui_text_effective_px(UI_TEXT_CAPTION),tag,EPD_DRAW_ALIGN_RIGHT,false);
-            ui_text_vc(fb, 640, y+file_row_height()/2, UI_TEXT_BODY, "›", EPD_DRAW_ALIGN_RIGHT, false);
+            if(picker_current(&s_files[index]))epd_fill_circle(612,y+file_row_height()/2,6,UI_GRAY_BLACK,fb);
+            else ui_text_vc(fb, 640, y+file_row_height()/2, UI_TEXT_BODY, "›", EPD_DRAW_ALIGN_RIGHT, false);
             epd_fill_rect((EpdRect){36,y+file_row_height()-2,612,2},UI_GRAY_ITEM_LINE,fb);
         }
         if (s_view == FILE_VIEW_MOVE) {
@@ -672,7 +653,14 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             ui_text(fb, 182,UI_PAGE_Y(897), 24, UI_MSG("取消移动"), EPD_DRAW_ALIGN_CENTER, false);
             ui_text(fb, 501,UI_PAGE_Y(897), 24, UI_MSG("移动到此处"), EPD_DRAW_ALIGN_CENTER, false);
         }
-        if(s_count>visible_rows())ui_nav_draw_pager(fb,s_count,UI_MSG("项"),s_page,(s_count+visible_rows()-1)/visible_rows());
+        if(s_count>visible_rows()){
+            int pages=(s_count+visible_rows()-1)/visible_rows();
+            if(!s_picker)ui_nav_draw_pager(fb,s_count,UI_MSG("项"),s_page,pages);
+            else{char count[64];ui_snprintf(count,sizeof(count),UI_MSG("%d项 · %02d/%02d"),s_count,s_page+1,pages);int y=file_pager_top()+38;
+                ui_text_vc(fb,342,y,UI_TEXT_CAPTION,count,EPD_DRAW_ALIGN_CENTER,false);
+                ui_draw_icon(fb,58,y,28,UI_ICON_CHEVRON_LEFT,s_page?0:0x90);ui_draw_icon(fb,626,y,28,UI_ICON_CHEVRON_RIGHT,s_page+1<pages?0:0x90);}
+        }
+        if(s_picker)picker_button(fb,s_picker_rotation?UI_MSG("使用此文件夹"):UI_MSG("使用默认壁纸"),!s_picker_rotation||wallpaper_rotation_directory_valid(s_dir));
     } else {
         static const ui_icon_t icons[] = {UI_ICON_HARD_DRIVE, UI_ICON_WIFI, UI_ICON_CABLE, UI_ICON_NUTSTORE, UI_ICON_LAYOUT_GRID_CIRCLES};
         static const char *const labels[] = {UI_MSG("存储卡管理"), UI_MSG("WiFi/热点"), UI_MSG("USB连接"), UI_MSG("坚果云同步"), UI_MSG("数字拼豆")};
@@ -712,10 +700,11 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             }
         }
     }
-    ui_nav_draw(fb, 2);
+    ui_nav_draw(fb, s_picker?3:2);
 }
 
 static void on_enter(app_ctx_t *ctx) {
+    s_picker=false;
     s_now_ms=ctx->now_ms;ui_nav_notice_clear();s_status_area=(EpdRect){0};
     bool restore=s_image_restore&&s_image_origin.valid&&s_requested_folder<0;s_image_restore=false;
     s_folder = restore?s_image_origin.folder:s_requested_folder;s_requested_folder = -1;
@@ -784,7 +773,11 @@ static void delete_selected(void) {
     }
     char old_path[288]; copy_utf8(old_path, sizeof(old_path), s_selected.path);
     bool md=!s_selected.is_dir&&!strncmp(old_path,DOCUMENT_ROOT"/",17)&&strrchr(old_path,'.')&&!strcasecmp(strrchr(old_path,'.'),".md");
-    esp_err_t err=md?document_store_delete(old_path):file_tree_delete(old_path,file_deleted,NULL);
+    bool done=false;esp_err_t err=references_edit(old_path,NULL,&done);
+    if(err!=ESP_OK){file_notice(UI_MSG("关联设置保存失败，请重试"));return;}
+    if(!done)err=md?document_store_delete(old_path):file_tree_delete(old_path,file_deleted,NULL);
+    esp_err_t refs=references_edit(NULL,NULL,NULL);
+    if(refs!=ESP_OK){book_store_notify_changed();file_notice(UI_MSG("文件已变更，关联设置未完成，请重试"));return;}
     if(md&&err==ESP_OK)file_deleted(old_path,false,NULL);
     if (err != ESP_OK) {
         s_delete_confirm = false;
@@ -827,21 +820,16 @@ static app_redraw_t save_rename(void) {
         return APP_REDRAW_PAGE;
     }
     if (!strcmp(destination, s_selected.path)) { s_view = FILE_VIEW_ACTIONS; return APP_REDRAW_PAGE; }
-    struct stat existing;
-    if (stat(destination, &existing) == 0) {
-        file_notice(UI_MSG("同名文件已经存在"));
-        return APP_REDRAW_PAGE;
-    }
     char old_path[288]; copy_utf8(old_path, sizeof(old_path), s_selected.path);
-    if (!moved_settings_fit(old_path, destination)) {
-        file_notice(UI_MSG("设置路径过长"));
+    bool done=false;esp_err_t err=references_edit(old_path,destination,&done);
+    if(err!=ESP_OK){file_notice(UI_MSG("关联设置保存失败，请重试"));return APP_REDRAW_PAGE;}
+    if(!done)err=file_tree_move(old_path,destination);
+    esp_err_t refs=references_edit(NULL,NULL,NULL);
+    if(err!=ESP_OK||refs!=ESP_OK){
+        if(err==ESP_OK)book_store_notify_changed();
+        file_notice(refs!=ESP_OK?UI_MSG("文件已变更，关联设置未完成，请重试"):UI_MSG("重命名失败，请检查 TF 卡"));
         return APP_REDRAW_PAGE;
     }
-    if (file_tree_move(old_path, destination) != ESP_OK) {
-        file_notice(UI_MSG("重命名失败，请检查 TF 卡"));
-        return APP_REDRAW_PAGE;
-    }
-    sync_moved_settings(old_path, destination);
     notify_moved_tree(old_path, destination, 0);
     book_store_notify_changed();
     copy_utf8(s_selected.path, sizeof(s_selected.path), destination);
@@ -904,6 +892,107 @@ static app_redraw_t rename_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev) 
     if(result==UI_INPUT_CANCEL){ui_text_input_clear(&s_text_input);s_view=FILE_VIEW_ACTIONS;return APP_REDRAW_PAGE;}
     if(result==UI_INPUT_DONE)return save_rename();
     if(result==UI_INPUT_CHANGED){s_editor_notice[0]=0;render_rename(ctx->fb);return APP_REDRAW_AREA;}
+    return APP_REDRAW_NONE;
+}
+
+// 选择器保留设置页归属，不触发文件操作卡片。/ The picker stays in Settings and never opens file action cards.
+static EpdRect picker_exit_rect(void){return ui_nav_close_rect();}
+static EpdRect picker_up_rect(void){return(EpdRect){92,UI_PAGE_Y(73),68,68};}
+static EpdRect picker_button_rect(void){return(EpdRect){142,UI_NAV_TOP-78,400,64};}
+static EpdRect picker_preview_rect(void){return(EpdRect){166,UI_PAGE_Y(194),352,626};}
+static EpdRect file_pager_rect(int direction){EpdRect r=ui_nav_pager_rect(direction);if(s_picker)r.y-=90;return r;}
+static bool picker_current(const file_item_t *item){
+    if(!s_picker||s_picker_rotation!=app_settings_wallpaper_rotating())return false;
+    const char *saved=app_settings_wallpaper_path();size_t n=strlen(saved);while(n>7&&saved[n-1]=='/')--n;
+    return strlen(item->path)==n&&!strncmp(item->path,saved,n);
+}
+static void picker_preview_clear(void){free(s_picker_preview);s_picker_preview=NULL;s_picker_preview_ok=s_picker_eligible=false;}
+static void picker_preview_open(app_ctx_t *ctx){
+    picker_preview_clear();EpdRect r=picker_preview_rect();
+    s_picker_preview=heap_caps_malloc((size_t)((r.width+1)/2)*r.height,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+    if(s_picker_preview){
+        s_picker_preview_ok=ui_wallpaper_draw(ctx->fb,s_selected.path,r);
+        // 真机缓冲按物理横屏存储，不能按逻辑竖屏行宽直接拷贝。
+        // Capture through the rotation-aware bitmap API, never memcpy logical rows from the physical framebuffer.
+        if(s_picker_preview_ok)ui_bitmap_capture(ctx->fb,r,s_picker_preview);
+    }
+    s_picker_eligible=s_picker_preview_ok&&ui_wallpaper_eligible(s_selected.path);
+    s_view=FILE_VIEW_WALLPAPER_PREVIEW;
+}
+static void picker_header(uint8_t *fb){
+    EpdRect up=picker_up_rect();ui_nav_close(fb);
+    bool can_up=s_view==FILE_VIEW_WALLPAPER_PREVIEW||strcmp(s_dir,"/sdcard");
+    ui_nav_parent(fb,up,can_up);
+    const char *title=s_picker_rotation?UI_MSG("壁纸轮播"):UI_MSG("固定壁纸");
+    ui_text_fixed_vc(fb,UI_LOCK_WIDTH/2,UI_PAGE_Y(107),ui_text_fit_px(UI_TEXT_HEADING,title,320,60),title,EPD_DRAW_ALIGN_CENTER,false);
+}
+static void picker_button(uint8_t *fb,const char *label,bool enabled){
+    EpdRect r=picker_button_rect();ui_draw_round_rect(fb,r,r.height/2,enabled?UI_GRAY_BLACK:UI_GRAY_ITEM_LINE);
+    ui_text_fixed_vc_gray(fb,r.x+r.width/2,r.y+r.height/2,ui_text_fit_px(UI_TEXT_BODY,label,r.width-24,r.height-8),label,EPD_DRAW_ALIGN_CENTER,enabled?0:9,15);
+}
+static void picker_render_preview(uint8_t *fb){
+    ui_clear_page(fb);ui_nav_status(fb);picker_header(fb);EpdRect r=picker_preview_rect();
+    if(s_picker_preview_ok)ui_bitmap_draw(fb,r,s_picker_preview);
+    else ui_text_vc(fb,342,r.y+r.height/2,UI_TEXT_BODY,UI_MSG("图片无法预览"),EPD_DRAW_ALIGN_CENTER,false);
+    char name[128];snprintf(name,sizeof(name),"%s",s_selected.name);fit_name(name,UI_TEXT_CAPTION,600);
+    ui_text_vc(fb,342,UI_PAGE_Y(865),UI_TEXT_CAPTION,name,EPD_DRAW_ALIGN_CENTER,false);
+    ui_text_vc(fb,342,UI_PAGE_Y(925),UI_TEXT_CAPTION,s_picker_eligible?UI_MSG("轻点图片返回文件夹"):UI_MSG("此图片不适合壁纸"),EPD_DRAW_ALIGN_CENTER,false);
+    picker_button(fb,s_picker_rotation?UI_MSG("返回文件夹"):UI_MSG("使用此图片"),s_picker_rotation||s_picker_eligible);ui_nav_draw(fb,3);
+}
+static void picker_parent(void){
+    if(s_view==FILE_VIEW_WALLPAPER_PREVIEW){picker_preview_clear();s_view=FILE_VIEW_LIST;return;}
+    if(!strcmp(s_dir,"/sdcard"))return;
+    char *slash=strrchr(s_dir,'/');if(slash&&slash>s_dir+6)*slash=0;scan_folder(3);
+}
+static app_redraw_t picker_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev){
+    if(ev->type==UI_GESTURE_LONG_PRESS)return APP_REDRAW_NONE;
+    if(ev->type==UI_GESTURE_SWIPE_L||ev->type==UI_GESTURE_SWIPE_U||ev->type==UI_GESTURE_SWIPE_R||ev->type==UI_GESTURE_SWIPE_D){
+        if(s_view!=FILE_VIEW_LIST)return APP_REDRAW_NONE;
+        int direction=(ev->type==UI_GESTURE_SWIPE_L||ev->type==UI_GESTURE_SWIPE_U)?1:-1,next=s_page+direction;
+        if(next>=0&&next*visible_rows()<s_count){s_page=next;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;
+    }
+    if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
+    int x=ev->x0,y=ev->y0;
+    if(ui_rect_hit(picker_exit_rect(),x,y)){s_picker_done=true;return APP_REDRAW_PAGE;}
+    if(ui_rect_hit(picker_up_rect(),x,y)){picker_parent();return APP_REDRAW_PAGE;}
+    int tab=ui_nav_hit(x,y);if(tab>=0){s_picker_done=true;ui_nav_request(ctx,tab);return APP_REDRAW_NONE;}
+    if(s_view==FILE_VIEW_WALLPAPER_PREVIEW){
+        if(ui_rect_hit(picker_button_rect(),x,y)){
+            if(s_picker_rotation){picker_parent();return APP_REDRAW_PAGE;}
+            if(!s_picker_eligible||!ui_wallpaper_eligible(s_selected.path)){file_notice(UI_MSG("此图片不适合壁纸"));return APP_REDRAW_PAGE;}
+            if(app_settings_save_wallpaper_path(s_selected.path)!=ESP_OK){(void)app_settings_take_save_error();file_notice(UI_MSG("保存失败，请重试"));return APP_REDRAW_PAGE;}
+            file_notice(UI_MSG("已设为息屏壁纸"));s_picker_done=true;return APP_REDRAW_PAGE;
+        }
+        if(y>=UI_PAGE_Y(194)&&y<UI_NAV_TOP-100){picker_parent();return APP_REDRAW_PAGE;}
+        return APP_REDRAW_NONE;
+    }
+    if(ui_rect_hit(grid_toggle_rect(),x,y)){
+        int first=s_page*visible_rows();s_picker_grid=!s_picker_grid;s_page=first/visible_rows();clear_thumbnails();return APP_REDRAW_PAGE;
+    }
+    if(y<UI_PAGE_Y(202))return APP_REDRAW_NONE;
+    if(ui_rect_hit(picker_button_rect(),x,y)){
+        if(!s_picker_rotation){
+            if(app_settings_save_wallpaper_path("")!=ESP_OK){(void)app_settings_take_save_error();file_notice(UI_MSG("保存失败，请重试"));return APP_REDRAW_PAGE;}
+            file_notice(UI_MSG("已使用默认壁纸"));s_picker_done=true;return APP_REDRAW_PAGE;
+        }
+        if(!wallpaper_rotation_directory_valid(s_dir)){file_notice(UI_MSG("请勿选择根目录"));return APP_REDRAW_PAGE;}
+        wallpaper_rotation_status_t status=ui_wallpaper_check_subtree(s_dir);
+        if(status!=WALLPAPER_ROTATION_OK){file_notice(status==WALLPAPER_ROTATION_LIMIT?UI_MSG("目录过大，请选择子目录"):status==WALLPAPER_ROTATION_IO?UI_MSG("文件夹读取失败"):status==WALLPAPER_ROTATION_MEMORY?UI_MSG("内存不足，请重试"):UI_MSG("无合适壁纸，请重选"));return APP_REDRAW_PAGE;}
+        if(app_settings_set_wallpaper_directory(s_dir)!=ESP_OK){(void)app_settings_take_save_error();file_notice(UI_MSG("保存失败，请重试"));return APP_REDRAW_PAGE;}
+        file_notice(UI_MSG("已启用壁纸轮播"));s_picker_done=true;return APP_REDRAW_PAGE;
+    }
+    if(s_count>visible_rows())for(int direction=-1;direction<=1;direction+=2)if(ui_rect_hit(file_pager_rect(direction),x,y)){
+        int next=s_page+direction;if(next>=0&&next*visible_rows()<s_count){s_page=next;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;
+    }
+    int row=(y-UI_PAGE_Y(214))/file_row_height();bool inside=x>=36&&x<648&&y>=UI_PAGE_Y(214)&&y<file_pager_top();
+    if(grid_active()){EpdRect cell=grid_cell(0);inside=inside&&y<cell.y+cell.height*grid_rows();row=inside?(y-cell.y)/cell.height*grid_columns()+(x-36)/cell.width:-1;}
+    int index=s_page*visible_rows()+row;
+    if(inside&&row>=0&&row<visible_rows()&&index<s_count){
+        s_selected=s_files[index];
+        if(s_selected.is_dir){snprintf(s_dir,sizeof(s_dir),"%s",s_selected.path);scan_folder(3);}
+        else picker_preview_open(ctx);
+        return APP_REDRAW_PAGE;
+    }
     return APP_REDRAW_NONE;
 }
 
@@ -1058,3 +1147,23 @@ const app_desc_t app_files = {
     .render = render, .on_tick = on_tick, .present = files_present, .area_hint=file_area_hint,
     .on_gesture = on_gesture, .on_key = on_key,
 };
+
+void app_files_wallpaper_open(app_ctx_t *ctx,bool rotating){
+    clear_thumbnails();picker_preview_clear();s_picker=true;s_picker_rotation=rotating;s_picker_done=false;s_now_ms=ctx->now_ms;
+    s_folder=3;s_page=0;s_view=FILE_VIEW_LIST;s_scan_pending=false;s_delete_confirm=false;s_message[0]=0;
+    snprintf(s_dir,sizeof(s_dir),"/sdcard/pictures");scan_folder(3);prepare_thumbnails();
+}
+void app_files_wallpaper_close(void){clear_thumbnails();picker_preview_clear();s_picker=false;s_picker_done=false;s_scan_pending=false;s_status_area=(EpdRect){0};}
+void app_files_wallpaper_render(app_ctx_t *ctx,uint8_t *fb){render(ctx,fb);}
+app_redraw_t app_files_wallpaper_gesture(app_ctx_t *ctx,const ui_gesture_event_t *event){s_now_ms=ctx->now_ms;app_redraw_t r=picker_gesture(ctx,event);if(!s_picker_done)prepare_thumbnails();return r;}
+app_redraw_t app_files_wallpaper_key(app_ctx_t *ctx,int key){
+    s_now_ms=ctx->now_ms;if(key==UI_KEY_2){s_picker_done=true;ui_nav_request(ctx,0);return APP_REDRAW_NONE;}
+    picker_parent();prepare_thumbnails();return APP_REDRAW_PAGE;
+}
+app_redraw_t app_files_wallpaper_tick(app_ctx_t *ctx){app_redraw_t r=on_tick(ctx);if(r==APP_REDRAW_PAGE)prepare_thumbnails();if(r==APP_REDRAW_AREA)s_status_area=(EpdRect){0};return r;}
+bool app_files_wallpaper_finished(void){return s_picker_done;}
+
+void app_files_wallpaper_media_changed(app_ctx_t *ctx,bool ready){
+    (void)ctx;clear_thumbnails();picker_preview_clear();s_view=FILE_VIEW_LIST;s_count=0;
+    read_pico_sd_get_info(&s_sd);s_scan_pending=ready;if(!ready)file_notice(UI_MSG("TF 卡尚未挂载"));
+}

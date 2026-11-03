@@ -225,6 +225,7 @@ class Preview:
         if native.startswith('files-'):
             self.state['files_grid_modes']=info.get('files_grid_modes',0)
             self.state['files_grid']=info.get('files_grid',0)
+        if native.startswith(('files-','settings-')):
             notice=info.get('files_notice','')
             key=(info.get('files_notice_serial',0),notice)
             if notice:

@@ -7,6 +7,7 @@
  * Frozen: Firmware and host never mount SD together, including host eject; never auto-format.
  */
 #include "usb_storage.h"
+#include "book_index_cache.h"
 #include <stdlib.h>
 #include "driver/sdmmc_host.h"
 #include "esp_log.h"
@@ -63,6 +64,7 @@ static void restore_local(void) {
 }
 
 esp_err_t usb_storage_start(void) {
+    book_index_cache_invalidate_all();
     if(s_cleanup_pending)return ESP_ERR_INVALID_STATE;
     if (s_active) return ESP_OK;
     read_pico_sd_info_t info = {0};

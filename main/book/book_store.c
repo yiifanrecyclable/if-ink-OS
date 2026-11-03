@@ -15,6 +15,7 @@
  * Frozen: clear a matching regular replacement backup before deletion; restore backup-only books first and preserve recovery on failure.
  */
 #include "book_store.h"
+#include "book_index_cache.h"
 #include "book_progress.h"
 #include "settings.h"
 
@@ -34,7 +35,7 @@ static wl_handle_t s_wl = WL_INVALID_HANDLE;
 static unsigned s_revision;
 static bool s_roots_degraded;
 
-void book_store_notify_changed(void) { ++s_revision; }
+void book_store_notify_changed(void) { book_index_cache_invalidate_all();++s_revision; }
 unsigned book_store_revision(void) { return s_revision; }
 bool book_store_roots_degraded(void) { return s_roots_degraded; }
 

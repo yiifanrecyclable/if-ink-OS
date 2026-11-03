@@ -13,6 +13,7 @@
 #include "ui_wallpaper.h"
 #include "read_pico_search.h"
 #include "book_source.h"
+#include "book_index_cache.h"
 #include "app_registry.h"
 #include "ui_kit.h"
 #include "ttf_font.h"
@@ -58,7 +59,7 @@ esp_err_t book_store_upload_root(book_store_root_t*out){*out=(book_store_root_t)
 size_t book_store_file_limit(const book_store_root_t*r){return r->is_flash?BOOK_STORE_FLASH_FILE_MAX:SIZE_MAX;}
 uint64_t book_store_free_bytes(const book_store_root_t*r){return r->is_flash?1024*1024:7ULL<<30;}
 bool book_store_flash_ready(void){return true;}
-void book_store_notify_changed(void){++revision;}
+void book_store_notify_changed(void){book_index_cache_invalidate_all();++revision;}
 unsigned book_store_revision(void){return revision;}
 esp_err_t book_store_delete(const char*p,bool*removed){
  *removed=false;const char *base=strrchr(p,'/');if(!base||(strncmp(p,"/sdcard/books/",14)&&strncmp(p,"/flash/books/",13)))return ESP_ERR_INVALID_ARG;

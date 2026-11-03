@@ -26,9 +26,16 @@ static inline bool wallpaper_card_path_valid(const char *path) {
     }
     return true;
 }
-/// 统计当前文件夹直属图片，不递归且不缓存目录。/ Count direct image files without recursion or a stale directory cache.
+/// 递归统计选定子树的图片候选；根目录/扫描异常返回0。/ Recursively count subtree candidates; root or scan errors return zero.
 unsigned wallpaper_rotation_count(const char *directory);
 /// 验证/绘制回调成功才选定；优先排除上一张，损坏文件逐个跳过。/ Commit a choice only after acceptance; prefer a different image and skip broken files.
 bool wallpaper_rotation_pick(const char *directory, const char *previous, uint32_t random,
                              bool (*accept)(const char *, void *), void *context,
                              char *selected, size_t capacity);
+
+/// 卡根目录只能浏览，不能作为轮播目标。/ Browse the card root, but never select it for rotation.
+bool wallpaper_rotation_directory_valid(const char *directory);
+typedef enum {WALLPAPER_ROTATION_OK,WALLPAPER_ROTATION_EMPTY,WALLPAPER_ROTATION_INVALID,WALLPAPER_ROTATION_IO,WALLPAPER_ROTATION_LIMIT,WALLPAPER_ROTATION_MEMORY} wallpaper_rotation_status_t;
+/// 区分无合格图片与扫描异常，失败绝不使用截断结果。/ Distinguish no usable images from scan failures; never use truncated results.
+bool wallpaper_rotation_pick_checked(const char *directory,const char *previous,uint32_t random,
+    bool (*accept)(const char *,void *),void *context,char *selected,size_t capacity,wallpaper_rotation_status_t *status);

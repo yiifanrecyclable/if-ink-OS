@@ -114,7 +114,7 @@ EpdRect ui_text_input_key_rect(int id) {
     if (id >= CANDIDATE && id < CANDIDATE+5) return (EpdRect){88+(id-CANDIDATE)*102, UI_INPUT_KEYBOARD_TOP, 96, 64};
     if (id >= LEFT && id <= CLEAR) return (EpdRect){40+(id-LEFT)*154, 368, 142, 64};
     if (id == REVEAL || id == RAW) return (EpdRect){40, 450, 220, 64};
-    if (id == CANCEL) return (EpdRect){24, UI_PAGE_Y(76), 100, 80};
+    if (id == CANCEL) return ui_nav_close_rect();
     if (id == NEWLINE) return (EpdRect){532,430,112,64};
     if (id == FIELD) return (EpdRect){40, UI_PAGE_Y(234), 604, 104};
     return (EpdRect){0};
@@ -176,7 +176,7 @@ void ui_text_input_draw(uint8_t *fb, const ui_text_input_t *in, const char *titl
                         const char *hint, const char *suffix, const char *done, const char *notice) {
     // 防止外部替换缓冲后留下过期光标；绘制不修改编辑状态。/ Clamp stale cursors locally without mutating on draw.
     ui_text_input_t current = *in; current.cursor = safe_cursor(in); in = &current;
-    ui_clear_page(fb); ui_nav_status(fb); ui_nav_back(fb,36,UI_PAGE_Y(79));
+    ui_clear_page(fb); ui_nav_status(fb); ui_nav_close(fb);
     ui_text_fixed_vc(fb,342,UI_PAGE_Y(107),ui_text_effective_px(UI_TEXT_TITLE),title,EPD_DRAW_ALIGN_CENTER,false);
     ui_text_fixed(fb,40,UI_PAGE_Y(176),ui_text_effective_px(UI_TEXT_CAPTION),hint ? hint : "",EPD_DRAW_ALIGN_LEFT,false);
     EpdRect field=input_key_rect(in,FIELD);ui_draw_round_rect(fb,field,12,UI_GRAY_BLACK);

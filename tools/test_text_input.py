@@ -38,7 +38,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='input-lock-') as tmp:
     test.write_text('#define main keyboard_tests\n#include "'+str(ROOT/'tools/text_input_host_test.c')+'"\n#undef main\n'+
         'static ui_text_input_t s_text_input; static char s_editor[257]; static bool s_quote_dragging; static int s_banner_height_drag;\n'
         'enum { SETTINGS_TEXT_EDIT=19 }; static int s_page=SETTINGS_TEXT_EDIT;\n'
-        'static void quote_preview_clear(void) {}\nstatic void online_close(void) {}\n'+callback('settings_exit')+'\n'+callback('on_before_lock')+r"""
+        'static void quote_preview_clear(void) {}\nstatic void online_close(void) {}\nstatic void app_files_wallpaper_close(void) {}\n'+callback('settings_exit')+'\n'+callback('on_before_lock')+r"""
 int main(void) {
     for(int secret=0;secret<2;++secret) {
         strcpy(s_editor,secret ? "dummy-secret" : "普通草稿");

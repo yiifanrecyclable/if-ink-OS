@@ -83,16 +83,23 @@ bool beads_png_save(const uint8_t *fb,char *path,size_t capacity) {
     snprintf(path,capacity,"%s",final);return true;
 }
 
-#define BOARD_BYTES (16+BEADS_COUNT+4)
+#define BOARD_V1_BYTES (16+BEADS_COUNT+4)
+#define BOARD_BYTES (16+2*BEADS_COUNT+4)
 static const char *const board_slots[]={"/sdcard/pictures/pindou/.board-a","/sdcard/pictures/pindou/.board-b"};
 static uint32_t read32(const uint8_t *p) { return (uint32_t)p[0]<<24|(uint32_t)p[1]<<16|(uint32_t)p[2]<<8|p[3]; }
 static bool read_board(int slot,uint8_t data[BOARD_BYTES]) {
     FILE *f=fopen(board_slots[slot],"rb");if(!f)return false;
-    bool ok=fread(data,1,BOARD_BYTES,f)==BOARD_BYTES&&fgetc(f)==EOF&&!ferror(f);
+    size_t n=fread(data,1,BOARD_BYTES,f);
+    bool ok=fgetc(f)==EOF&&!ferror(f);
     if(fclose(f))ok=false;
-    if(!ok||memcmp(data,"IFBEADS1",8)||data[12]>=6||data[13]!=BEADS_COLS||data[14]!=BEADS_ROWS||data[15]||
-       read32(data+BOARD_BYTES-4)!=(uint32_t)crc32(0,data,BOARD_BYTES-4))return false;
-    for(int i=0;i<BEADS_COUNT;++i)if(data[16+i]!=255&&data[16+i]>=6)return false;
+    bool legacy=n==BOARD_V1_BYTES&&!memcmp(data,"IFBEADS1",8);
+    if(!ok||(!legacy&&(n!=BOARD_BYTES||memcmp(data,"IFBEADS2",8)))||
+       data[12]>=6||data[13]!=BEADS_COLS||data[14]!=BEADS_ROWS||data[15]>(legacy?0:1)||
+       read32(data+n-4)!=(uint32_t)crc32(0,data,(uInt)n-4))return false;
+    for(int i=0;i<BEADS_COUNT;++i){
+        if(data[16+i]!=255&&data[16+i]>=6)return false;
+        if(!legacy&&data[15]&&data[16+BEADS_COUNT+i]!=255&&data[16+BEADS_COUNT+i]>=6)return false;
+    }
     return true;
 }
 // 两份小状态交替提交，不依赖FatFs覆盖改名；写断时仍可恢复上一份。
@@ -108,18 +115,24 @@ bool beads_board_load(cyber_beads_t *board) {
     uint8_t a[BOARD_BYTES],b[BOARD_BYTES];int slot=latest_board(a,b);if(slot<0)return false;
     const uint8_t *record=slot?b:a;
     cyber_beads_reset(board);memcpy(board->cells,record+16,BEADS_COUNT);board->selected=record[12];
-    cyber_beads_saved(board);return true;
+    // 旧记录无法证明PNG已导出；保守允许导出，不把草稿当作品。
+    // Legacy drafts carry no export evidence; allow an explicit export.
+    if(!memcmp(record,"IFBEADS2",8)&&record[15]){
+        memcpy(board->saved,record+16+BEADS_COUNT,BEADS_COUNT);board->has_saved=true;
+    }
+    return true;
 }
 bool beads_board_save(const cyber_beads_t *board) {
     if(!board||board->selected>=6)return false;
     for(int i=0;i<BEADS_COUNT;++i)if(board->cells[i]<-1||board->cells[i]>=6)return false;
+    if(board->has_saved)for(int i=0;i<BEADS_COUNT;++i)if(board->saved[i]<-1||board->saved[i]>=6)return false;
     if(mkdir("/sdcard/pictures",0775)&&errno!=EEXIST)return false;
     if(mkdir("/sdcard/pictures/pindou",0775)&&errno!=EEXIST)return false;
     uint8_t a[BOARD_BYTES],b[BOARD_BYTES];int latest=latest_board(a,b);
     uint32_t generation=latest<0?1:read32((latest?b:a)+8)+1;
     uint8_t *data=latest==0?b:a;memset(data,0,BOARD_BYTES);
-    memcpy(data,"IFBEADS1",8);be32(data+8,generation);data[12]=board->selected;data[13]=BEADS_COLS;data[14]=BEADS_ROWS;
-    memcpy(data+16,board->cells,BEADS_COUNT);be32(data+BOARD_BYTES-4,(uint32_t)crc32(0,data,BOARD_BYTES-4));
+    memcpy(data,"IFBEADS2",8);data[15]=board->has_saved;be32(data+8,generation);data[12]=board->selected;data[13]=BEADS_COLS;data[14]=BEADS_ROWS;
+    memcpy(data+16,board->cells,BEADS_COUNT);memcpy(data+16+BEADS_COUNT,board->saved,BEADS_COUNT);be32(data+BOARD_BYTES-4,(uint32_t)crc32(0,data,BOARD_BYTES-4));
     int target=latest==0?1:0;FILE *f=fopen(board_slots[target],"wb");if(!f)return false;
     bool ok=fwrite(data,1,BOARD_BYTES,f)==BOARD_BYTES&&fflush(f)==0;
     if(ok)ok=fsync(fileno(f))==0;

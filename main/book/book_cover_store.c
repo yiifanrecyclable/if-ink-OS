@@ -4,6 +4,7 @@
  * Shared cover storage retains the legacy crop API and provides bounded aspect-preserving shelf thumbnails.
  */
 #include "book_cover.h"
+#include "book_index_cache.h"
 #include "book_cover_auto.h"
 #include "book_epub.h"
 #include "book_title.h"
@@ -16,7 +17,7 @@
 
 /* ---- 共享封面缓存 / Shared cover cache ---- */
 
-#define COVER_CACHE_MAGIC UINT32_C(0x52435041)
+#define COVER_CACHE_MAGIC UINT32_C(0x52435042)
 #define COVER_CACHE_SCHEMA 1u
 
 typedef struct {
@@ -24,6 +25,7 @@ typedef struct {
     uint64_t file_size;
     int64_t modified;
     uint64_t path_hash, text_hash;
+    uint32_t media_epoch;
 } cover_cache_header_t;
 
 static uint64_t cover_hash(uint64_t hash, const char *text) {
@@ -44,7 +46,7 @@ static bool cover_cache_key(const char *source, const char *title, const char *a
         .template_version = BOOK_AUTO_COVER_VERSION,
         .width = BOOK_COVER_W, .height = BOOK_COVER_H,
         .file_size = (uint64_t)st.st_size, .modified = (int64_t)st.st_mtime,
-        .path_hash = path_hash, .text_hash = text_hash,
+        .path_hash = path_hash, .text_hash = text_hash, .media_epoch = book_index_cache_epoch(),
     };
     return snprintf(path, cap, "/sdcard/.readpico/covers/%016llx-%ux%u%s.bin",
                     (unsigned long long)path_hash, BOOK_COVER_W, BOOK_COVER_H, fitted ? "-fit2" : "") < (int)cap;
@@ -57,6 +59,7 @@ static bool cover_cache_read(const char *path, const cover_cache_header_t *expec
     cover_cache_header_t found;
     bool ok = fread(&found, 1, sizeof(found), file) == sizeof(found) &&
               found.magic == expected->magic && found.schema == expected->schema &&
+              found.media_epoch == expected->media_epoch && expected->media_epoch == book_index_cache_epoch() &&
               found.template_version == expected->template_version &&
               found.width > 0 && found.width <= BOOK_COVER_W && found.height > 0 && found.height <= BOOK_COVER_H &&
               (expected->schema == 2u || (found.width == expected->width && found.height == expected->height)) &&

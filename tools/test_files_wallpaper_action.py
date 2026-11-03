@@ -56,8 +56,8 @@ with tempfile.TemporaryDirectory(prefix='files-wallpaper-',dir=R/'build') as tmp
         parent,opened=select(path);assert not frame(parent,opened)['files_card_geometry'][2]
     # Selecting a file replaces rotation, and works from the thumbnail grid and another image root.
     ns=out/'nvs/read_pico';ns.mkdir(parents=True,exist_ok=True)
-    geometry=frame(view='settings-29')['settings_geometry'];step=geometry[7]
-    rotation=f't,180,{392+step+step//2},180,{392+step+step//2};t,180,{392+step//2},180,{392+step//2};t,180,283,180,283'
+    # The shared picker starts in pictures and includes its usable child image.
+    rotation='t,342,1090,342,1090'
     assert frame(events=rotation,view='settings-29')['wallpaper_rotating']
     parent,opened=select('/sdcard/pictures/inner/photo.JPG',grid=1)
     state=frame(parent,opened+';'+wallpaper_button(parent,opened,grid=1),grid=1)

@@ -79,7 +79,12 @@ static int mock_mkdir(const char* p,int mode){
     return 0;
 }
 #define mkdir mock_mkdir
+// Match the shipped Picolibc: fflush requires an actual FILE pointer.
+// The host libc accepts fflush(NULL), which previously hid this power-handoff crash.
+static int __attribute__((unused)) checked_fflush(FILE *file){assert(file!=NULL);return 0;}
+#define fflush checked_fflush
 #include "../../components/read_pico/read_pico_sd.c"
+#undef fflush
 static void finish_probe(void) {assert(pending);void(*f)(void*)=pending;pending=NULL;f(NULL);}
 static void* snapshot_reader(void* arg) {
     (void)arg;
