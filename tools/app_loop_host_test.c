@@ -357,3 +357,9 @@ esp_err_t app_enter_host_sleep_ex(app_sleep_mode_t mode,bool discard_unsaved){(v
 esp_err_t app_restart_host_ex(bool discard_unsaved){(void)discard_unsaved;return app_restart_host();}
 esp_err_t read_pico_sd_flush(void){return ESP_OK;}
 void ui_power_dialog_set_unsaved(bool unsaved,bool restart){(void)unsaved;(void)restart;}
+
+#include "book/storage_maintenance.h"
+static bool records_media_ready;
+void record_store_media(bool ready){records_media_ready=ready;}
+bool record_store_ready(void){return records_media_ready;}
+esp_err_t storage_maintenance_run(storage_maintenance_result_t *result){*result=(storage_maintenance_result_t){0};return ESP_OK;}

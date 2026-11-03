@@ -6,11 +6,12 @@
  * Progress uses CRC-checked SD dual slots; acknowledge only after flush, sync, close and readback.
  *
  * 冻结：本次为修复内部NVS不可写时进度丢失，TF可用时不再写NVS。
- * 不挂载/格式化卡，不擦除NVS分区；无TF时保留原NVS路径，旧进度可读。
+ * 不挂载/格式化卡，不擦除NVS分区；无TF时旧NVS只读，写入显式失败以免再次挤满。
  * Frozen: fix progress loss when internal NVS is unwritable by writing SD whenever available.
- * Never mount/format cards or erase NVS partitions; retain NVS fallback without SD and legacy reads.
+ * Never mount/format cards or erase NVS partitions; without SD, legacy NVS remains read-only to avoid refilling it.
  */
 #include "book_progress_kv.h"
+#include "record_store.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -51,7 +52,7 @@ static bool key_valid(const char *key) {
 }
 static bool sd_ready(void) {
     struct stat st;
-    return stat("/sdcard",&st)==0 && S_ISDIR(st.st_mode);
+    return record_store_ready() && stat("/sdcard",&st)==0 && S_ISDIR(st.st_mode);
 }
 static bool directory(const char *path) {
     if(mkdir(path,0755)==0) return true;
@@ -91,6 +92,8 @@ static bool legacy_disabled(void) {
     return slots[0].exists || slots[1].exists;
 }
 static esp_err_t sd_write(const char *key, nvs_type_t type, const void *data, size_t len, bool deleted) {
+    if(!sd_ready())return ESP_ERR_INVALID_STATE;
+    if(!directory("/sdcard/.readpico")||!directory(KV_DIR))return ESP_FAIL;
     if(!key_valid(key) || len>KV_MAX || (!deleted && (!data || !len))) return ESP_ERR_INVALID_ARG;
     slot_t slots[2]={read_slot(key,0),read_slot(key,1)};
     int old=newest(slots), target=old<0?0:1-old;
@@ -116,14 +119,16 @@ static esp_err_t sd_write(const char *key, nvs_type_t type, const void *data, si
     }
     return ESP_OK;
 }
-esp_err_t progress_kv_open(int mode, progress_kv_handle_t *out) {
+static esp_err_t impl_progress_kv_open(int mode, progress_kv_handle_t *out) {
     if(!out) return ESP_ERR_INVALID_ARG;
     *out=(progress_kv_handle_t){.sd=sd_ready()};
+    if(mode==NVS_READWRITE&&!out->sd)return ESP_ERR_INVALID_STATE;
     if(!out->sd) return nvs_open(legacy_ns,mode,&out->legacy);
+    esp_err_t token=records_open("rp_books",mode,&out->media_token);if(token!=ESP_OK)return token;
     if(mode==NVS_READWRITE && (!directory("/sdcard/.readpico") || !directory(KV_DIR))) return ESP_FAIL;
     return ESP_OK;
 }
-void progress_kv_close(progress_kv_handle_t h) { if(!h.sd) nvs_close(h.legacy); }
+static void impl_progress_kv_close(progress_kv_handle_t h) { if(!h.sd) nvs_close(h.legacy); }
 static esp_err_t legacy_get(const char *key, nvs_type_t type, void *out, size_t *len) {
     nvs_handle_t h; esp_err_t err=nvs_open(legacy_ns,NVS_READONLY,&h); if(err!=ESP_OK) return err;
     if(type==NVS_TYPE_U32) {
@@ -140,6 +145,7 @@ static esp_err_t legacy_get(const char *key, nvs_type_t type, void *out, size_t 
     nvs_close(h); return err;
 }
 static esp_err_t sd_get(const char *key, nvs_type_t type, void *out, size_t *len) {
+    if(!sd_ready())return ESP_ERR_INVALID_STATE;
     if(!key_valid(key) || !len) return ESP_ERR_INVALID_ARG;
     slot_t slots[2]={read_slot(key,0),read_slot(key,1)}; int at=newest(slots);
     if(at<0) {
@@ -153,35 +159,41 @@ static esp_err_t sd_get(const char *key, nvs_type_t type, void *out, size_t *len
     if(out) memcpy(out,v->data,v->len);
     *len=v->len; return ESP_OK;
 }
-esp_err_t progress_kv_get_blob(progress_kv_handle_t h,const char *k,void *out,size_t *n) {
+static esp_err_t impl_progress_kv_get_blob(progress_kv_handle_t h,const char *k,void *out,size_t *n) {
+    if(h.sd&&(!sd_ready()||records_commit(h.media_token)!=ESP_OK))return ESP_ERR_INVALID_STATE;
     return h.sd?sd_get(k,NVS_TYPE_BLOB,out,n):nvs_get_blob(h.legacy,k,out,n);
 }
-esp_err_t progress_kv_get_str(progress_kv_handle_t h,const char *k,char *out,size_t *n) {
+static esp_err_t impl_progress_kv_get_str(progress_kv_handle_t h,const char *k,char *out,size_t *n) {
+    if(h.sd&&(!sd_ready()||records_commit(h.media_token)!=ESP_OK))return ESP_ERR_INVALID_STATE;
     return h.sd?sd_get(k,NVS_TYPE_STR,out,n):nvs_get_str(h.legacy,k,out,n);
 }
-esp_err_t progress_kv_get_u32(progress_kv_handle_t h,const char *k,uint32_t *out) {
-    size_t n=4; return h.sd?sd_get(k,NVS_TYPE_U32,out,&n):nvs_get_u32(h.legacy,k,out);
+static esp_err_t impl_progress_kv_get_u32(progress_kv_handle_t h,const char *k,uint32_t *out) {
+    size_t n=4;if(h.sd&&(!sd_ready()||records_commit(h.media_token)!=ESP_OK))return ESP_ERR_INVALID_STATE; return h.sd?sd_get(k,NVS_TYPE_U32,out,&n):nvs_get_u32(h.legacy,k,out);
 }
-esp_err_t progress_kv_set_blob(progress_kv_handle_t h,const char *k,const void *p,size_t n) {
-    return h.sd?sd_write(k,NVS_TYPE_BLOB,p,n,false):nvs_set_blob(h.legacy,k,p,n);
+static esp_err_t impl_progress_kv_set_blob(progress_kv_handle_t h,const char *k,const void *p,size_t n) {
+    if(h.sd&&(!sd_ready()||records_commit(h.media_token)!=ESP_OK))return ESP_ERR_INVALID_STATE;
+    return h.sd?sd_write(k,NVS_TYPE_BLOB,p,n,false):ESP_ERR_INVALID_STATE;
 }
-esp_err_t progress_kv_set_str(progress_kv_handle_t h,const char *k,const char *p) {
-    return h.sd?sd_write(k,NVS_TYPE_STR,p,strlen(p)+1,false):nvs_set_str(h.legacy,k,p);
+static esp_err_t impl_progress_kv_set_str(progress_kv_handle_t h,const char *k,const char *p) {
+    if(h.sd&&(!sd_ready()||records_commit(h.media_token)!=ESP_OK))return ESP_ERR_INVALID_STATE;
+    return h.sd?sd_write(k,NVS_TYPE_STR,p,strlen(p)+1,false):ESP_ERR_INVALID_STATE;
 }
-esp_err_t progress_kv_set_u32(progress_kv_handle_t h,const char *k,uint32_t v) {
-    return h.sd?sd_write(k,NVS_TYPE_U32,&v,4,false):nvs_set_u32(h.legacy,k,v);
+static esp_err_t impl_progress_kv_set_u32(progress_kv_handle_t h,const char *k,uint32_t v) {
+    if(h.sd&&(!sd_ready()||records_commit(h.media_token)!=ESP_OK))return ESP_ERR_INVALID_STATE;
+    return h.sd?sd_write(k,NVS_TYPE_U32,&v,4,false):ESP_ERR_INVALID_STATE;
 }
-esp_err_t progress_kv_erase_key(progress_kv_handle_t h,const char *k) {
-    return h.sd?sd_write(k,NVS_TYPE_BLOB,NULL,0,true):nvs_erase_key(h.legacy,k);
+static esp_err_t impl_progress_kv_erase_key(progress_kv_handle_t h,const char *k) {
+    if(h.sd&&(!sd_ready()||records_commit(h.media_token)!=ESP_OK))return ESP_ERR_INVALID_STATE;
+    return h.sd?sd_write(k,NVS_TYPE_BLOB,NULL,0,true):ESP_ERR_INVALID_STATE;
 }
-esp_err_t progress_kv_commit(progress_kv_handle_t h) { return h.sd?ESP_OK:nvs_commit(h.legacy); }
+static esp_err_t impl_progress_kv_commit(progress_kv_handle_t h) { return h.sd?(sd_ready()?records_commit(h.media_token):ESP_ERR_INVALID_STATE):ESP_ERR_INVALID_STATE; }
 
 static bool entry_key(const char *name, char key[16], char *suffix) {
     size_t n=strlen(name); if(n<3 || n>=18 || name[n-2]!='.' || (name[n-1]!='a'&&name[n-1]!='b')) return false;
     memcpy(key,name,n-2); key[n-2]=0; *suffix=name[n-1];
     return key_valid(key) && strcmp(key,"legacy_off");
 }
-esp_err_t progress_kv_list(progress_kv_visit_fn visit,void *ctx) {
+static esp_err_t impl_progress_kv_list(progress_kv_visit_fn visit,void *ctx) {
     if(!visit) return ESP_ERR_INVALID_ARG;
     bool sd=sd_ready(), more=true;
     if(sd) {
@@ -193,7 +205,8 @@ esp_err_t progress_kv_list(progress_kv_visit_fn visit,void *ctx) {
                 slot_t slots[2]={read_slot(key,0),read_slot(key,1)};
                 if(suffix=='b' && slots[0].exists) continue;
                 int at=newest(slots);
-                if(at>=0 && !slots[at].deleted) more=visit(key,slots[at].type,slots[at].data,slots[at].len,ctx);
+                if(at<0||(slots[0].exists&&!slots[0].valid)||(slots[1].exists&&!slots[1].valid)){closedir(d);return ESP_ERR_INVALID_RESPONSE;}
+                if(!slots[at].deleted) more=visit(key,slots[at].type,slots[at].data,slots[at].len,ctx);
             }
             if(closedir(d)!=0) return ESP_FAIL;
         }
@@ -211,8 +224,11 @@ esp_err_t progress_kv_list(progress_kv_visit_fn visit,void *ctx) {
             if(!a.exists && !b.exists) {
                 uint8_t data[KV_MAX]; size_t n=sizeof(data);
                 if(info.type==NVS_TYPE_U32) n=4;
-                if((info.type==NVS_TYPE_BLOB||info.type==NVS_TYPE_STR||info.type==NVS_TYPE_U32) &&
-                   legacy_get(info.key,info.type,data,&n)==ESP_OK) more=visit(info.key,info.type,data,n,ctx);
+                if((info.type==NVS_TYPE_BLOB||info.type==NVS_TYPE_STR||info.type==NVS_TYPE_U32)){
+                    esp_err_t value_error=legacy_get(info.key,info.type,data,&n);
+                    if(value_error!=ESP_OK){nvs_release_iterator(it);return value_error;}
+                    more=visit(info.key,info.type,data,n,ctx);
+                }
             }
         }
         if(more) err=nvs_entry_next(&it);
@@ -220,10 +236,9 @@ esp_err_t progress_kv_list(progress_kv_visit_fn visit,void *ctx) {
     nvs_release_iterator(it);
     return err==ESP_ERR_NVS_NOT_FOUND?ESP_OK:err;
 }
-esp_err_t progress_kv_reset(void) {
+static esp_err_t impl_progress_kv_reset(void) {
     progress_kv_handle_t h; esp_err_t err=progress_kv_open(NVS_READWRITE,&h); if(err!=ESP_OK) return err;
-    if(!h.sd) { err=nvs_erase_all(h.legacy); if(err==ESP_OK) err=nvs_commit(h.legacy); }
-    else {
+    {
         uint32_t one=1; err=sd_write("legacy_off",NVS_TYPE_U32,&one,4,false);
         DIR *d=err==ESP_OK?opendir(KV_DIR):NULL;
         if(err==ESP_OK && !d) err=ESP_FAIL;
@@ -238,3 +253,31 @@ esp_err_t progress_kv_reset(void) {
     }
     progress_kv_close(h); return err;
 }
+
+static esp_err_t impl_progress_kv_migration_copy(const char *key,nvs_type_t type,const void *value,size_t bytes,records_validate_fn validate){
+    if(!sd_ready()||!key_valid(key))return ESP_ERR_INVALID_STATE;
+    slot_t v[2]={read_slot(key,0),read_slot(key,1)};
+    if((v[0].exists&&!v[0].valid)||(v[1].exists&&!v[1].valid))return ESP_ERR_INVALID_RESPONSE;
+    int at=newest(v);esp_err_t err=ESP_OK;
+    if(at<0)err=sd_write(key,type,legacy_disabled()?NULL:value,legacy_disabled()?0:bytes,legacy_disabled());
+    if(err!=ESP_OK)return err;
+    v[0]=read_slot(key,0);v[1]=read_slot(key,1);
+    at=newest(v);
+    if(at<0||(v[0].exists&&!v[0].valid)||(v[1].exists&&!v[1].valid))return ESP_ERR_INVALID_RESPONSE;
+    return v[at].deleted||(validate&&validate("rp_books",(uint8_t)v[at].type,key,v[at].data,v[at].len))?ESP_OK:ESP_ERR_INVALID_RESPONSE;
+}
+
+// 与迁移共用存储锁。/ Share the storage lock with migration.
+esp_err_t progress_kv_open(int mode, progress_kv_handle_t *out){record_store_lock();esp_err_t result=impl_progress_kv_open(mode,out);record_store_unlock();return result;}
+void progress_kv_close(progress_kv_handle_t h){record_store_lock();impl_progress_kv_close(h);record_store_unlock();}
+esp_err_t progress_kv_get_blob(progress_kv_handle_t h, const char *key, void *out, size_t *len){record_store_lock();esp_err_t result=impl_progress_kv_get_blob(h,key,out,len);record_store_unlock();return result;}
+esp_err_t progress_kv_get_str(progress_kv_handle_t h, const char *key, char *out, size_t *len){record_store_lock();esp_err_t result=impl_progress_kv_get_str(h,key,out,len);record_store_unlock();return result;}
+esp_err_t progress_kv_get_u32(progress_kv_handle_t h, const char *key, uint32_t *out){record_store_lock();esp_err_t result=impl_progress_kv_get_u32(h,key,out);record_store_unlock();return result;}
+esp_err_t progress_kv_set_blob(progress_kv_handle_t h, const char *key, const void *data, size_t len){record_store_lock();esp_err_t result=impl_progress_kv_set_blob(h,key,data,len);record_store_unlock();return result;}
+esp_err_t progress_kv_set_str(progress_kv_handle_t h, const char *key, const char *data){record_store_lock();esp_err_t result=impl_progress_kv_set_str(h,key,data);record_store_unlock();return result;}
+esp_err_t progress_kv_set_u32(progress_kv_handle_t h, const char *key, uint32_t data){record_store_lock();esp_err_t result=impl_progress_kv_set_u32(h,key,data);record_store_unlock();return result;}
+esp_err_t progress_kv_erase_key(progress_kv_handle_t h, const char *key){record_store_lock();esp_err_t result=impl_progress_kv_erase_key(h,key);record_store_unlock();return result;}
+esp_err_t progress_kv_commit(progress_kv_handle_t h){record_store_lock();esp_err_t result=impl_progress_kv_commit(h);record_store_unlock();return result;}
+esp_err_t progress_kv_list(progress_kv_visit_fn visit, void *ctx){record_store_lock();esp_err_t result=impl_progress_kv_list(visit,ctx);record_store_unlock();return result;}
+esp_err_t progress_kv_reset(void){record_store_lock();esp_err_t result=impl_progress_kv_reset();record_store_unlock();return result;}
+esp_err_t progress_kv_migration_copy(const char *key,nvs_type_t type,const void *value,size_t bytes,records_validate_fn validate){record_store_lock();esp_err_t result=impl_progress_kv_migration_copy(key,type,value,bytes,validate);record_store_unlock();return result;}

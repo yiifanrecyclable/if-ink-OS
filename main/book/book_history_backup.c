@@ -12,13 +12,14 @@
 #include <string.h>
 #include <stddef.h>
 #include "nvs.h"
+#include "record_store.h"
 
 #define HISTORY_MAX_RECORDS 512
 #define HISTORY_MAX_VALUE 4096
 #define HISTORY_RECORD_HEADER 20
 
 static const char *const namespaces[] = {
-    "rp_books", "rp_ticket", "rp_marks", "rp_favs", "rp_titles", "rp_shelf", "if_content"
+    "rp_books", "rp_ticket", "rp_marks", "rp_favs", "rp_titles", "rp_shelf", "if_content", "rp_input"
 };
 
 static uint32_t hash_bytes(uint32_t hash, const void *data, size_t len) {
@@ -37,6 +38,7 @@ static bool book_key(const char *key, char prefix) {
 static bool valid_record(unsigned ns, uint8_t type, const char *key, const uint8_t *data, size_t len) {
     if (ns >= sizeof(namespaces) / sizeof(namespaces[0]) || !key[0] ||
         strnlen(key, 16) == 16 || !len || len > HISTORY_MAX_VALUE) return false;
+    if(ns==7)return record_store_content_key("rp_input",key)&&type==NVS_TYPE_U8&&len==1&&data[0]==1;
     if (ns == 0) {
         if (!strcmp(key, "seq")) return type == NVS_TYPE_U32 && len == 4;
         if (!strcmp(key, "last")) return type == NVS_TYPE_STR && len >= 1 &&
@@ -91,25 +93,53 @@ static bool valid_record(unsigned ns, uint8_t type, const char *key, const uint8
     return !strcmp(key, expected);
 }
 
-static esp_err_t read_value(nvs_handle_t h, const nvs_entry_info_t *info, uint8_t **value, size_t *len) {
+static esp_err_t read_value(records_handle_t h, const nvs_entry_info_t *info, uint8_t **value, size_t *len) {
     *value = NULL;
     *len = 0;
     esp_err_t err;
     if (info->type == NVS_TYPE_U8) *len = 1;
     else if (info->type == NVS_TYPE_U32) *len = 4;
-    else if (info->type == NVS_TYPE_STR) err = nvs_get_str(h, info->key, NULL, len);
-    else if (info->type == NVS_TYPE_BLOB) err = nvs_get_blob(h, info->key, NULL, len);
+    else if (info->type == NVS_TYPE_STR) err = records_get_str(h, info->key, NULL, len);
+    else if (info->type == NVS_TYPE_BLOB) err = records_get_blob(h, info->key, NULL, len);
     else return ESP_ERR_INVALID_ARG;
     if ((info->type == NVS_TYPE_STR || info->type == NVS_TYPE_BLOB) && err != ESP_OK) return err;
     if (!*len || *len > HISTORY_MAX_VALUE) return ESP_ERR_INVALID_SIZE;
     *value = malloc(*len);
     if (!*value) return ESP_ERR_NO_MEM;
-    if (info->type == NVS_TYPE_U8) err = nvs_get_u8(h, info->key, *value);
-    else if (info->type == NVS_TYPE_U32) err = nvs_get_u32(h, info->key, (uint32_t *)*value);
-    else if (info->type == NVS_TYPE_STR) err = nvs_get_str(h, info->key, (char *)*value, len);
-    else err = nvs_get_blob(h, info->key, *value, len);
+    if (info->type == NVS_TYPE_U8) err = records_get_u8(h, info->key, *value);
+    else if (info->type == NVS_TYPE_U32) err = records_get_u32(h, info->key, (uint32_t *)*value);
+    else if (info->type == NVS_TYPE_STR) err = records_get_str(h, info->key, (char *)*value, len);
+    else err = records_get_blob(h, info->key, *value, len);
     if (err != ESP_OK) { free(*value); *value = NULL; }
     return err;
+}
+
+bool book_history_record_valid(const char *space,uint8_t type,const char *key,const void *value,size_t bytes){
+    bool known=false;
+    for(unsigned i=0;i<sizeof(namespaces)/sizeof(namespaces[0]);++i)
+        if(!strcmp(space,namespaces[i]))known=valid_record(i,type,key,value,bytes);
+    if(!known)return false;
+    // 清退旧源前额外核对路径及哈希；旧备份格式仍保持兼容。/ Validate path/hash before retirement while retaining legacy backup compatibility.
+    const uint8_t *v=value;const char *path=NULL;size_t path_cap=0;char prefix=0;
+    if(!strcmp(space,"rp_books")&&key[0]=='b'){if(v[14]<36||v[14]>72||v[15]>100||(v[3]==1&&bytes-24>160))return false;path=(const char*)v+24;path_cap=bytes-24;prefix='b';}
+    if(!strcmp(space,"rp_titles")){
+        if(bytes>416)return false;
+        size_t n=strnlen(value,bytes);if(!n||n>=288||n+2>bytes)return false;
+        size_t title=bytes-n-1;if(title>121||strnlen((const char*)v+n+1,title)!=title-1||title<2)return false;
+        path=value;path_cap=n+1;prefix='t';
+    }
+    if(!strcmp(space,"rp_marks")){
+        uint32_t magic=0;memcpy(&magic,value,4);
+        if(magic==UINT32_C(0x52504d31)&&bytes==304){path=(const char*)v+14;path_cap=288;}
+        else if(magic==UINT32_C(0x52504d32)&&bytes==588){uint16_t count;memcpy(&count,v+8,2);if(count>24)return false;path=(const char*)v+12;path_cap=288;}
+        else return false;
+        prefix='m';
+    }
+    if(path){size_t n=strnlen(path,path_cap);if(!n||n==path_cap)return false;char expected[11];
+        snprintf(expected,sizeof(expected),"%c_%08lx",prefix,(unsigned long)hash_bytes(UINT32_C(2166136261),path,n));
+        if(strcmp(expected,key))return false;
+    }
+    return true;
 }
 
 typedef struct { FILE *file; uint32_t hash; uint16_t count; esp_err_t error; } backup_writer_t;
@@ -128,7 +158,7 @@ static bool backup_emit(backup_writer_t *writer, unsigned ns, uint8_t type, cons
 static bool backup_progress(const char *key,nvs_type_t type,const void *value,size_t len,void *ctx) {
     return backup_emit(ctx,0,(uint8_t)type,key,value,len);
 }
-esp_err_t book_history_backup_write(FILE *file) {
+static esp_err_t impl_book_history_backup_write(FILE *file) {
     if(!file) return ESP_ERR_INVALID_ARG;
     static const char magic[8]={'R','P','H','I','S','T','1',0};
     if(fwrite(magic,1,8,file)!=8) return ESP_FAIL;
@@ -136,21 +166,22 @@ esp_err_t book_history_backup_write(FILE *file) {
     esp_err_t result=progress_kv_list(backup_progress,&writer);
     if(result!=ESP_OK || writer.error!=ESP_OK) return result!=ESP_OK?result:writer.error;
     for(unsigned ns=1;ns<sizeof(namespaces)/sizeof(namespaces[0]);++ns) {
-        nvs_handle_t h; esp_err_t err=nvs_open(namespaces[ns],NVS_READONLY,&h);
+        records_handle_t h; esp_err_t err=records_open(namespaces[ns],NVS_READONLY,&h);
         if(err==ESP_ERR_NVS_NOT_FOUND) continue;
         if(err!=ESP_OK) return err;
-        nvs_iterator_t it=NULL; err=nvs_entry_find_in_handle(h,NVS_TYPE_ANY,&it);
+        records_iterator_t it=NULL; err=records_entry_find_in_handle(h,NVS_TYPE_ANY,&it);
         while(err==ESP_OK) {
-            nvs_entry_info_t info; err=nvs_entry_info(it,&info);
-            if(err!=ESP_OK){nvs_release_iterator(it);nvs_close(h);return err;}
+            nvs_entry_info_t info; err=records_entry_info(it,&info);
+            if(err!=ESP_OK){records_release_iterator(it);records_close(h);return err;}
+            if(ns==7&&!record_store_content_key("rp_input",info.key)){err=records_entry_next(&it);continue;}
             uint8_t *value=NULL; size_t len=0; err=read_value(h,&info,&value,&len);
             if(err==ESP_OK && !backup_emit(&writer,ns,(uint8_t)info.type,info.key,value,len)) err=writer.error;
             free(value);
             // 读取失败不是迭代结束，不能把缺项封成完整备份。/ A value read error is not iterator exhaustion; never seal an incomplete backup.
-            if(err!=ESP_OK){nvs_release_iterator(it);nvs_close(h);return err;}
-            err=nvs_entry_next(&it);
+            if(err!=ESP_OK){records_release_iterator(it);records_close(h);return err;}
+            err=records_entry_next(&it);
         }
-        nvs_release_iterator(it); nvs_close(h);
+        records_release_iterator(it); records_close(h);
         if(err!=ESP_ERR_NVS_NOT_FOUND) return err;
     }
     uint8_t end[HISTORY_RECORD_HEADER]={0xff};
@@ -159,13 +190,13 @@ esp_err_t book_history_backup_write(FILE *file) {
     return fwrite(end,1,sizeof(end),file)==sizeof(end) && fwrite(seal,1,sizeof(seal),file)==sizeof(seal)?ESP_OK:ESP_FAIL;
 }
 
-static esp_err_t read_stream(FILE *file, bool restore) {
+static esp_err_t read_stream(FILE *file, bool restore,uint32_t *seen) {
     char magic[8];
     if (fread(magic, 1, sizeof(magic), file) != sizeof(magic) || memcmp(magic, "RPHIST1", 8))
         return ESP_ERR_INVALID_RESPONSE;
     uint32_t hash = UINT32_C(2166136261);
     uint16_t count = 0;
-    nvs_handle_t h = 0;
+    records_handle_t h = 0;
     int open_ns = -1;
     esp_err_t result = ESP_OK;
     for (;;) {
@@ -178,6 +209,7 @@ static esp_err_t read_stream(FILE *file, bool restore) {
         }
         unsigned ns = head[0];
         uint8_t type = head[1];
+        if(seen&&ns<32)*seen|=1u<<ns;
         char key[16]; memcpy(key, head + 2, sizeof(key));
         size_t len = (size_t)head[18] | ((size_t)head[19] << 8);
         if (result != ESP_OK || ns >= sizeof(namespaces) / sizeof(namespaces[0]) ||
@@ -203,24 +235,24 @@ static esp_err_t read_stream(FILE *file, bool restore) {
             }
         } else if (restore) {
             if (open_ns != (int)ns) {
-                if (open_ns >= 0) { result = nvs_commit(h); nvs_close(h); }
+                if (open_ns >= 0) { result = records_commit(h); records_close(h); }
                 open_ns = -1;
-                if (result == ESP_OK) result = nvs_open(namespaces[ns], NVS_READWRITE, &h);
+                if (result == ESP_OK) result = records_open(namespaces[ns], NVS_READWRITE, &h);
                 if (result == ESP_OK) open_ns = (int)ns;
             }
             if (result == ESP_OK) {
-                if (type == NVS_TYPE_U8) result = nvs_set_u8(h, key, value[0]);
-                else if (type == NVS_TYPE_U32) { uint32_t v; memcpy(&v, value, 4); result = nvs_set_u32(h, key, v); }
-                else if (type == NVS_TYPE_STR) result = nvs_set_str(h, key, (const char *)value);
-                else result = nvs_set_blob(h, key, value, len);
+                if (type == NVS_TYPE_U8) result = records_set_u8(h, key, value[0]);
+                else if (type == NVS_TYPE_U32) { uint32_t v; memcpy(&v, value, 4); result = records_set_u32(h, key, v); }
+                else if (type == NVS_TYPE_STR) result = records_set_str(h, key, (const char *)value);
+                else result = records_set_blob(h, key, value, len);
             }
         }
         free(value);
         if (result != ESP_OK) break;
     }
     if (open_ns >= 0) {
-        esp_err_t commit = result == ESP_OK ? nvs_commit(h) : result;
-        nvs_close(h);
+        esp_err_t commit = result == ESP_OK ? records_commit(h) : result;
+        records_close(h);
         if (result == ESP_OK) result = commit;
     }
     if (result != ESP_OK) return result;
@@ -233,24 +265,30 @@ static esp_err_t read_stream(FILE *file, bool restore) {
         ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
 }
 
-bool book_history_backup_validate(FILE *file) { return read_stream(file, false) == ESP_OK; }
-esp_err_t book_history_backup_restore(FILE *file) {
+bool book_history_backup_validate(FILE *file) { return read_stream(file, false,NULL) == ESP_OK; }
+static esp_err_t impl_book_history_backup_restore(FILE *file) {
     if (!file) return ESP_ERR_INVALID_ARG;
     long start = ftell(file);
-    if (start < 0 || !book_history_backup_validate(file) || fseek(file, start, SEEK_SET))
+    uint32_t seen=0;
+    if (start < 0 || read_stream(file,false,&seen)!=ESP_OK || fseek(file, start, SEEK_SET))
         return ESP_ERR_INVALID_RESPONSE;
     // Recovery replaces the old reading library. Merging leaves stale "last"
     // and per-book records behind, so the restored shelf can appear unchanged.
     // 恢复应替换旧阅读资料；合并会留下备份外的旧书进度与最近阅读排序。
     for (unsigned ns = 0; ns < sizeof(namespaces) / sizeof(namespaces[0]); ++ns) {
+        if(ns==7&&!(seen&(1u<<7)))continue;
         if(ns==0) { esp_err_t err=progress_kv_reset(); if(err!=ESP_OK) return err; continue; }
-        nvs_handle_t h;
-        esp_err_t err = nvs_open(namespaces[ns], NVS_READWRITE, &h);
+        records_handle_t h;
+        esp_err_t err = records_open(namespaces[ns], NVS_READWRITE, &h);
         if (err != ESP_OK) return err;
-        err = nvs_erase_all(h);
-        if (err == ESP_OK) err = nvs_commit(h);
-        nvs_close(h);
+        err = records_erase_all(h);
+        if (err == ESP_OK) err = records_commit(h);
+        records_close(h);
         if (err != ESP_OK) return err;
     }
-    return read_stream(file, true);
+    return read_stream(file, true,NULL);
 }
+
+esp_err_t book_history_backup_write(FILE *file){record_store_lock();esp_err_t err=impl_book_history_backup_write(file);record_store_unlock();return err;}
+
+esp_err_t book_history_backup_restore(FILE *file){record_store_lock();esp_err_t err=impl_book_history_backup_restore(file);record_store_unlock();return err;}

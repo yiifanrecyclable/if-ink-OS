@@ -20,7 +20,13 @@ Obsidian 推送插件为独立项目，本固件发布包不包含插件及任�
 
 ### Reading progress storage
 
-With an available SD card, resume positions, percentages and recent ordering live in the hidden `.readpico/progress` directory. Keep it when copying or backing up the card. Records use CRC-checked dual slots with sync and readback verification; write failures remain pending. Legacy NVS records remain readable and subsequent updates go to SD; without SD, NVS remains the fallback. Settings backup/restore includes the new store and accepts older backups. Unsaved positions already lost after a restart cannot be recovered.
+With an available SD card, resume positions, percentages and recent ordering live in the hidden `.readpico/progress` directory. Keep it when copying or backing up the card. Records use CRC-checked dual slots with sync and readback verification; write failures remain pending. Legacy NVS records remain readable and subsequent updates go to SD; without SD, legacy NVS is read-only and content saves require a card. Settings backup/restore includes the new store and accepts older backups. Unsaved positions already lost after a restart cannot be recovered.
+
+### Content records and preferences
+
+Bounded system preferences and credentials remain in internal NVS. Bookmarks, title overrides, pins, shelf removals, per-book help flags and reading statistics use SD `.readpico/records`; progress keeps `.readpico/progress`. Keep both hidden directories when backing up or moving cards.
+
+At an idle, trusted media boundary, recognized legacy NVS content is archived with checksums and independently verified against SD before exact-key retirement. Existing SD records and deletion markers win. Unknown/corrupt records and credentials are never automatically cleared. Content writes require SD and cannot refill NVS. Remaining unknown data may still exhaust NVS; diagnostics retain the inventory and migration results. Older firmware may not understand the new content store; back up before downgrading.
 
 ### Settings persistence and power failures
 

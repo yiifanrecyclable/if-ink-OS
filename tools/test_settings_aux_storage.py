@@ -9,6 +9,6 @@ with tempfile.TemporaryDirectory(prefix='pico-aux-settings-') as temp:
     section=source[source.index('bool cloud_config_valid('):source.index('static void notice(')]
     (out/'cloud_config_under_test.inc').write_text(section)
     subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-Wno-misleading-indentation','-fsanitize=address,undefined','-g',
-        '-I'+str(out),'-Itools/settings_backup_stubs','-Imain','-Imain/book',
-        'tools/settings_aux_storage_host_test.c','main/ui/ui_i18n.c','-o',str(out/'check')],cwd=ROOT,check=True)
+        '-DRECORDS_CARD_ROOT=\"'+str(out/'card')+'\"','-I'+str(out),'-Itools/settings_backup_stubs','-Imain','-Imain/book',
+        'tools/settings_aux_storage_host_test.c','main/ui/ui_i18n.c','main/book/record_store.c','-o',str(out/'check')],cwd=ROOT,check=True)
     subprocess.run([str(out/'check')],cwd=ROOT,check=True)

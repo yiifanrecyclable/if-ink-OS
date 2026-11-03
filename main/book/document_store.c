@@ -15,6 +15,7 @@
 #include "markdown_text.h"
 #include "sync_file_policy.h"
 #include "nvs.h"
+#include "record_store.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -209,19 +210,19 @@ static esp_err_t clear_reader(const char *path) {
         hash = (hash ^ *p) * UINT32_C(16777619);
     char key[11];
     snprintf(key, sizeof(key), "m_%08lx", (unsigned long)hash);
-    nvs_handle_t h;
-    e = nvs_open("rp_marks", NVS_READWRITE, &h);
+    records_handle_t h;
+    e = records_open("rp_marks", NVS_READWRITE, &h);
     if (e != ESP_OK)
         return e;
     size_t size = 0;
-    e = nvs_get_blob(h, key, NULL, &size);
+    e = records_get_blob(h, key, NULL, &size);
     if (e == ESP_OK) {
         uint8_t *data = malloc(size);
         if (!data) {
-            nvs_close(h);
+            records_close(h);
             return ESP_ERR_NO_MEM;
         }
-        e = nvs_get_blob(h, key, data, &size);
+        e = records_get_blob(h, key, data, &size);
         uint32_t magic = 0;
         if (size >= 4)
             memcpy(&magic, data, 4);
@@ -231,13 +232,13 @@ static esp_err_t clear_reader(const char *path) {
             e = ESP_ERR_INVALID_STATE;
         free(data);
         if (e == ESP_OK)
-            e = nvs_erase_key(h, key);
+            e = records_erase_key(h, key);
     }
     if (e == ESP_ERR_NVS_NOT_FOUND)
         e = ESP_OK;
     if (e == ESP_OK)
-        e = nvs_commit(h);
-    nvs_close(h);
+        e = records_commit(h);
+    records_close(h);
     return e;
 }
 // 无法解析其他正文时保留图片，避免错误清理。

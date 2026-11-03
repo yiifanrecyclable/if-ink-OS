@@ -2,8 +2,8 @@
  * SPDX-FileCopyrightText: 2026 mindreset
  * SPDX-License-Identifier: Apache-2.0
  *
- * 中文：书名覆盖独立存于 NVS，完整路径防止哈希冲突误写。
- * English: Title overrides live in NVS; full paths reject hash collisions.
+ * 中文：书名覆盖存TF，兼容旧NVS读取；完整路径防止哈希冲突误写。
+ * English: Title overrides use SD with legacy NVS reads; full paths reject hash collisions.
  */
 #include "book_title.h"
 #include <inttypes.h>
@@ -12,6 +12,7 @@
 #include <string.h>
 #include <strings.h>
 #include "nvs.h"
+#include "record_store.h"
 
 #define TITLE_PATH_MAX 288
 #define TITLE_MAX 120
@@ -75,9 +76,9 @@ static void key_for(const char *path, char key[11]) {
     for (const unsigned char *p = (const unsigned char *)path; *p; ++p) hash = (hash ^ *p) * UINT32_C(16777619);
     snprintf(key, 11, "t_%08" PRIx32, hash);
 }
-static esp_err_t get_record(nvs_handle_t h, const char *key, const char *path, char data[RECORD_MAX], size_t *len) {
+static esp_err_t get_record(records_handle_t h, const char *key, const char *path, char data[RECORD_MAX], size_t *len) {
     *len = RECORD_MAX;
-    esp_err_t err = nvs_get_blob(h, key, data, len);
+    esp_err_t err = records_get_blob(h, key, data, len);
     if (err != ESP_OK) return err;
     size_t p = strlen(path) + 1;
     if (*len < p + 2 || *len > RECORD_MAX || memcmp(data, path, p) ||
@@ -87,12 +88,12 @@ static esp_err_t get_record(nvs_handle_t h, const char *key, const char *path, c
 bool book_title_get(const char *path, char *out, size_t cap) {
     if (!path_ok(path) || !out || !cap) return false;
     out[0] = 0;
-    nvs_handle_t h;
-    if (nvs_open(NS, NVS_READONLY, &h) != ESP_OK) return false;
+    records_handle_t h;
+    if (records_open(NS, NVS_READONLY, &h) != ESP_OK) return false;
     char key[11], data[RECORD_MAX]; size_t len;
     key_for(path, key);
     esp_err_t err = get_record(h, key, path, data, &len);
-    nvs_close(h);
+    records_close(h);
     if (err != ESP_OK) return false;
     const char *title = data + strlen(path) + 1;
     if (strlen(title) >= cap) return false;
@@ -101,8 +102,8 @@ bool book_title_get(const char *path, char *out, size_t cap) {
 }
 esp_err_t book_title_set(const char *path, const char *title) {
     if (!path_ok(path) || !title || !valid_utf8(title, TITLE_MAX)) return ESP_ERR_INVALID_ARG;
-    nvs_handle_t h;
-    esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
+    records_handle_t h;
+    esp_err_t err = records_open(NS, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
     char key[11], old[RECORD_MAX]; size_t len;
     key_for(path, key);
@@ -112,21 +113,21 @@ esp_err_t book_title_set(const char *path, const char *title) {
         char data[RECORD_MAX];
         size_t p = strlen(path) + 1, t = strlen(title) + 1;
         memcpy(data, path, p); memcpy(data + p, title, t);
-        err = nvs_set_blob(h, key, data, p + t);
-        if (err == ESP_OK) err = nvs_commit(h);
+        err = records_set_blob(h, key, data, p + t);
+        if (err == ESP_OK) err = records_commit(h);
     }
-    nvs_close(h);
+    records_close(h);
     return err;
 }
 esp_err_t book_title_clear(const char *path) {
     if (!path_ok(path)) return ESP_ERR_INVALID_ARG;
-    nvs_handle_t h; esp_err_t err = nvs_open(NS, NVS_READWRITE, &h);
+    records_handle_t h; esp_err_t err = records_open(NS, NVS_READWRITE, &h);
     if (err != ESP_OK) return err;
     char key[11], old[RECORD_MAX]; size_t len;
     key_for(path, key);
     err = get_record(h, key, path, old, &len);
     if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
-    else if (err == ESP_OK) { err = nvs_erase_key(h, key); if (err == ESP_OK) err = nvs_commit(h); }
-    nvs_close(h);
+    else if (err == ESP_OK) { err = records_erase_key(h, key); if (err == ESP_OK) err = records_commit(h); }
+    records_close(h);
     return err;
 }

@@ -27,14 +27,26 @@ esp_err_t nvs_get_blob(nvs_handle_t h,const char *key,void *out,size_t *n){
  const char *fault=getenv("PICO_TEST_NVS_GET_FAIL"),*verify=getenv("PICO_TEST_NVS_READBACK_FAIL");
  if(key&&((fault&&(!strcmp(fault,"*")||!strcmp(fault,key)))||(verify&&!strcmp(verify,key)&&!strcmp(last_written,key))))return ESP_FAIL;
  char p[200];if(!n||!path(h,key,p))return ESP_ERR_INVALID_ARG;
+ const char *mutate=getenv("PICO_TEST_NVS_MUTATE_SOURCE");static unsigned source_reads;
+ if(mutate&&key&&!strcmp(mutate,key)&&++source_reads==4){FILE *change=fopen(p,"r+b");if(change){fputc('!',change);fclose(change);}}
  FILE *f=fopen(p,"rb");if(!f)return ESP_ERR_NVS_NOT_FOUND;
  fseek(f,0,SEEK_END);long size=ftell(f);rewind(f);if(size<0||size>65536){fclose(f);return ESP_ERR_INVALID_SIZE;}
  size_t cap=*n;*n=size;if(!out){fclose(f);return ESP_OK;}
  if(cap<(size_t)size){fclose(f);return ESP_ERR_INVALID_SIZE;}
  size_t got=fread(out,1,size,f);fclose(f);return got==(size_t)size?ESP_OK:ESP_FAIL;
 }
+// 仅显式测试启用条目预算；不是ESP NVS垃圾回收的物理仿真。/ Explicit test-only entry budget, not a physical simulation of ESP NVS garbage collection.
+static size_t entry_cost(size_t bytes){return bytes<=4?1:2+(bytes+31)/32;}
+static size_t used_entries(void){
+ size_t used=0;DIR *root=opendir("build/simulator/nvs");if(!root)return 0;struct dirent *ns;
+ while((ns=readdir(root))){if(!valid(ns->d_name))continue;char folder[180];snprintf(folder,sizeof(folder),"build/simulator/nvs/%s",ns->d_name);DIR *dir=opendir(folder);if(!dir)continue;struct dirent *key;
+  while((key=readdir(dir))){if(!valid(key->d_name))continue;char p[260];snprintf(p,sizeof(p),"%s/%s",folder,key->d_name);struct stat st;if(!stat(p,&st)&&S_ISREG(st.st_mode))used+=entry_cost(st.st_size);}
+  closedir(dir);
+ }closedir(root);return used;
+}
 esp_err_t nvs_set_blob(nvs_handle_t h,const char *key,const void *in,size_t n){
  const char *fault=getenv("PICO_TEST_NVS_SET_FAIL");if(fault&&key&&(!strcmp(fault,"*")||!strcmp(fault,key)))return ESP_FAIL;
+ const char *budget=getenv("PICO_TEST_NVS_ENTRY_LIMIT");if(budget&&used_entries()+entry_cost(n)>strtoul(budget,NULL,10))return 0x1105;
  char p[200],tmp[208];if(n>65536||(!in&&n)||!path(h,key,p))return ESP_ERR_INVALID_ARG;
  snprintf(tmp,sizeof(tmp),"%s.part",p);FILE *f=fopen(tmp,"wb");if(!f)return ESP_FAIL;
  size_t put=fwrite(in,1,n,f);int close=fclose(f);if(put!=n||close||rename(tmp,p)){unlink(tmp);return ESP_FAIL;}snprintf(last_written,sizeof(last_written),"%s",key);type_record(h,key,NVS_TYPE_BLOB);return ESP_OK;
@@ -45,7 +57,7 @@ esp_err_t nvs_get_u32(nvs_handle_t h,const char *key,uint32_t *out){size_t n=4;r
 esp_err_t nvs_set_u32(nvs_handle_t h,const char *key,uint32_t value){esp_err_t e=nvs_set_blob(h,key,&value,4);if(!e)type_record(h,key,NVS_TYPE_U32);return e;}
 esp_err_t nvs_get_str(nvs_handle_t h,const char *key,char *out,size_t *n){esp_err_t e=nvs_get_blob(h,key,out,n);if(!e&&out&&(!*n||out[*n-1]))return ESP_ERR_INVALID_ARG;return e;}
 esp_err_t nvs_set_str(nvs_handle_t h,const char *key,const char *s){esp_err_t e=s?nvs_set_blob(h,key,s,strlen(s)+1):ESP_ERR_INVALID_ARG;if(!e)type_record(h,key,NVS_TYPE_STR);return e;}
-esp_err_t nvs_erase_key(nvs_handle_t h,const char *key){char p[200];if(!path(h,key,p))return ESP_ERR_INVALID_ARG;return unlink(p)?ESP_ERR_NVS_NOT_FOUND:ESP_OK;}
+esp_err_t nvs_erase_key(nvs_handle_t h,const char *key){const char *fault=getenv("PICO_TEST_NVS_ERASE_FAIL");if(fault&&(!strcmp(fault,"*")||!strcmp(fault,key)))return ESP_FAIL;char p[200];if(!path(h,key,p))return ESP_ERR_INVALID_ARG;return unlink(p)?ESP_ERR_NVS_NOT_FOUND:ESP_OK;}
 esp_err_t nvs_commit(nvs_handle_t h){(void)h;static bool failed;const char *fault=getenv("PICO_TEST_NVS_COMMIT_FAIL");if(fault&&(!failed||strcmp(fault,"once"))){failed=true;return ESP_FAIL;}return ESP_OK;}
 esp_err_t nvs_flash_init(void){return ESP_OK;}
 esp_err_t nvs_flash_erase(void){return ESP_ERR_NOT_SUPPORTED;}
@@ -57,7 +69,7 @@ static void type_record(nvs_handle_t h,const char *key,nvs_type_t type){
  snprintf(folder,sizeof(folder),"build/simulator/nvs/%s/._types",spaces[h-1]);mkdir(folder,0700);
  snprintf(meta,sizeof(meta),"%s/%s",folder,key);FILE *f=fopen(meta,"wb");if(f){unsigned char t=type;fwrite(&t,1,1,f);fclose(f);}
 }
-struct preview_nvs_iterator {DIR *directory;char name[64];nvs_type_t filter;nvs_entry_info_t current;};
+struct preview_nvs_iterator {DIR *directory;DIR *namespaces;char name[64];nvs_type_t filter;nvs_entry_info_t current;};
 static nvs_type_t item_type(const char *space,const char *key){
  char meta[224];snprintf(meta,sizeof(meta),"build/simulator/nvs/%s/._types/%s",space,key);
  FILE *f=fopen(meta,"rb");if(f){int t=fgetc(f);fclose(f);if(t==NVS_TYPE_U8||t==NVS_TYPE_U32||t==NVS_TYPE_STR||t==NVS_TYPE_BLOB)return (nvs_type_t)t;}
@@ -67,25 +79,30 @@ static nvs_type_t item_type(const char *space,const char *key){
  return NVS_TYPE_BLOB;
 }
 static bool iterator_advance(nvs_iterator_t it){
- struct dirent *entry;while((entry=readdir(it->directory))){
+ struct dirent *entry;
+again:
+ while(it->directory&&(entry=readdir(it->directory))){
   if(!valid(entry->d_name)||strlen(entry->d_name)>=16)continue;
   char p[224];snprintf(p,sizeof(p),"build/simulator/nvs/%s/%s",it->name,entry->d_name);
   struct stat st;if(stat(p,&st)||!S_ISREG(st.st_mode))continue;
   nvs_type_t type=item_type(it->name,entry->d_name);if(it->filter!=NVS_TYPE_ANY&&type!=it->filter)continue;
   memset(&it->current,0,sizeof(it->current));snprintf(it->current.namespace_name,sizeof(it->current.namespace_name),"%s",it->name);snprintf(it->current.key,sizeof(it->current.key),"%s",entry->d_name);it->current.type=type;return true;
- }return false;
+ }
+ if(it->directory){closedir(it->directory);it->directory=NULL;}
+ if(it->namespaces){struct dirent *ns;while((ns=readdir(it->namespaces))){if(!valid(ns->d_name)||strlen(ns->d_name)>15)continue;char folder[160];snprintf(folder,sizeof(folder),"build/simulator/nvs/%s",ns->d_name);it->directory=opendir(folder);if(!it->directory)continue;strcpy(it->name,ns->d_name);goto again;}}
+ return false;
 }
 esp_err_t nvs_entry_find(const char *part,const char *name,nvs_type_t filter,nvs_iterator_t *out){
- if(!out||!valid(name))return ESP_ERR_INVALID_ARG;*out=NULL;
- char p[128];snprintf(p,sizeof(p),"build/simulator/nvs/%s",name);DIR *dir=opendir(p);if(!dir)return ESP_ERR_NVS_NOT_FOUND;
+ if(!out||(name&&!valid(name)))return ESP_ERR_INVALID_ARG;*out=NULL;
+ char p[128];snprintf(p,sizeof(p),"build/simulator/nvs%s%s",name?"/":"",name?name:"");DIR *dir=opendir(p);if(!dir)return ESP_ERR_NVS_NOT_FOUND;
  nvs_iterator_t it=calloc(1,sizeof(*it));if(!it){closedir(dir);return ESP_ERR_NO_MEM;}
- it->directory=dir;it->filter=filter;snprintf(it->name,sizeof(it->name),"%s",name);
+ it->directory=name?dir:NULL;it->namespaces=name?NULL:dir;it->filter=filter;if(name)snprintf(it->name,sizeof(it->name),"%s",name);
  if(!iterator_advance(it)){nvs_release_iterator(it);return ESP_ERR_NVS_NOT_FOUND;}*out=it;return ESP_OK;
 }
 esp_err_t nvs_entry_find_in_handle(nvs_handle_t h,nvs_type_t type,nvs_iterator_t *out){if(h<1||h>16||!spaces[h-1][0])return ESP_ERR_INVALID_ARG;return nvs_entry_find(NVS_DEFAULT_PART_NAME,spaces[h-1],type,out);}
 esp_err_t nvs_entry_info(nvs_iterator_t it,nvs_entry_info_t *out){if(!it||!out)return ESP_ERR_INVALID_ARG;*out=it->current;return ESP_OK;}
 esp_err_t nvs_entry_next(nvs_iterator_t *it){if(!it||!*it)return ESP_ERR_INVALID_ARG;if(iterator_advance(*it))return ESP_OK;nvs_release_iterator(*it);*it=NULL;return ESP_ERR_NVS_NOT_FOUND;}
-void nvs_release_iterator(nvs_iterator_t it){if(it){closedir(it->directory);free(it);}}
+void nvs_release_iterator(nvs_iterator_t it){if(it){if(it->directory)closedir(it->directory);if(it->namespaces)closedir(it->namespaces);free(it);}}
 esp_err_t nvs_erase_all(nvs_handle_t h){
  nvs_iterator_t it=NULL;esp_err_t e=nvs_entry_find_in_handle(h,NVS_TYPE_ANY,&it);if(e==ESP_ERR_NVS_NOT_FOUND)return ESP_OK;if(e)return e;
  do{nvs_entry_info_t info; nvs_entry_info(it,&info);char p[200];if(!path(h,info.key,p)||unlink(p)){nvs_release_iterator(it);return ESP_FAIL;}}while(nvs_entry_next(&it)==ESP_OK);

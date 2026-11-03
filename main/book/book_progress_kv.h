@@ -10,10 +10,12 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "nvs.h"
+#include "record_store.h"
 
 typedef struct {
+    records_handle_t media_token; ///< 挂载代号；换卡后失效。/ Mount epoch; invalidated by media changes.
     bool sd; ///< 此句柄使用TF卡。/ This handle uses SD.
-    nvs_handle_t legacy; ///< 无TF时沿用NVS。/ NVS fallback without SD.
+    nvs_handle_t legacy; ///< 无TF时只读旧NVS。/ Read-only legacy NVS without SD.
 } progress_kv_handle_t;
 
 /// 进度写入与遗忘仍须由调用方串行化；不会创建或挂载TF根目录。
@@ -36,3 +38,5 @@ esp_err_t progress_kv_list(progress_kv_visit_fn visit, void *ctx);
 /// 恢复备份时替换进度库；TF墓碑阻止旧NVS复活，失败返回调用方。
 /// Replace the progress library during restore; SD tombstones suppress legacy resurrection, returning failures.
 esp_err_t progress_kv_reset(void);
+/// 迁移专用：只核实原始IFP1槽，不经NVS回退；新TF值/墓碑优先。/ Migration-only raw IFP1 verification; SD data/tombstones retain priority without fallback.
+esp_err_t progress_kv_migration_copy(const char *key,nvs_type_t type,const void *value,size_t bytes,records_validate_fn validate);

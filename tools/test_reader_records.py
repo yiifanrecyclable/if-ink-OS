@@ -31,7 +31,9 @@ with tempfile.TemporaryDirectory(prefix='reader-records-',dir=R/'build') as tmp:
  # 真实on_tick连续计时；两次进程启动模拟两次阅读会话。/ Real on_tick accounting across two reader sessions.
  events=';'.join(['h,0,0,0,0']*65)
  frame('book-1',paths[1],0,events)
- def total():return struct.unpack_from('<Q',(out/'nvs/rp_ticket/stats').read_bytes(),8)[0]
+ def total():
+  slots=[x.read_bytes() for x in (card/'.readpico/records/rp_ticket').glob('stats.[ab]')]
+  return struct.unpack_from('<Q',max(slots,key=lambda b:struct.unpack_from('<I',b,8)[0]),48)[0]
  first=total();assert first>=60,first
  frame('book-1',paths[2],0,events);assert total()>=first+60
  # 使用真正EPUB解析和每帧独立进程模拟重启；NVS提交失败不能再阻断阅读进度。

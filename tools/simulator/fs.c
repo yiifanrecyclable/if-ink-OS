@@ -20,6 +20,7 @@
 #undef rmdir
 #undef rename
 #undef access
+#undef fsync
 static int mapped(const char *p,char out[PATH_MAX],int write){
  if(!p||!*p){errno=EINVAL;return 0;}
  char cwd[PATH_MAX];if(p[0]=='/'&&getcwd(cwd,sizeof(cwd))){size_t n=strlen(cwd);if(!strncmp(p,cwd,n)&&p[n]=='/')p+=n+1;}
@@ -42,6 +43,7 @@ static int mapped(const char *p,char out[PATH_MAX],int write){
  return 1;
 }
 FILE *sim_fopen(const char*p,const char*m){
+ const char *read_fault=getenv("PICO_TEST_FOPEN_READ_FAIL");if(read_fault&&!strcmp(p,read_fault)&&m[0]=='r'){errno=EIO;return NULL;}
  // 精确路径注入写失败，用于双槽落盘与重试测试。/ Exact-path write faults exercise durable slots and retries.
  const char *write_fault=getenv("PICO_TEST_FOPEN_WRITE_FAIL");
  if(write_fault&&!strcmp(p,write_fault)&&strpbrk(m,"wa+")){errno=EIO;return NULL;}
@@ -79,3 +81,5 @@ int sim_open(const char *path,int flags,...){
  if(flags&O_CREAT){va_list args;va_start(args,flags);int mode=va_arg(args,int);va_end(args);return open(mapped_path,flags,(mode_t)mode);}
  return open(mapped_path,flags);
 }
+
+int sim_fsync(int fd){if(getenv("PICO_TEST_FSYNC_FAIL")){errno=EIO;return -1;}return fsync(fd);}

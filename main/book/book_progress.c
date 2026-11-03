@@ -5,10 +5,10 @@
  * 版本化小端进度记录，以完整路径校验哈希碰撞。
  * Versioned little-endian progress records with full-path collision checks.
  *
- * 冻结：TF可用时写CRC双槽并读回；旧rp_books仅兼容读取，无TF时沿用NVS。
+ * 冻结：TF可用时写CRC双槽并读回；旧rp_books仅兼容读取，无TF时保存返回错误。
  * 不擦除分区、不覆盖碰撞书籍。为可靠最近阅读排序，
  * v2 改用持久序号，v1 仍可恢复但排序为 0；遗忘只清指定路径，部分失败允许重试。
- * Frozen: use verified CRC dual slots on SD; read legacy rp_books, retaining NVS without SD.
+ * Frozen: use verified CRC dual slots on SD; read legacy rp_books, returning save errors without SD.
  * Never erase partitions or overwrite collisions. Reliable recent ordering uses
  * persistent v2 sequences; v1 resumes with order zero. Forget only the given path, retrying partial failures.
  */

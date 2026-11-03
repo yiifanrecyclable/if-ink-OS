@@ -1006,9 +1006,9 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         int title_px=ui_text_fit_px(UI_TEXT_TITLE,"if-ink OS",196,48);
         ui_text_fixed_vc(fb,36,center,title_px,"if-ink OS",EPD_DRAW_ALIGN_LEFT,false);
         int version_x=36+ui_text_fixed_width_px(title_px,"if-ink OS")+12;
-        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.2.0 beta r6",156,48);
-        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.2.0 beta r6",EPD_DRAW_ALIGN_LEFT,false);
-        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.2.0 beta r6")-24;
+        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.2.0 beta r7",156,48);
+        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.2.0 beta r7",EPD_DRAW_ALIGN_LEFT,false);
+        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.2.0 beta r7")-24;
         const char *slogan=UI_MSG("支持md文档的Pico固件");
         int slogan_px=ui_text_fit_px(UI_TEXT_CAPTION,slogan,width,48);
         ui_text_fixed_vc_gray(fb,648,center,slogan_px,slogan,EPD_DRAW_ALIGN_RIGHT,8,15);
@@ -1043,7 +1043,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
                   reading_icons, reading_labels, reading_values, SETTINGS_DISPLAY_ROWS);
     const char *device_labels[] = {UI_MSG("日期与时间"), UI_MSG("系统语言"), UI_MSG("关机与休眠"), UI_MSG("电池管理"), UI_MSG("保存与恢复"), UI_MSG("固件信息"), UI_MSG("记录日志"), UI_MSG("BOOT 刷机")};
     const char *device_values[] = {UI_MSG("设置  ›"), app_settings_language()==APP_LANGUAGE_EN?"English":"中文", app_settings_staged_shutdown() ? UI_MSG("先浅后深  ›") : UI_MSG("彻底断电  ›"),
-                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), "v0.2.0 beta r6  ›", UI_MSG("诊断  ›"), UI_MSG("电脑刷机  ›")};
+                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), "v0.2.0 beta r7  ›", UI_MSG("诊断  ›"), UI_MSG("电脑刷机  ›")};
     static const int device_icons[] = {6, 17, 9, 13, 8, 14, 14, 16};
     setting_group(fb, SETTINGS_DEVICE_Y - 34, UI_MSG("系统与设备"), SETTINGS_DEVICE_Y,
                   device_icons, device_labels, device_values, SETTINGS_DEVICE_ROWS);
@@ -1475,17 +1475,20 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     }
     if(s_page==SETTINGS_IDLE_SLEEP){
         for(int i=0;i<6;++i)if(ui_rect_hit(status_date_rect(i),ev->x0,y)){
-            app_settings_set_idle_sleep_minutes(idle_sleep_minutes[i]);s_page=SETTINGS_POWER_SLEEP;return APP_REDRAW_PAGE;
+            esp_err_t saved=app_settings_set_idle_sleep_minutes(idle_sleep_minutes[i]);
+            if(saved==ESP_OK)s_page=SETTINGS_POWER_SLEEP;
+            else{(void)app_settings_take_save_error();ui_snprintf(s_notice,sizeof(s_notice),UI_MSG("保存失败，请重试"));}
+            return APP_REDRAW_PAGE;
         }
         return APP_REDRAW_NONE;
     }
     if (s_page == SETTINGS_POWER_SLEEP) {
         if (y >= UI_PAGE_Y(300) && y < UI_PAGE_Y(432)) {
-            app_settings_set_staged_shutdown(false);
+            if(app_settings_set_staged_shutdown(false)!=ESP_OK){(void)app_settings_take_save_error();ui_snprintf(s_notice,sizeof(s_notice),UI_MSG("保存失败，请重试"));}
             return APP_REDRAW_PAGE;
         }
         if (y >= UI_PAGE_Y(454) && y < UI_PAGE_Y(586)) {
-            app_settings_set_staged_shutdown(true);
+            if(app_settings_set_staged_shutdown(true)!=ESP_OK){(void)app_settings_take_save_error();ui_snprintf(s_notice,sizeof(s_notice),UI_MSG("保存失败，请重试"));}
             return APP_REDRAW_PAGE;
         }
         if(y>=UI_PAGE_Y(714)&&y<UI_PAGE_Y(714)+SETTINGS_ROW_H){s_page=SETTINGS_IDLE_SLEEP;return APP_REDRAW_PAGE;}

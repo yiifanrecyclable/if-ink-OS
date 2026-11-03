@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "nvs.h"
+#include "record_store.h"
 #include "../settings_storage.h"
 
 static reader_input_preferences_t s_prefs = {.version=1};
@@ -36,12 +37,12 @@ static void unique_actions(reader_input_preferences_t *p){
 static esp_err_t load(void) {
     if(s_loaded)return ESP_OK;
     reader_input_preferences_t p={.version=1};
-    nvs_handle_t h;
-    esp_err_t err=nvs_open("rp_input",NVS_READONLY,&h);
+    records_handle_t h;
+    esp_err_t err=records_open("rp_input",NVS_READONLY,&h);
     if(err==ESP_OK){
-        size_t size=sizeof(p);err=nvs_get_blob(h,"preferences",&p,&size);
+        size_t size=sizeof(p);err=records_get_blob(h,"preferences",&p,&size);
         if(err==ESP_OK&&(size!=sizeof(p)||!reader_input_preferences_valid(&p)))err=ESP_ERR_INVALID_RESPONSE;
-        nvs_close(h);
+        records_close(h);
     }
     if(err==ESP_ERR_NVS_NOT_FOUND){p=(reader_input_preferences_t){.version=1};err=ESP_OK;}
     if(err==ESP_OK){unique_actions(&p);s_prefs=p;s_loaded=true;}
@@ -83,26 +84,27 @@ static void help_key(const char *path,char key[16]){
 }
 bool reader_input_needs_help(const char *path){
     load();if(s_prefs.hide_help||!path||!*path)return false;
-    nvs_handle_t h;uint8_t seen=0;char key[16];help_key(path,key);
-    if(nvs_open("rp_input",NVS_READONLY,&h)==ESP_OK){(void)nvs_get_u8(h,key,&seen);nvs_close(h);}
+    records_handle_t h;uint8_t seen=0;char key[16];help_key(path,key);
+    if(records_open("rp_input",NVS_READONLY,&h)==ESP_OK){(void)records_get_u8(h,key,&seen);records_close(h);}
     return seen!=1;
 }
 esp_err_t reader_input_ack_help(const char *path,bool hide_all){
     if(!path||!*path)return ESP_ERR_INVALID_ARG;
     reader_input_preferences_t p;esp_err_t loaded=reader_input_export_checked(&p);if(loaded!=ESP_OK)return loaded;p.hide_help=hide_all?1:0;
-    nvs_handle_t h;esp_err_t err=nvs_open("rp_input",NVS_READWRITE,&h);if(err!=ESP_OK)return err;
-    char key[16];help_key(path,key);err=nvs_set_u8(h,key,1);
-    if(err==ESP_OK)err=nvs_set_blob(h,"preferences",&p,sizeof(p));
-    if(err==ESP_OK)err=nvs_commit(h);
-    nvs_close(h);
+    records_handle_t h;esp_err_t err=records_open("rp_input",NVS_READWRITE,&h);if(err!=ESP_OK)return err;
+    // 逐书标记和有界偏好分属TF/NVS；失败返回，重试幂等，不宣称跨介质原子性。/ Per-book SD markers and bounded NVS preferences are not atomic together; report failures and retry idempotently.
+    char key[16];help_key(path,key);err=records_set_u8(h,key,1);
+    if(err==ESP_OK)err=records_set_blob(h,"preferences",&p,sizeof(p));
+    if(err==ESP_OK)err=records_commit(h);
+    records_close(h);
     if(err==ESP_OK){
-        err=nvs_open("rp_input",NVS_READONLY,&h);
+        err=records_open("rp_input",NVS_READONLY,&h);
         if(err==ESP_OK){
             reader_input_preferences_t stored;size_t size=sizeof(stored);uint8_t seen=0;
-            err=nvs_get_u8(h,key,&seen);if(err==ESP_OK&&seen!=1)err=ESP_ERR_INVALID_RESPONSE;
-            if(err==ESP_OK)err=nvs_get_blob(h,"preferences",&stored,&size);
+            err=records_get_u8(h,key,&seen);if(err==ESP_OK&&seen!=1)err=ESP_ERR_INVALID_RESPONSE;
+            if(err==ESP_OK)err=records_get_blob(h,"preferences",&stored,&size);
             if(err==ESP_OK&&(size!=sizeof(stored)||memcmp(&stored,&p,sizeof(p))))err=ESP_ERR_INVALID_RESPONSE;
-            nvs_close(h);
+            records_close(h);
         }
     }
     if(err==ESP_OK)s_prefs=p;

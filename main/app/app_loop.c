@@ -60,6 +60,8 @@
 extern bool app_book_reader_body_visible(void);
 #include "ui_power_dialog.h"
 #include "usb_storage.h"
+#include "book/record_store_media.h"
+#include "book/storage_maintenance.h"
 
 #define TAG "app_loop"
 
@@ -72,6 +74,19 @@ extern bool app_book_reader_body_visible(void);
 #define MEDIA_POLL_INTERVAL_MS 500
 // 每次重新插入只发起一次恢复；失败保留提示，不在主循环反复重挂。/ One recovery per insertion; keep failures visible instead of repeatedly remounting.
 static bool s_media_recovery_requested;
+static bool s_records_maintenance_pending;
+// 仅在无HTTP会话且不在阅读正文时清退旧记录；不打断用户传输。/ Retire legacy records only outside HTTP sessions and reader bodies; never interrupt transfers.
+static void maintain_content_records(void) {
+    if(!s_records_maintenance_pending||!record_store_ready()||usb_storage_active()||app_book_reader_body_visible())return;
+    read_pico_transfer_status_t transfer={0};read_pico_transfer_get_status(&transfer);
+    if(transfer.state!=READ_PICO_TRANSFER_STOPPED)return;
+    s_records_maintenance_pending=false;
+    storage_maintenance_result_t result={0};
+    esp_err_t err=storage_maintenance_run(&result);
+    if(result.examined||err!=ESP_OK)app_settings_trace_storage_result("content_migrated",err);
+    if(err!=ESP_OK)ESP_LOGW(TAG,"Content storage maintenance deferred: %s",esp_err_to_name(err));
+}
+
 
 static int64_t s_lock_ignore_until_ms;
 extern const app_desc_t app_transfer;
@@ -243,7 +258,7 @@ static bool try_load_saved_sd_font(bool allow_probe) {
 // Stop consumers and close card fonts before explicitly remounting on a later insertion poll.
 static bool poll_media(app_ctx_t* ctx, const app_desc_t* current,
                        bool* mounted, bool* invalidated) {
-    if (usb_storage_active()) { *mounted = false; *invalidated = false; s_media_recovery_requested = false; return false; }
+    if (usb_storage_active()) { record_store_media(false); *mounted = false; *invalidated = false; s_media_recovery_requested = false; return false; }
     read_pico_sd_info_t info = {0};
     esp_err_t err = read_pico_sd_get_info(&info);
     if (!info.present) s_media_recovery_requested = false;
@@ -266,7 +281,10 @@ static bool poll_media(app_ctx_t* ctx, const app_desc_t* current,
     bool gained = !*mounted && ready;
     *mounted = ready;
     if (ready) { *invalidated = false; s_media_recovery_requested = false; }
+    record_store_media(ready);
     if (gained) {
+        s_records_maintenance_pending=true;
+        maintain_content_records();
         app_settings_wallpaper_media_ready();
         esp_err_t installed = bundled_assets_install();
         if (installed != ESP_OK) ESP_LOGW(TAG,"Optional artwork install deferred: %s",esp_err_to_name(installed));
@@ -353,7 +371,10 @@ void app_loop_run(const app_loop_config_t* config) {
     int64_t last_activity_ms=esp_timer_get_time()/1000,last_idle_poll_ms=0;
     bool idle_suspended=false;
     read_pico_sd_info_t initial_media = {0};
-    (void)read_pico_sd_get_info(&initial_media);
+    esp_err_t initial_media_error=read_pico_sd_get_info(&initial_media);
+    record_store_media(initial_media_error==ESP_OK&&initial_media.present&&initial_media.mounted&&!usb_storage_active());
+    s_records_maintenance_pending=record_store_ready();
+    maintain_content_records();
     bool media_mounted = initial_media.mounted || (ttf_font_ready() && !ttf_font_is_builtin());
     bool media_invalidated = false;
     if (initial_media.mounted && !usb_storage_active()) {app_settings_wallpaper_media_ready();(void)bundled_assets_install();}
@@ -420,7 +441,8 @@ void app_loop_run(const app_loop_config_t* config) {
                 else app_present(&ctx, current, APP_REDRAW_FULL);
                 // 本轮旧输入不再触发动作，下一轮恢复正常事件处理。
                 // Discard this tick's stale input, then resume normal dispatch next tick.
-                operation_log_poll(err==ESP_OK&&!touch.touched&&!usb_storage_active());
+                if(!touch.touched&&!ctx.released&&!ctx.consumed&&!power_dialog_open)maintain_content_records();
+        operation_log_poll(err==ESP_OK&&!touch.touched&&!usb_storage_active());
         vTaskDelay(pdMS_TO_TICKS(LOOP_TICK_MS));
                 continue;
             }
@@ -774,6 +796,7 @@ void app_loop_run(const app_loop_config_t* config) {
         }
         app_time_service_poll(ctx.now_ms,err==ESP_OK&&!touch.touched&&!ctx.released&&!ctx.consumed&&
             !power_dialog_open&&!usb_storage_active()&&!current->holds_pmu);
+        if(!touch.touched&&!ctx.released&&!ctx.consumed&&!power_dialog_open)maintain_content_records();
         operation_log_poll(err==ESP_OK&&!touch.touched&&!usb_storage_active());
         vTaskDelay(pdMS_TO_TICKS(LOOP_TICK_MS));
     }

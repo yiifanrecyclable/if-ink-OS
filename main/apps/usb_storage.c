@@ -19,6 +19,7 @@
 #include "tinyusb_default_config.h"
 #include "tinyusb_msc.h"
 #include "ttf_font.h"
+#include "book/record_store_media.h"
 
 static const char *TAG = "usb_storage";
 static sdmmc_card_t *s_card;
@@ -69,8 +70,15 @@ esp_err_t usb_storage_start(void) {
     // 字体文件在 SD 上，先关闭句柄再卸载。/ Close the SD-backed font before unmounting.
     ttf_font_unload();
     ttf_font_open_builtin();
+    record_store_media(false);
     esp_err_t err = read_pico_sd_sync();
-    if (err != ESP_OK) return err;
+    if (err != ESP_OK) {
+        read_pico_sd_info_t retained={0};
+        esp_err_t retained_error=read_pico_sd_get_info(&retained);
+        // 卸载失败仍保留本机挂载；探测未完成则等待主循环确认。/ Failed unmount retains local media; an unfinished probe waits for loop confirmation.
+        record_store_media(retained_error!=ESP_ERR_NOT_FINISHED&&retained.present&&retained.mounted);
+        return err;
+    }
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
     // USB transfer uses the conservative 20 MHz SD clock.  The 1-bit bus is
     // already slower than the USB endpoint and 40 MHz can stall on long writes.

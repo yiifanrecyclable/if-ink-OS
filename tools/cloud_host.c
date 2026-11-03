@@ -6,6 +6,7 @@
 #include "cloud_dav.h"
 #include "cJSON.h"
 #include "book_progress.h"
+#include "record_store.h"
 #include "nvs.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +14,7 @@
 #include <sys/stat.h>
 static char *read_json(const char *path,size_t *length){FILE *f=fopen(path,"rb");if(!f)return NULL;struct stat st;if(stat(path,&st)||st.st_size<0||st.st_size>CLOUD_MANIFEST_MAX){fclose(f);return NULL;}char *s=malloc(st.st_size+1);if(!s){fclose(f);return NULL;}*length=fread(s,1,st.st_size,f);bool ok=*length==(size_t)st.st_size&&!ferror(f);fclose(f);if(!ok){free(s);return NULL;}s[*length]=0;return s;}
 int main(int argc,char **argv){
+    record_store_media(true);
     esp_err_t error=ESP_ERR_INVALID_ARG;bool unchanged=false;
     if(argc==3&&!strcmp(argv[1],"etag")){char tag[129];bool valid=cloud_etag_version(argv[2],tag);cJSON *object=cJSON_CreateObject();cJSON_AddNumberToObject(object,"error",0);cJSON_AddBoolToObject(object,"valid",valid);if(valid)cJSON_AddStringToObject(object,"version",tag);char *out=cJSON_PrintUnformatted(object);if(out){puts(out);free(out);}cJSON_Delete(object);return 0;}
     else if(argc==2&&!strcmp(argv[1],"bookdir")){

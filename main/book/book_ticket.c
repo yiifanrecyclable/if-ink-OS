@@ -24,6 +24,7 @@
 #include "epdiy.h"
 #include "esp_heap_caps.h"
 #include "nvs.h"
+#include "record_store.h"
 #include "read_pico_pmu.h"
 #include "ttf_font.h"
 #include "ui_kit.h"
@@ -52,11 +53,11 @@ static uint32_t local_day(void) {
 }
 static void stats_load(ticket_stats_t *out) {
     memset(out, 0, sizeof(*out));
-    nvs_handle_t h;
-    if (nvs_open("rp_ticket", NVS_READONLY, &h) != ESP_OK) return;
+    records_handle_t h;
+    if (records_open("rp_ticket", NVS_READONLY, &h) != ESP_OK) return;
     size_t len = sizeof(*out);
-    esp_err_t err = nvs_get_blob(h, "stats", out, &len);
-    nvs_close(h);
+    esp_err_t err = records_get_blob(h, "stats", out, &len);
+    records_close(h);
     if (err != ESP_OK || len != sizeof(*out) || out->magic != TICKET_MAGIC) memset(out, 0, sizeof(*out));
 }
 // 内部存储写满时，仍允许日记录独立落到TF；失败则让调用方保留待存秒数。
@@ -79,14 +80,14 @@ esp_err_t book_ticket_record(uint32_t seconds, uint32_t turns) {
     stats.total_turns += turns;
     if (day) { stats.today_seconds += seconds; stats.today_turns += turns; }
     uint32_t daily_total=0;
-    nvs_handle_t h;
-    esp_err_t err = nvs_open("rp_ticket", NVS_READWRITE, &h);
+    records_handle_t h;
+    esp_err_t err = records_open("rp_ticket", NVS_READWRITE, &h);
     if (err != ESP_OK) return record_daily_fallback(day,seconds,err);
-    err = nvs_set_blob(h, "stats", &stats, sizeof(stats));
+    err = records_set_blob(h, "stats", &stats, sizeof(stats));
     if (err == ESP_OK && day && seconds) {
         ticket_heat_t heat = {0};
         size_t len = sizeof(heat);
-        if (nvs_get_blob(h, "heatmap", &heat, &len) != ESP_OK ||
+        if (records_get_blob(h, "heatmap", &heat, &len) != ESP_OK ||
             len != sizeof(heat) || heat.magic != TICKET_HEAT_MAGIC) {
             memset(&heat, 0, sizeof(heat));
             heat.magic = TICKET_HEAT_MAGIC;
@@ -97,18 +98,18 @@ esp_err_t book_ticket_record(uint32_t seconds, uint32_t turns) {
         if(archived>old)old=archived;
         heat.seconds[slot] = UINT32_MAX - old < seconds ? UINT32_MAX : old + seconds;
         daily_total=heat.seconds[slot];
-        err = nvs_set_blob(h, "heatmap", &heat, sizeof(heat));
+        err = records_set_blob(h, "heatmap", &heat, sizeof(heat));
     }
-    if (err == ESP_OK) err = nvs_commit(h);
-    nvs_close(h);
-    // NVS先提交，TF失败时保留30天恢复窗口，后续幂等补存。/ Commit NVS first; retain a 30-day recovery window when TF writes fail.
+    if (err == ESP_OK) err = records_commit(h);
+    records_close(h);
+    // 先确认内容记录，再将30天窗口幂等归档至日记录。/ Confirm content records before idempotently archiving the 30-day window into daily history.
     if(err==ESP_OK&&day&&daily_total)(void)reading_history_merge(day,daily_total);
     return err==ESP_OK?ESP_OK:record_daily_fallback(day,seconds,err);
 }
 bool book_ticket_archive_days(void) {
-    nvs_handle_t h;if(nvs_open("rp_ticket",NVS_READONLY,&h)!=ESP_OK)return true;
+    records_handle_t h;if(records_open("rp_ticket",NVS_READONLY,&h)!=ESP_OK)return true;
     ticket_heat_t heat={0};size_t len=sizeof(heat);
-    esp_err_t err=nvs_get_blob(h,"heatmap",&heat,&len);nvs_close(h);
+    esp_err_t err=records_get_blob(h,"heatmap",&heat,&len);records_close(h);
     if(err!=ESP_OK||len!=sizeof(heat)||heat.magic!=TICKET_HEAT_MAGIC)return true;
     bool ok=true;
     for(unsigned i=0;i<30;++i)if(heat.day[i]&&heat.seconds[i]&&!reading_history_merge(heat.day[i],heat.seconds[i]))ok=false;
@@ -122,11 +123,11 @@ bool book_ticket_recent_days(uint32_t seconds[30], uint32_t *end_day) {
     if (end_day) *end_day = today;
     if (!today) return false;
     reading_history_range(today-29,30,seconds);
-    nvs_handle_t h;
+    records_handle_t h;
     ticket_heat_t heat = {0};
     size_t len = sizeof(heat);
-    if(nvs_open("rp_ticket",NVS_READONLY,&h)==ESP_OK){
-        esp_err_t err=nvs_get_blob(h,"heatmap",&heat,&len);nvs_close(h);
+    if(records_open("rp_ticket",NVS_READONLY,&h)==ESP_OK){
+        esp_err_t err=records_get_blob(h,"heatmap",&heat,&len);records_close(h);
         if(err!=ESP_OK||len!=sizeof(heat)||heat.magic!=TICKET_HEAT_MAGIC)memset(&heat,0,sizeof(heat));
     }
     for (unsigned i = 0; i < 30; ++i) {

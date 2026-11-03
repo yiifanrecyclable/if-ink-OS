@@ -12,12 +12,14 @@
 #include "document_store.h"
 #include "document_image.h"
 #include "book_progress.h"
+#include "record_store.h"
 static void write_text(const char *p,const char *s){FILE *f=fopen(p,"wb");assert(f);assert(fwrite(s,1,strlen(s),f)==strlen(s));assert(!fclose(f));}
 static void copy(const char *a,const char *b){FILE *f=fopen(a,"rb"),*g=fopen(b,"wb");assert(f&&g);char bytes[4096];size_t n;while((n=fread(bytes,1,sizeof(bytes),f)))assert(fwrite(bytes,1,n,g)==n);assert(!ferror(f));fclose(f);assert(!fclose(g));}
 static long size(const char *p){struct stat st;assert(!stat(p,&st));return st.st_size;}
 static void date(char out[80]){FILE *f=fopen(DOCUMENT_ROOT"/.index/unittest-owned.md.pico","rb");assert(f);assert(fgets(out,80,f));assert(fgets(out,80,f));fclose(f);}
 static document_entry_t entry(const char *path){document_entry_t *items=NULL,result={0};size_t n=0;assert(document_store_scan(&items,&n)==ESP_OK);for(size_t i=0;i<n;i++)if(!strcmp(items[i].path,path))result=items[i];free(items);assert(result.path[0]);return result;}
 int main(void){
+    record_store_media(true);
     (void)mkdir(DOCUMENT_ROOT,0700);(void)mkdir(DOCUMENT_ROOT"/attachments",0700);
     const char *path=DOCUMENT_ROOT"/unittest-owned.md";
     write_text(path,"## A\n\nbody\n\n### duplicate\n\nsub\n\n#### nested\n\nleaf\n\n## B\n\n### duplicate\n\nend\n");

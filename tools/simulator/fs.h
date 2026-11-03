@@ -19,6 +19,7 @@ int sim_unlink(const char *);
 int sim_rmdir(const char *);
 int sim_rename(const char *, const char *);
 int sim_access(const char *, int);
+int sim_fsync(int);
 #ifndef PICO_SIM_FS_IMPL
 #define open(...) sim_open(__VA_ARGS__)
 #define fopen(p,m) sim_fopen(p,m)
@@ -31,6 +32,7 @@ int sim_access(const char *, int);
 #define rmdir(p) sim_rmdir(p)
 #define rename(a,b) sim_rename(a,b)
 #define access(p,m) sim_access(p,m)
+#define fsync(fd) sim_fsync(fd)
 #endif
 
 #endif

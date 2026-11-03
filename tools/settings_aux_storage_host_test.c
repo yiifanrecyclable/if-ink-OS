@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include "nvs.h"
 #include "cloud/cloud_config.h"
+#include "book/record_store.h"
+#include <sys/stat.h>
 typedef struct { char space[20],key[20];unsigned char data[1024];size_t n;int type; } record_t;
 static record_t records[64];static int count,handles,writes;
 static char active_space[20];static int active_mode;
@@ -36,6 +38,12 @@ esp_err_t nvs_set_blob(nvs_handle_t h,const char*k,const void*v,size_t n){(void)
 esp_err_t nvs_commit(nvs_handle_t h){(void)h;return fail_commit?ESP_FAIL:ESP_OK;}
 esp_err_t nvs_erase_key(nvs_handle_t h,const char*k){(void)h;record_t *r=find(k);if(!r)return ESP_ERR_NVS_NOT_FOUND;*r=records[--count];return ESP_OK;}
 esp_err_t nvs_erase_all(nvs_handle_t h){(void)h;for(int i=count-1;i>=0;--i)if(!strcmp(records[i].space,active_space))records[i]=records[--count];return ESP_OK;}
+esp_err_t nvs_get_u32(nvs_handle_t h,const char*k,uint32_t*v){(void)h;size_t n=4;return get(k,v,&n,4);}
+esp_err_t nvs_set_u32(nvs_handle_t h,const char*k,uint32_t v){(void)h;return put(k,&v,4,4);}
+esp_err_t nvs_entry_find(const char*p,const char*n,nvs_type_t t,nvs_iterator_t*i){(void)p;(void)n;(void)t;*i=NULL;return ESP_ERR_NVS_NOT_FOUND;}
+esp_err_t nvs_entry_info(nvs_iterator_t i,nvs_entry_info_t *v){(void)i;(void)v;return ESP_ERR_NVS_NOT_FOUND;}
+esp_err_t nvs_entry_next(nvs_iterator_t *i){*i=NULL;return ESP_ERR_NVS_NOT_FOUND;}
+void nvs_release_iterator(nvs_iterator_t i){(void)i;}
 #include "../main/book/reader_input.c"
 #include "../main/book/content_library.c"
 // 网络校验不属于此存储回归；实际配置函数由运行器原样抽取。/ Network validation is outside this storage test; runner extracts real configuration functions verbatim.
@@ -46,6 +54,7 @@ static void clear_secret(void *p,size_t n){volatile unsigned char *b=p;while(n--
 #include "cloud_config_under_test.inc"
 static void clear_faults(void){fail_open=fail_read=fail_set=fail_commit=fail_readback=corrupt_readback=wrote=false;}
 int main(void){
+    assert(!mkdir(RECORDS_CARD_ROOT,0700));record_store_media(true);
     cloud_config_t cloud={0};assert(cloud_config_load_checked(&cloud)==ESP_OK);assert(!strcmp(cloud.folder,CLOUD_DEFAULT_FOLDER));
     strcpy(cloud.folder,"Folder");strcpy(cloud.account,"user");strcpy(cloud.password,"test-secret");assert(cloud_config_save(&cloud)==ESP_OK);
     cloud_config_t preserved=cloud;int oldwrites=writes;

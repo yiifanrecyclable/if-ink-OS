@@ -6,6 +6,12 @@ User-visible changes by date and author; Git retains implementation history. See
 
 ## 未发布 / Unreleased
 
+## 0.2.0 beta r7 / 2026-11-03
+
+- 修复部分设备内部设置区无可写空间时，系统/阅读字体、字号、页边距、关机策略等设置无法保存的问题：增长型内容记录改存TF，旧内容先留校验恢复副本、核实TF目标后逐键清退；账号凭据和未知记录保留。/ Recover setting capacity on affected devices by moving growing content records to SD, archiving and verifying recognized legacy records before exact-key retirement while preserving credentials and unknown data.
+- 书签、书名、置顶、移出书架、首次入库、逐书操作提示与阅读统计使用一致的存储/备份视图，保留原TF进度格式和新记录优先顺序。无卡内容保存明确失败，不再回填内部设置区。/ Unify content metadata and backup views while retaining the SD progress format and newer-record priority; content saves require SD instead of refilling internal settings storage.
+- 增加只读占用与迁移结果诊断；关机策略、自动休眠保存失败就地提示。测试版仍需真机断电和空间回收验证，普通阅读触控与刷新策略不变。/ Add value-free occupancy/migration diagnostics and immediate power/idle preference feedback; physical power-cycle/capacity verification remains pending, with reader input and refresh unchanged.
+
 ## 0.2.0 beta r6 / 2026-11-02
 
 - 文件浏览标题栏仅左上角返回按钮退目录，标题/空白不再触发返回；图片视图切换与返回触区分离。/ Restrict file-browser Back to its upper-left button; titles/whitespace no longer navigate and image-view toggles remain separate.

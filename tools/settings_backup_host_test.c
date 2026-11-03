@@ -447,3 +447,6 @@ int main(void) {
 
 esp_err_t wallpaper_preferences_load(wallpaper_preferences_t *out){(void)out;return ESP_ERR_NOT_FOUND;}
 esp_err_t wallpaper_preferences_save(const wallpaper_preferences_t *in){(void)in;return ESP_OK;}
+
+esp_err_t nvs_get_u32(nvs_handle_t h,const char*k,uint32_t*v){(void)h;(void)k;(void)v;return ESP_ERR_NVS_NOT_FOUND;}
+esp_err_t nvs_set_u32(nvs_handle_t h,const char*k,uint32_t v){(void)h;(void)k;(void)v;return ESP_ERR_NOT_SUPPORTED;}

@@ -4,14 +4,16 @@
 # 在仓库根运行管理功能回归；网页脚本另用 Node 验证。
 # Run management regressions from the repository root; validate web interactions separately with Node.
 set -euo pipefail
+if [[ "$(uname -s)" == Darwin ]]; then link_gc=(-Wl,-dead_strip); else link_gc=(-Wl,--gc-sections); fi
 bash tools/run_book_host_tests.sh
+python3 tools/test_records_capacity.py
 mkdir -p build/book-tests/settings-card
 cc -std=gnu11 -Wall -Wextra -Werror -Itools/settings_backup_stubs \
-    -Icomponents/read_pico_transfer/include \
-    -Imain tools/settings_backup_host_test.c main/book/reader_input.c main/ui/ui_i18n.c -o build/book-tests/settings-backup
+    -ffunction-sections -fdata-sections -Icomponents/read_pico_transfer/include \
+    -Imain tools/settings_backup_host_test.c main/book/reader_input.c tools/records_codec_stub.c main/ui/ui_i18n.c "${link_gc[@]}" -o build/book-tests/settings-backup
 build/book-tests/settings-backup
 cc -std=gnu11 -Wall -Wextra -Werror -Itools/settings_backup_stubs \
-    tools/book_history_backup_host_test.c main/book/content_library.c main/book/book_progress_kv.c -Imain/book -o build/book-tests/book-history-backup
+    tools/book_history_backup_host_test.c main/book/content_library.c tools/progress_codec_stub.c tools/records_codec_stub.c -Imain/book -o build/book-tests/book-history-backup
 build/book-tests/book-history-backup
 python3 tools/book_ui_host_test.py
 python3 tools/test_home_recent.py
@@ -30,7 +32,7 @@ build/book-tests/file-tree
 gcc "${flags[@]}" -Icomponents/read_pico_search/include tools/transfer_host_test.c components/read_pico_search/read_pico_search.c -o build/book-tests/transfer
 build/book-tests/transfer
 gcc "${flags[@]}" -Imanaged_components/espressif__cjson/cJSON tools/transfer_wifi_host_test.c managed_components/espressif__cjson/cJSON/cJSON.c -lm -o build/book-tests/transfer-wifi
-cc "${flags[@]}" -Itools/settings_backup_stubs -Imain/book tools/reader_input_host_test.c -o build/book-tests/reader-input
+cc "${flags[@]}" -Itools/settings_backup_stubs -Imain/book -Imain -ffunction-sections -fdata-sections tools/reader_input_host_test.c tools/records_codec_stub.c main/ui/ui_i18n.c "${link_gc[@]}" -o build/book-tests/reader-input
 build/book-tests/reader-input
 build/book-tests/transfer-wifi
 python3 tools/test_wifi_autoconnect.py

@@ -259,10 +259,12 @@ static int reading(const char *path, int wanted, int px, size_t *pages) {
 }
 static void json_string(const char *s){putchar('"');for(;*s;++s){unsigned char c=*s;if(c=='"'||c=='\\')putchar('\\');if(c<32)printf("\\u%04x",c);else putchar(c);}putchar('"');}
 #include "transfer_appearance.h"
+#include "book/record_store.h"
 static bool preview_editor_cancelled(void *context){(void)context;return getenv("PICO_SIM_EDITOR_CANCEL")!=NULL;}
 int main(int argc, char **argv) {
     if (argc < 10||argc>12) { fprintf(stderr, "render screen book page px frame list mask days font [events]\n"); return 2; }
     memset(fb, 0xff, sizeof(fb));
+    struct stat card_state;record_store_media(!stat("/sdcard",&card_state)&&S_ISDIR(card_state.st_mode));
     app_settings_init();app_settings_wallpaper_media_ready();
     if (ttf_font_open(argv[9]) != ESP_OK) return 3;
     app_font_activate_system();

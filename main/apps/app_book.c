@@ -104,6 +104,7 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "nvs.h"
+#include "book/record_store.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
@@ -1199,51 +1200,51 @@ static void shelf_hidden_key(const char *path, char key[11]) {
         hash = (hash ^ *p) * UINT32_C(16777619);
     ui_snprintf(key, 11, "h_%08lx", (unsigned long)hash);
 }
-static bool shelf_hidden_read_handle(nvs_handle_t h, const char *path) {
+static bool shelf_hidden_read_handle(records_handle_t h, const char *path) {
     char stored[BOOK_STORE_PATH_MAX];
     char key[11];
     shelf_hidden_key(path, key);
     size_t len = sizeof(stored);
-    return nvs_get_str(h, key, stored, &len) == ESP_OK && strcmp(stored, path) == 0;
+    return records_get_str(h, key, stored, &len) == ESP_OK && strcmp(stored, path) == 0;
 }
 static bool shelf_hidden_load(const char *path) {
-    nvs_handle_t h;
-    if (nvs_open(SHELF_HIDDEN_NS, NVS_READONLY, &h) != ESP_OK) return false;
+    records_handle_t h;
+    if (records_open(SHELF_HIDDEN_NS, NVS_READONLY, &h) != ESP_OK) return false;
     bool hidden = shelf_hidden_read_handle(h, path);
-    nvs_close(h);
+    records_close(h);
     return hidden;
 }
 static bool shelf_hidden_save(const char *path, bool hidden) {
-    nvs_handle_t h;
-    if (nvs_open(SHELF_HIDDEN_NS, NVS_READWRITE, &h) != ESP_OK) return false;
+    records_handle_t h;
+    if (records_open(SHELF_HIDDEN_NS, NVS_READWRITE, &h) != ESP_OK) return false;
     char key[11];
     shelf_hidden_key(path, key);
     char stored[BOOK_STORE_PATH_MAX];
     size_t len = sizeof(stored);
-    esp_err_t existing = nvs_get_str(h, key, stored, &len);
+    esp_err_t existing = records_get_str(h, key, stored, &len);
     esp_err_t err = existing == ESP_ERR_NVS_NOT_FOUND ? ESP_OK : existing;
     if (existing == ESP_OK && strcmp(stored, path) != 0) err = ESP_ERR_INVALID_STATE;
     // 恢复上架也校验路径，避免擦掉碰撞键属于另一书的隐藏记录。
     // Check ownership when unhiding too, so a collision cannot erase a different book removal.
-    if (err == ESP_OK && hidden) err = nvs_set_str(h, key, path);
+    if (err == ESP_OK && hidden) err = records_set_str(h, key, path);
     else if (err == ESP_OK) {
-        err = nvs_erase_key(h, key);
+        err = records_erase_key(h, key);
         if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
     }
-    if (err == ESP_OK) err = nvs_commit(h);
-    nvs_close(h);
+    if (err == ESP_OK) err = records_commit(h);
+    records_close(h);
     return err == ESP_OK;
 }
-static bool bookmark_read_handle(nvs_handle_t h, reader_bookmarks_t* marks) {
+static bool bookmark_read_handle(records_handle_t h, reader_bookmarks_t* marks) {
     if (!marks || !s_path[0]) return false;
     memset(marks, 0, sizeof(*marks));
     char key[11]; bookmark_key(s_path, key);
     size_t size = 0;
-    if (nvs_get_blob(h, key, NULL, &size) != ESP_OK) return false;
+    if (records_get_blob(h, key, NULL, &size) != ESP_OK) return false;
     if (size == sizeof(legacy_reader_bookmark_t)) {
         legacy_reader_bookmark_t old;
         size = sizeof(old);
-        if (nvs_get_blob(h, key, &old, &size) != ESP_OK ||
+        if (records_get_blob(h, key, &old, &size) != ESP_OK ||
             old.magic != UINT32_C(0x52504d31) || old.file_size != s_file_size ||
             strcmp(old.path, s_path)) return false;
         marks->magic = UINT32_C(0x52504d32);
@@ -1255,17 +1256,17 @@ static bool bookmark_read_handle(nvs_handle_t h, reader_bookmarks_t* marks) {
         };
         return true;
     }
-    if (size != sizeof(*marks) || nvs_get_blob(h, key, marks, &size) != ESP_OK) return false;
+    if (size != sizeof(*marks) || records_get_blob(h, key, marks, &size) != ESP_OK) return false;
     return marks->magic == UINT32_C(0x52504d32) && marks->file_size == s_file_size &&
         marks->count <= BOOKMARK_MAX && !strcmp(marks->path, s_path);
 }
 
 static bool bookmark_load(reader_bookmarks_t* marks) {
     if (!marks || !s_path[0]) return false;
-    nvs_handle_t h;
-    if (nvs_open("rp_marks", NVS_READONLY, &h) != ESP_OK) return false;
+    records_handle_t h;
+    if (records_open("rp_marks", NVS_READONLY, &h) != ESP_OK) return false;
     bool ok = bookmark_read_handle(h, marks);
-    nvs_close(h);
+    records_close(h);
     return ok;
 }
 static bool bookmark_is_current(void) {
@@ -1289,18 +1290,18 @@ static void bookmark_compact(reader_bookmarks_t* marks, uint32_t selected) {
 }
 static bool bookmark_delete_selected(void) {
     if (!s_bookmark_selected || !s_path[0]) return false;
-    nvs_handle_t h;
-    if (nvs_open("rp_marks", NVS_READWRITE, &h) != ESP_OK) return false;
+    records_handle_t h;
+    if (records_open("rp_marks", NVS_READWRITE, &h) != ESP_OK) return false;
     reader_bookmarks_t marks;
     bool valid = bookmark_read_handle(h, &marks);
     esp_err_t err = valid ? ESP_OK : ESP_ERR_NOT_FOUND;
     if (valid) {
         bookmark_compact(&marks, s_bookmark_selected);
         char key[11]; bookmark_key(s_path, key);
-        err = marks.count ? nvs_set_blob(h, key, &marks, sizeof(marks)) : nvs_erase_key(h, key);
-        if (err == ESP_OK) err = nvs_commit(h);
+        err = marks.count ? records_set_blob(h, key, &marks, sizeof(marks)) : records_erase_key(h, key);
+        if (err == ESP_OK) err = records_commit(h);
     }
-    nvs_close(h);
+    records_close(h);
     if (err != ESP_OK) return false;
     s_bookmark_selected = 0;
     s_bookmark_edit = marks.count != 0;
@@ -1308,8 +1309,8 @@ static bool bookmark_delete_selected(void) {
 }
 static bool bookmark_toggle(void) {
     if (!s_path[0]) return false;
-    nvs_handle_t h;
-    if (nvs_open("rp_marks", NVS_READWRITE, &h) != ESP_OK) return false;
+    records_handle_t h;
+    if (records_open("rp_marks", NVS_READWRITE, &h) != ESP_OK) return false;
     char key[11]; bookmark_key(s_path, key);
     reader_bookmarks_t marks;
     bool valid = bookmark_read_handle(h, &marks);
@@ -1340,10 +1341,10 @@ static bool bookmark_toggle(void) {
             .saved_s = now >= 1704067200 ? (uint32_t)now : 0,
         };
     }
-    esp_err_t err = marks.count ? nvs_set_blob(h, key, &marks, sizeof(marks)) : nvs_erase_key(h, key);
+    esp_err_t err = marks.count ? records_set_blob(h, key, &marks, sizeof(marks)) : records_erase_key(h, key);
     if (err == ESP_ERR_NVS_NOT_FOUND && !marks.count) err = ESP_OK;
-    if (err == ESP_OK) err = nvs_commit(h);
-    nvs_close(h);
+    if (err == ESP_OK) err = records_commit(h);
+    records_close(h);
     if (err == ESP_OK) {
         copy_text(s_reader_notice, sizeof(s_reader_notice), remove ? UI_MSG("书签已移除") : UI_MSG("书签已添加"));
         s_reader_notice_until = esp_timer_get_time() / 1000 + 1600;
@@ -2227,7 +2228,7 @@ typedef struct {
     DIR *dir;
     char path[BOOK_STORE_PATH_MAX];
 } shelf_scan_frame_t;
-static void scan_shelf_dir(const char *root, bool is_flash, nvs_handle_t hidden, bool *truncated, bool *unreadable,
+static void scan_shelf_dir(const char *root, bool is_flash, records_handle_t hidden, bool *truncated, bool *unreadable,
                            bool *skipped) {
     if (*truncated) return;
     shelf_scan_frame_t *frames = heap_caps_calloc(BOOK_SCAN_DEPTH_LIMIT + 1, sizeof(*frames),
@@ -2309,7 +2310,7 @@ static void scan_shelf_dir(const char *root, bool is_flash, nvs_handle_t hidden,
 // manager can open a TXT or EPUB anywhere on the card. Records whose file is gone, or whose
 // contents were replaced, stay off the shelf, matching the rule that changed sizes never resume.
 typedef struct {
-    nvs_handle_t hidden;
+    records_handle_t hidden;
     bool truncated;
 } shelf_backfill_t;
 
@@ -2364,12 +2365,12 @@ static bool shelf_backfill_visit(const char* path, const book_progress_t* progre
 // writes progress and never bumps the store revision, so the cached path has to call this too
 // or a freshly read book stays invisible until a manual rescan.
 static bool shelf_backfill_read_books(bool* truncated) {
-    nvs_handle_t hidden = 0;
-    (void)nvs_open(SHELF_HIDDEN_NS, NVS_READONLY, &hidden);
+    records_handle_t hidden = 0;
+    (void)records_open(SHELF_HIDDEN_NS, NVS_READONLY, &hidden);
     const int before = s_count;
     shelf_backfill_t backfill = {.hidden = hidden};
     (void)book_progress_list(shelf_backfill_visit, &backfill);
-    if (hidden) nvs_close(hidden);
+    if (hidden) records_close(hidden);
     if (truncated && backfill.truncated) *truncated = true;
     return s_count != before;
 }
@@ -2385,8 +2386,8 @@ static void scan_shelf(app_ctx_t* ctx) {
     int n = 0;
     esp_err_t root_err = book_store_roots(roots, &n);
     bool truncated = false, unreadable = root_err != ESP_OK || book_store_roots_degraded(), skipped = false;
-    nvs_handle_t hidden = 0;
-    (void)nvs_open(SHELF_HIDDEN_NS, NVS_READONLY, &hidden);
+    records_handle_t hidden = 0;
+    (void)records_open(SHELF_HIDDEN_NS, NVS_READONLY, &hidden);
     s_storage[0] = 0;
     for (int i = 0; i < n; ++i) {
         if (i == 0 || roots[i].is_flash || roots[i - 1].is_flash) {
@@ -2411,7 +2412,7 @@ static void scan_shelf(app_ctx_t* ctx) {
         s_shelf[i].selected = false;
         s_shelf[i].search_match = read_pico_search_match(p->entry.name, s_query);
     }
-    if (hidden) nvs_close(hidden);
+    if (hidden) records_close(hidden);
     // 补齐书根目录之外读过的书；显式移出书架的除外。
     // Backfill books read outside the roots, minus the ones removed from the shelf.
     (void)shelf_backfill_read_books(&truncated);
