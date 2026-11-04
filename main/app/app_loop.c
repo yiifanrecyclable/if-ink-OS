@@ -58,6 +58,7 @@
 #include "ui_menu.h"
 #include "ui_gesture.h"
 #include "operation_log.h"
+#include "shelf_perf.h"
 extern bool app_book_reader_body_visible(void);
 #include "ui_power_dialog.h"
 #include "usb_storage.h"
@@ -106,8 +107,11 @@ void app_present(app_ctx_t* ctx, const app_desc_t* app, app_redraw_t redraw) {
     // 唤醒必须先画完整目标；仍调用页面自己的present来完成阅读等状态收尾。
     // Draw a complete post-wake target while retaining each page's present-state bookkeeping.
     if(redraw!=APP_REDRAW_NONE && redraw!=APP_REDRAW_DONE && display_resume_clean_pending())redraw=APP_REDRAW_FULL;
+    SHELF_PERF_SCOPE_IF(nav_present_perf,redraw!=APP_REDRAW_NONE&&redraw!=APP_REDRAW_DONE,
+                        SP_NAV_PRESENT,app_index_of(app),redraw);
     ui_text_set_system_scale(true);
     if (app->present != NULL && app->present(ctx, redraw)) return;
+    SHELF_PERF_SCOPE_IF(nav_output_perf,false,SP_NAV_OUTPUT,0,0);
     switch (redraw) {
         case APP_REDRAW_NONE:
         case APP_REDRAW_DONE:
@@ -118,22 +122,27 @@ void app_present(app_ctx_t* ctx, const app_desc_t* app, app_redraw_t redraw) {
             EpdRect area = app->area_hint != NULL
                 ? app->area_hint(ctx)
                 : ui_content_refresh_area();
+            nav_output_perf=shelf_perf_begin(SP_NAV_OUTPUT,app_index_of(app),redraw);
             result = update_display_area_with(
                 ctx->hl, &E0470_WAVEFORM, APP_DYNAMIC_REFRESH_MODE, area
             );
             break;
         }
-        case APP_REDRAW_FULL:
+        case APP_REDRAW_FULL: {
             if (app->render != NULL) app->render(ctx, ctx->fb);
+            nav_output_perf=shelf_perf_begin(SP_NAV_OUTPUT,app_index_of(app),redraw);
             result = APP_PAGE_FORCE_FULL
                 ? update_display_full(ctx->hl)
                 : update_display_mode(ctx->hl, APP_PAGE_REFRESH_MODE);
             break;
+        }
         case APP_REDRAW_PAGE:
-        default:
+        default: {
             if (app->render != NULL) app->render(ctx, ctx->fb);
+            nav_output_perf=shelf_perf_begin(SP_NAV_OUTPUT,app_index_of(app),redraw);
             result = update_display_fast_page(ctx->hl);
             break;
+        }
     }
     guard_draw_result(ctx->hl, result);
 }
@@ -204,10 +213,16 @@ static void switch_to(
 ) {
     operation_log_event(OPLOG_PAGE,app_index_of(next),0,0,0,0);
     if (next == NULL || next == *current) return;
-    if ((*current)->on_exit != NULL) (*current)->on_exit(ctx);
+    const int from=app_index_of(*current),to=app_index_of(next);
+    SHELF_PERF_SCOPE(nav_switch_perf,SP_NAV_SWITCH,from,to);
+    {SHELF_PERF_SCOPE(nav_exit_perf,SP_NAV_EXIT,from,to);
+        if ((*current)->on_exit != NULL) (*current)->on_exit(ctx);
+    }
     *current = next;
-    app_font_activate_system();
-    if (next->on_enter != NULL) next->on_enter(ctx);
+    {SHELF_PERF_SCOPE(nav_font_perf,SP_NAV_FONT,from,to);app_font_activate_system();}
+    {SHELF_PERF_SCOPE(nav_enter_perf,SP_NAV_ENTER,from,to);
+        if (next->on_enter != NULL) next->on_enter(ctx);
+    }
     app_present(ctx, next, next->enter_full ? APP_REDRAW_FULL : APP_REDRAW_PAGE);
     ESP_LOGI(TAG, "page -> %s", next->title);
 }
@@ -287,6 +302,7 @@ static bool poll_media(app_ctx_t* ctx, const app_desc_t* current,
         book_index_cache_invalidate_all();
         s_records_maintenance_pending=true;
         maintain_content_records();
+        shelf_perf_event(SP_MEDIA,1,(int)book_index_cache_epoch(),0,0);
         app_settings_wallpaper_media_ready();
         esp_err_t installed = bundled_assets_install();
         if (installed != ESP_OK) ESP_LOGW(TAG,"Optional artwork install deferred: %s",esp_err_to_name(installed));
@@ -372,6 +388,7 @@ void app_loop_run(const app_loop_config_t* config) {
     int64_t last_network_poll_ms = 0;
     int64_t last_activity_ms=esp_timer_get_time()/1000,last_idle_poll_ms=0;
     bool idle_suspended=false;
+    shelf_perf_init();
     read_pico_sd_info_t initial_media = {0};
     esp_err_t initial_media_error=read_pico_sd_get_info(&initial_media);
     record_store_media(initial_media_error==ESP_OK&&initial_media.present&&initial_media.mounted&&!usb_storage_active());
@@ -408,6 +425,7 @@ void app_loop_run(const app_loop_config_t* config) {
 
         const bool pressed = touch.touched && !was_touched;
         const bool released = !touch.touched && was_touched;
+        shelf_perf_loop(pressed,released,touch.count);
         operation_log_sample(&touch,err,pressed,released,app_book_reader_body_visible());
         debounce_touch(&latest, &touch, released);
         ctx.now_ms = esp_timer_get_time() / 1000;
@@ -444,6 +462,7 @@ void app_loop_run(const app_loop_config_t* config) {
                 // 本轮旧输入不再触发动作，下一轮恢复正常事件处理。
                 // Discard this tick's stale input, then resume normal dispatch next tick.
                 if(!touch.touched&&!ctx.released&&!ctx.consumed&&!power_dialog_open)maintain_content_records();
+        shelf_perf_poll(err==ESP_OK&&!touch.touched&&!usb_storage_active());
         operation_log_poll(err==ESP_OK&&!touch.touched&&!usb_storage_active());
         vTaskDelay(pdMS_TO_TICKS(LOOP_TICK_MS));
                 continue;
@@ -799,6 +818,7 @@ void app_loop_run(const app_loop_config_t* config) {
         app_time_service_poll(ctx.now_ms,err==ESP_OK&&!touch.touched&&!ctx.released&&!ctx.consumed&&
             !power_dialog_open&&!usb_storage_active()&&!current->holds_pmu);
         if(!touch.touched&&!ctx.released&&!ctx.consumed&&!power_dialog_open)maintain_content_records();
+        shelf_perf_poll(err==ESP_OK&&!touch.touched&&!usb_storage_active());
         operation_log_poll(err==ESP_OK&&!touch.touched&&!usb_storage_active());
         vTaskDelay(pdMS_TO_TICKS(LOOP_TICK_MS));
     }

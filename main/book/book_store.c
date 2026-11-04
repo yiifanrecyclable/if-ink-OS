@@ -16,6 +16,7 @@
  */
 #include "book_store.h"
 #include "book_index_cache.h"
+#include "shelf_perf.h"
 #include "book_progress.h"
 #include "settings.h"
 
@@ -120,10 +121,12 @@ size_t book_store_file_limit(const book_store_root_t* root) {
 }
 
 uint64_t book_store_free_bytes(const book_store_root_t* root) {
+    SHELF_PERF_SCOPE(perf,SP_CAPACITY,root?root->is_flash:-1,0);
     if (root == NULL) return 0;
     if (!root->is_flash && !sd_ready()) return 0;
     uint64_t total = 0, free_bytes = 0;
     esp_err_t err = esp_vfs_fat_info(root->is_flash ? "/flash" : "/sdcard", &total, &free_bytes);
+    perf.b=err;
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "FAT capacity: %s", esp_err_to_name(err));
         return 0;

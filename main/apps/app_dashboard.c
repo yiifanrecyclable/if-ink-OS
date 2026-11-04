@@ -22,9 +22,11 @@
 #endif
 
 #include "app.h"
+#include "shelf_perf.h"
 #include "app_content_open.h"
 #include "app_registry.h"
 #include "book_cover.h"
+#include "book_index_cache.h"
 #include "ui_image_dither.h"
 #include "book_epub.h"
 #include "book_progress.h"
@@ -507,15 +509,50 @@ static int home_heatmap_row_month(uint32_t end_day, int row) {
 // 日期与热力图共用UTC+8日快照；格言独立于状态栏签名，长按使用共用输入界面。
 // Date and heatmap share the UTC+8 day snapshot; the independent quote opens the common editor on hold.
 static uint8_t *s_quote_bitmap;
-static void clear_quote_bitmap(void){free(s_quote_bitmap);s_quote_bitmap=NULL;}
+// 仅复用本次介质会话的最终Banner，不缓存阅读记录或进度。
+// Reuse only the final Banner in this media session, never history or progress.
+typedef struct {
+    content_banner_config_t config;
+    uint32_t day, media_epoch;
+    bool day_valid, builtin_font;
+    int weight, language;
+    char active_font[TTF_FONT_PATH_MAX], system_font[TTF_FONT_PATH_MAX];
+    struct { off_t size; time_t modified; } files[3];
+} home_banner_key_t;
+static home_banner_key_t s_quote_key;
+static bool s_quote_key_valid;
+static void clear_quote_bitmap(void){free(s_quote_bitmap);s_quote_bitmap=NULL;s_quote_key_valid=false;}
+static bool quote_bitmap_key(const content_banner_config_t *cfg,home_banner_key_t *key){
+    memset(key,0,sizeof(*key));key->config=*cfg;
+    key->day=s_reading_end_day;key->day_valid=s_reading_days_valid;
+    key->media_epoch=book_index_cache_epoch();key->weight=ttf_get_weight();
+    key->language=app_settings_language();key->builtin_font=ttf_font_is_builtin();
+    ui_snprintf(key->active_font,sizeof(key->active_font),"%s",ttf_font_path());
+    ui_snprintf(key->system_font,sizeof(key->system_font),"%s",app_settings_system_font_path());
+    const char *paths[]={cfg->mode?cfg->image:"",cfg->show_text?cfg->font:"",key->builtin_font?"":key->active_font};
+    for(unsigned i=0;i<3;++i){
+        if(!paths[i][0])continue;
+        struct stat st;if(stat(paths[i],&st)||!S_ISREG(st.st_mode))return false;
+        key->files[i].size=st.st_size;key->files[i].modified=st.st_mtime;
+    }
+    return true;
+}
 static void prepare_quote_bitmap(void){
-    clear_quote_bitmap();bool fits;
-    content_banner_config_t cfg;content_banner_load(&cfg);
-    if(!ui_banner_preview_config(&cfg,s_reading_end_day,s_reading_days_valid,&s_quote_bitmap,&fits)){
-        cfg.mode=0;(void)ui_banner_preview_config(&cfg,s_reading_end_day,s_reading_days_valid,&s_quote_bitmap,&fits);
+    SHELF_PERF_SCOPE(banner_perf,SP_HOME_BANNER,0,0);
+    bool fits;content_banner_config_t cfg;content_banner_load(&cfg);
+    home_banner_key_t key;bool reusable=quote_bitmap_key(&cfg,&key);
+    if(reusable&&s_quote_key_valid&&s_quote_bitmap&&!memcmp(&key,&s_quote_key,sizeof(key))){banner_perf.b=1;return;}
+    clear_quote_bitmap();
+    if(ui_banner_preview_config(&cfg,s_reading_end_day,s_reading_days_valid,&s_quote_bitmap,&fits)){
+        if(reusable){s_quote_key=key;s_quote_key_valid=true;}
+    }else{
+        // 降级图或分配失败不能成为长期命中，下一次进入必须重试。
+        // Retry fallback/failed images on next entry instead of caching a degraded result.
+        banner_perf.b=2;cfg.mode=0;
+        (void)ui_banner_preview_config(&cfg,s_reading_end_day,s_reading_days_valid,&s_quote_bitmap,&fits);
     }
 }
-static void home_exit(app_ctx_t *ctx){(void)ctx;clear_quote_bitmap();}
+static void home_exit(app_ctx_t *ctx){(void)ctx;}
 
 static void draw_home_banner(uint8_t *fb) {
     if(s_quote_bitmap){ui_bitmap_draw(fb,(EpdRect){0,UI_STATUS_HEIGHT,UI_LOCK_WIDTH,300},s_quote_bitmap);return;}
@@ -531,6 +568,7 @@ static void draw_home_banner(uint8_t *fb) {
 #include "dashboard_history_ui.h"
 
 static void render(app_ctx_t *ctx, uint8_t *fb) {
+    SHELF_PERF_SCOPE(nav_render_perf,SP_NAV_RENDER,0,s_history_open);
     if(s_history_open){history_render(fb);return;}
     (void)ctx;
     ui_clear_page(fb);
@@ -619,6 +657,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
 static bool present(app_ctx_t *ctx, app_redraw_t redraw) {
     if (redraw == APP_REDRAW_NONE) return true;
     render(ctx, ctx->fb);
+    SHELF_PERF_SCOPE(nav_output_perf,SP_NAV_OUTPUT,0,redraw|((redraw==APP_REDRAW_FULL||s_home_force_full_once)?256:0));
     if (redraw == APP_REDRAW_AREA) guard_draw_result(ctx->hl, update_display_area_with(ctx->hl, &E0470_WAVEFORM, MODE_GL16, s_area));
     else if (redraw == APP_REDRAW_FULL || s_home_force_full_once) {
         s_home_force_full_once = false;
@@ -673,7 +712,7 @@ static void on_media_lost(app_ctx_t *ctx) {
     memset(s_recent_documents, 0, sizeof(s_recent_documents));
 }
 static void on_media_ready(app_ctx_t *ctx) {
-    (void)ctx;prepare_quote_bitmap();
+    (void)ctx;clear_quote_bitmap();prepare_quote_bitmap();
     s_books_cache_valid = false;
     s_scan_pending = true;
 }

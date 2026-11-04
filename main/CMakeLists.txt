@@ -49,6 +49,7 @@ idf_component_register(
         "wallpaper_preferences.c"
         "time_service.c"
         "operation_log.c"
+        "shelf_perf.c"
         "power/battery_history.c"
         "app/app_loop.c"
         "app/app_registry.c"

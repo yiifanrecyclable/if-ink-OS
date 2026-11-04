@@ -89,6 +89,8 @@
 #include "book_title.h"
 #include "book_ticket.h"
 #include "operation_log.h"
+#include "shelf_perf.h"
+#include "book_index_cache.h"
 #include "book_toc.h"
 #include "app_font_context.h"
 #include "book_source.h"
@@ -216,8 +218,10 @@ static void clear_document_selection(void) {
     for(size_t i=0;i<s_document_count;++i)s_documents[i].selected=false;
 }
 static void scan_documents(app_ctx_t *ctx) {
+    SHELF_PERF_SCOPE(perf,SP_DOCUMENTS,0,0);
     document_entry_t *next=NULL;size_t count=0;
-    if(document_store_scan(&next,&count)!=ESP_OK){free(next);ui_snprintf(s_document_message,sizeof(s_document_message),UI_MSG("文档读取失败，请重试"));return;}
+    esp_err_t scan_error=document_store_scan(&next,&count);perf.b=scan_error;
+    if(scan_error!=ESP_OK){free(next);ui_snprintf(s_document_message,sizeof(s_document_message),UI_MSG("文档读取失败，请重试"));return;}
     size_t pending=0;
     for(size_t i=0;i<s_document_count;++i)if(s_documents[i].cleanup_pending)++pending;
     if(pending){
@@ -243,6 +247,7 @@ static void scan_documents(app_ctx_t *ctx) {
     if(s_document_count>1)qsort(s_documents,s_document_count,sizeof(*s_documents),compare_documents);
     int rows=s_view==DOCUMENT_BULK?BOOK_BULK_ROWS:document_rows();
     if(ctx->leaf<0||(size_t)ctx->leaf*rows>=s_document_count)ctx->leaf=0;
+    perf.a=(int)s_document_count;
 }
 // 一体式双段胶囊，副标题与点击区域共用；墨水屏直接切换，不做滑动动画。
 // One two-segment capsule shares subtitle hit targets; switch directly without ink-display animation.
@@ -561,13 +566,14 @@ static void invalidate_covers(void) {
 }
 static uint8_t* load_cover_gray(const char* source, const char* title, const char* author,
                                 bool decode, bool* pending, unsigned *width,unsigned *height) {
+    SHELF_PERF_SCOPE(perf,SP_COVER_LOAD,decode,0);
     *pending = false;
     uint8_t* gray = heap_caps_malloc(BOOK_COVER_W * BOOK_COVER_H, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!gray) return NULL;
     if (!book_cover_load_fitted_gray(source, title, author, gray, decode, pending,width,height)) {
         free(gray); return NULL;
     }
-    return gray;
+    perf.b=1;return gray;
 }
 static void prepare_covers(app_ctx_t* ctx) {
     if (s_view != SHELF && s_view != MANAGE) return;
@@ -1554,7 +1560,21 @@ static size_t current_toc_position(void) {
     }
     return selected;
 }
+// 补封面只擦除本格图片区；标题、进度和其他区域保持原帧，输出范围仍沿用整格。
+// Replace only this cell's image band; retain titles, progress and all other pixels, with the existing cell output area.
+static void render_shelf_cover(app_ctx_t *ctx, int row) {
+    SHELF_PERF_SCOPE(perf,SP_RENDER,s_view,1);
+    ui_text_set_system_scale(true);
+    lock_draw();
+    EpdRect card=row_rect(row);
+    EpdRect band={card.x,card.y,card.width,shelf_cover_top(card)-card.y+shelf_cover_height()};
+    epd_fill_rect(band,UI_GRAY_WHITE,ctx->fb);
+    char name[128];copy_text(name,sizeof(name),s_shelf[ctx->leaf*shelf_rows()+row].name);
+    draw_shelf_cover(ctx->fb,card,row,name);
+    unlock_draw();
+}
 static void render(app_ctx_t* ctx, uint8_t* fb) {
+    SHELF_PERF_SCOPE(perf,SP_RENDER,s_view,0);
     ui_text_set_system_scale(s_view != READING);
     lock_draw();
     if (s_sort_open) {draw_content_sort(fb);unlock_draw();return;}
@@ -1600,6 +1620,7 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
 }
 static bool present(app_ctx_t* ctx, app_redraw_t redraw) {
     if (redraw == APP_REDRAW_NONE || redraw == APP_REDRAW_DONE) return true;
+    SHELF_PERF_SCOPE(present_perf,SP_PRESENT,redraw,s_view);
     if (s_presented_view != (int)s_view && redraw == APP_REDRAW_AREA) redraw = APP_REDRAW_PAGE;
     if((s_view==EDIT||s_view==SEARCH)&&redraw==APP_REDRAW_AREA){
         guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,ui_text_input_area()));
@@ -1611,6 +1632,8 @@ static bool present(app_ctx_t* ctx, app_redraw_t redraw) {
     if (redraw == APP_REDRAW_PAGE || redraw == APP_REDRAW_FULL) render(ctx, ctx->fb);
     bool prep = kick_prep();
     int64_t drawn = esp_timer_get_time();
+    shelf_perf_span_t epd_perf=shelf_perf_begin(SP_EPD,redraw,s_view);
+    SHELF_PERF_SCOPE(nav_output_perf,SP_NAV_OUTPUT,1,redraw);
     enum EpdDrawError err;
     bool image_gray_refresh = s_reader_image_refresh_pending && s_view == READING &&
         s_reader_panel == READER_PANEL_NONE && !s_toolbar && !s_clear_confirm;
@@ -1653,6 +1676,7 @@ static bool present(app_ctx_t* ctx, app_redraw_t redraw) {
         ? update_display_mode_diff(ctx->hl, APP_PAGE_REFRESH_MODE)
         : s_view==SHELF?update_display_navigation_page(ctx->hl,(EpdRect){0,128,684,928},ui_nav_rect()):
           s_view==DOCUMENTS?update_display_navigation_page(ctx->hl,(EpdRect){0},ui_nav_rect()):update_display_fast_page(ctx->hl);
+    shelf_perf_end(&epd_perf);
     int64_t displayed = esp_timer_get_time();
     reader_prefetch_end(prep);
     operation_log_event(OPLOG_PRESENT,1,redraw,s_view,s_water_turn_pending,(int)((esp_timer_get_time()-start)/1000));
@@ -1666,6 +1690,7 @@ static bool present(app_ctx_t* ctx, app_redraw_t redraw) {
     ESP_LOGI(TAG, "present draw=%lld display=%lld join=%lld ms", (drawn - start) / 1000,
              (displayed - drawn) / 1000, (esp_timer_get_time() - displayed) / 1000);
     guard_draw_result(ctx->hl, err);
+    shelf_perf_event(SP_FRAME,s_view,s_visible_count,(int)s_cover_pending_mask,err);
     s_reader_cleanup = false;
     s_reader_image_refresh_pending = false;
     s_presented_view = (int)s_view;
@@ -2376,6 +2401,7 @@ static bool shelf_backfill_read_books(bool* truncated) {
 }
 
 static void scan_shelf(app_ctx_t* ctx) {
+    SHELF_PERF_SCOPE(perf,SP_SCAN,0,0);
     s_count = 0;
     s_visible_count = 0;
     s_message[0] = 0;
@@ -2384,7 +2410,8 @@ static void scan_shelf(app_ctx_t* ctx) {
     // Flash mounts on each boot; existing files are not formatted by that mount.
     book_store_root_t roots[BOOK_STORE_ROOT_MAX];
     int n = 0;
-    esp_err_t root_err = book_store_roots(roots, &n);
+    esp_err_t root_err;
+    {SHELF_PERF_SCOPE(roots_perf,SP_ROOTS,0,0);root_err=book_store_roots(roots,&n);roots_perf.a=n;roots_perf.b=root_err;}
     bool truncated = false, unreadable = root_err != ESP_OK || book_store_roots_degraded(), skipped = false;
     records_handle_t hidden = 0;
     (void)records_open(SHELF_HIDDEN_NS, NVS_READONLY, &hidden);
@@ -2396,8 +2423,9 @@ static void scan_shelf(app_ctx_t* ctx) {
                      roots[i].is_flash ? UI_MSG("内置余") : UI_MSG("TF余"), book_store_free_bytes(&roots[i]) / 1048576.0);
             strncat(s_storage, capacity, sizeof(s_storage) - strlen(s_storage) - 1);
         }
+        {SHELF_PERF_SCOPE(enum_perf,SP_ENUMERATE,roots[i].is_flash,0);
         scan_shelf_dir(roots[i].path, roots[i].is_flash, hidden,
-                       &truncated, &unreadable, &skipped);
+                       &truncated, &unreadable, &skipped);enum_perf.b=s_count;}
     }
     // 同路径重新出现也先完成旧清理，避免新阅读进度被后续重试擦掉。
     // Finish old cleanup even if the path reappears, before new reading can create progress.
@@ -2439,6 +2467,7 @@ static void scan_shelf(app_ctx_t* ctx) {
     s_cache_sd_mounted = cache_sd.mounted;
     s_store_revision = book_store_revision();
     s_shelf_cache_valid = !unreadable && !truncated;
+    perf.a=s_visible_count;perf.b=(unreadable?1:0)|(truncated?2:0)|(skipped?4:0);
     ESP_LOGI(TAG, "shelf books=%d roots=%d", s_count, n);
 }
 
@@ -3349,6 +3378,7 @@ static app_redraw_t action_at(app_ctx_t* ctx, uint16_t x, uint16_t y) {
     return APP_REDRAW_NONE;
 }
 static void on_enter(app_ctx_t* ctx) {
+    shelf_perf_request(s_view,(int)book_index_cache_epoch());
     // 设置页试按的旧事件不得在开书后翻页。/ Discard remote tests from earlier pages before opening a book.
 
     book_layout_set_spacing(app_settings_book_line_spacing(), app_settings_book_paragraph_spacing());
@@ -3393,6 +3423,7 @@ static void on_enter(app_ctx_t* ctx) {
     bool reuse = s_shelf_cache_valid && media_err != ESP_ERR_NOT_FINISHED &&
                  sd.present == s_cache_sd_present && sd.mounted == s_cache_sd_mounted &&
                  s_store_revision == book_store_revision();
+    shelf_perf_event(SP_REUSE,reuse,(int)book_store_revision(),sd.present,sd.mounted);
     s_scan_pending = !reuse;
     if (reuse) {
         refresh_cached_progress(ctx);
@@ -3773,12 +3804,15 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
         if (failed != s_save_failed) { invalidate_prep(); return APP_REDRAW_PAGE; }
     }
     if (s_scan_pending && ctx->now_ms - s_poll_ms >= 500) {
+        SHELF_PERF_SCOPE(wait_perf,SP_SCAN_WAIT,s_view,0);
         s_poll_ms = ctx->now_ms;
         read_pico_sd_info_t info = {0};
         if (read_pico_sd_get_info(&info) == ESP_ERR_NOT_FINISHED) return APP_REDRAW_NONE;
         s_scan_pending = false;
         scan_shelf(ctx);
-        scan_documents(ctx);
+        // 图书页不预扫文档；文档切页、直开后返回与管理操作各自刷新列表。
+        // Do not pre-scan documents for Books; document entry, reader return and management refresh their own list.
+        if (s_view == DOCUMENTS || s_view == DOCUMENT_BULK) scan_documents(ctx);
         (void)open_requested_book(ctx);
         return APP_REDRAW_PAGE;
     }
@@ -3794,7 +3828,7 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
                                                  s_shelf[index].author, true, &pending,&s_covers[row].width,&s_covers[row].height);
             if (!s_covers[row].gray) continue;
             EpdRect area = row_rect(row);
-            render(ctx, ctx->fb);
+            render_shelf_cover(ctx, row);
             s_area = area;
             s_mode = MODE_GL16;
             return APP_REDRAW_AREA;

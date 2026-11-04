@@ -28,6 +28,11 @@ book_crop_t book_cover_crop(unsigned src_width, unsigned src_height,
 
 /// 优先读取书内封面，缺少或无法解码时按书籍标识生成并缓存灰阶封面。
 /// Prefer a valid embedded cover; otherwise generate and cache a deterministic grayscale cover.
+/// Cache-only probes never extract EPUB resources. On a new media session, deferred loads
+/// validate current cover bytes before reusing persistent artwork; size/mtime alone are insufficient.
+/// Generated covers that depend on external glyphs remain session-local. Missing/bad derived
+/// caches fall back to the existing decoder/template; source books and progress are never edited.
+/// 仅缓存探测不提取EPUB；新介质会话延后核对实际封面内容后复用。外部字形模板仍按会话缓存。
 bool book_cover_load_gray(const char *path, const char *title, const char *author,
                           uint8_t out[BOOK_COVER_W * BOOK_COVER_H],
                           bool allow_decode, bool *pending);

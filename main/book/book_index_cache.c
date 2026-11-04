@@ -5,6 +5,7 @@
  * English: Book index cache invalidated by path, size, mtime and media session.
  */
 #include "book_index_cache.h"
+#include "shelf_perf.h"
 
 #include <errno.h>
 #include <string.h>
@@ -66,6 +67,7 @@ bool book_index_cache_prepare(const char* source, const char* tag, uint32_t vers
 }
 
 FILE* book_index_cache_open_read(const char* path, const book_index_cache_header_t* expected) {
+    SHELF_PERF_SCOPE(perf,SP_INDEX_PROBE,0,0);
     if (!path || !expected) return NULL;
     FILE* file = fopen(path, "rb");
     if (!file) return NULL;
@@ -76,7 +78,7 @@ FILE* book_index_cache_open_read(const char* path, const book_index_cache_header
         found.path_hash == expected->path_hash && found.media_epoch == expected->media_epoch &&
         expected->media_epoch == book_index_cache_epoch();
     if (!ok) { fclose(file); return NULL; }
-    return file;
+    perf.b=1;return file;
 }
 
 FILE* book_index_cache_open_write(const char* path, const book_index_cache_header_t* header,
@@ -95,6 +97,7 @@ FILE* book_index_cache_open_write(const char* path, const book_index_cache_heade
 }
 
 bool book_index_cache_finish_write(FILE* file, const char* temp, const char* path, bool payload_ok) {
+    SHELF_PERF_SCOPE(perf,SP_INDEX_WRITE,0,0);
     if (!file || !temp || !path) return false;
     bool ok = payload_ok;
     if (ok && fflush(file) != 0) ok = false;
@@ -104,7 +107,7 @@ bool book_index_cache_finish_write(FILE* file, const char* temp, const char* pat
         return false;
     }
     remove(path);
-    if (rename(temp, path) == 0) return true;
+    if (rename(temp, path) == 0){perf.b=1;return true;}
     remove(temp);
     return false;
 }

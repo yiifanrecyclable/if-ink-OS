@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """验证完整封面比例、独立缓存、7px圆角与网格位置；不操作用户卡。/ Verify aspect-preserved covers, separate caches, 7px corners and grid positions on a private card."""
 from pathlib import Path
-import json,os,struct,subprocess,tempfile,zipfile,zlib
+import json,os,struct,subprocess,tempfile,zipfile,zlib,io
 R=Path(__file__).resolve().parents[1]
-def png(w,h):
+def png(w,h,value=64):
     def chunk(t,d):return struct.pack('!I',len(d))+t+d+struct.pack('!I',zlib.crc32(t+d)&0xffffffff)
-    pixels=b''.join(b'\0'+bytes([64])*w for _ in range(h))
+    pixels=b''.join(b'\0'+bytes([value])*w for _ in range(h))
     return b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('!IIBBBBB',w,h,8,0,0,0,0))+chunk(b'IDAT',zlib.compress(pixels))+chunk(b'IEND',b'')
 with tempfile.TemporaryDirectory(prefix='shelf-fit-',dir=R/'build') as tmp:
     base=Path(tmp);card=base/'card';out=base/'build/simulator';out.mkdir(parents=True)
@@ -48,7 +48,12 @@ with tempfile.TemporaryDirectory(prefix='shelf-fit-',dir=R/'build') as tmp:
     # Each renderer is a cold boot: only the epoch/header changes; rendered payload stays deterministic.
     def payload(p):
         raw=p.read_bytes();w,h=struct.unpack_from("=II",raw,12);return (w,h,raw[-w*h:])
+    persistent=list(cache.glob('*-fit3.bin'));assert len(persistent)==4
+    stable={p.name:p.read_bytes() for p in persistent}
+    unchanged_stat={p.name:(p.stat().st_ino,p.stat().st_mtime_ns) for p in persistent}
     before={p.name:payload(p) for p in fitted};frame()
+    assert stable=={p.name:p.read_bytes() for p in persistent}
+    assert unchanged_stat=={p.name:(p.stat().st_ino,p.stat().st_mtime_ns) for p in persistent} # A fresh-process hit does not rewrite persistent artwork.
     assert before=={p.name:payload(p) for p in fitted}
     # 首页使用同一个完整比例缓存，覆盖三种比例及无封面书。/ Home shares full-cover caches across portrait, square, landscape and coverless books.
     for name,(source_w,source_h) in sizes.items():
@@ -60,7 +65,7 @@ with tempfile.TemporaryDirectory(prefix='shelf-fit-',dir=R/'build') as tmp:
         assert tone(pixels,x,y)==15 and tone(pixels,x+w-1,y+h-1)==15
         assert tone(pixels,x+2,y)==15 and tone(pixels,x+7,y)==0
         assert tone(pixels,x+w//2,y+h//2)<15
-    assert not [p for p in cache.glob('*.bin') if not p.name.endswith('-fit2.bin')]
+    assert not [p for p in cache.glob('*.bin') if not p.name.endswith(('-fit2.bin','-fit3.bin'))]
     assert before=={p.name:payload(p) for p in fitted}
     # 大字模式仍使用两列并限制封面不超出单元格。/ Large type retains two columns and bounded covers.
     nvs=out/'nvs/read_pico';nvs.mkdir(parents=True,exist_ok=True);(nvs/'sys_size').write_bytes(bytes([140]))
@@ -80,4 +85,23 @@ with tempfile.TemporaryDirectory(prefix='shelf-fit-',dir=R/'build') as tmp:
         assert grid[2][5]+grid[2][7]//2==grid[3][5]+grid[3][7]//2
         assert grid[0][12]==grid[1][12]==grid[2][12]==grid[3][12]
 
-print('shelf covers: portrait/square/landscape aspect ratios, bounded cached pixels, cold-session regeneration, vertically centered covers, uniform caption/progress columns, 7px corners, shared full-aspect Home covers and 3x3/2x2 geometry passed')
+    # Real ZIP/EPUB/PNG path: same-size and same-mtime image replacement must retire old pixels.
+    source=card/'books/A-tall.epub';original=source.read_bytes();st=source.stat()
+    image=next(png(320,480,value) for value in range(128,255) if len(png(320,480,value))==len(png(320,480)))
+    bio=io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(original)) as src,zipfile.ZipFile(bio,'w') as dst:
+        for info in src.infolist():dst.writestr(info,image if info.filename=='OPS/cover.png' else src.read(info.filename))
+    assert len(bio.getvalue())==len(original)
+    baseline,pixels=frame();index=baseline['book_items'].index('/sdcard/books/A-tall.epub');g=baseline['shelf_geometry'][index]
+    old_tone=tone(pixels,g[4]+g[6]//2,g[5]+g[7]//2)
+    source.write_bytes(bio.getvalue());os.utime(source,ns=(st.st_atime_ns,st.st_mtime_ns))
+    updated,pixels=frame();g=updated['shelf_geometry'][index]
+    assert tone(pixels,g[4]+g[6]//2,g[5]+g[7]//2)>old_tone
+    assert source.stat().st_size==st.st_size and source.stat().st_mtime_ns==st.st_mtime_ns
+    # Corrupt the real persistent payload and confirm deterministic regeneration.
+    disk=next(p for p in cache.glob('*-fit3.bin') if p.read_bytes()[56:344].split(b'\0')[0]==b'/sdcard/books/A-tall.epub')
+    correct=disk.read_bytes();disk.write_bytes(correct[:-1]+bytes([correct[-1]^255]))
+    frame();assert disk.read_bytes()==correct
+    disk_state=(disk.stat().st_ino,disk.stat().st_mtime_ns);frame();assert disk_state==(disk.stat().st_ino,disk.stat().st_mtime_ns)
+
+print('shelf covers: portrait/square/landscape aspect ratios, bounded cached pixels, verified cross-session reuse and source replacement/corruption recovery, vertically centered covers, uniform caption/progress columns, 7px corners, shared full-aspect Home covers and 3x3/2x2 geometry passed')

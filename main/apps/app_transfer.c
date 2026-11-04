@@ -44,6 +44,7 @@
 #include "read_pico_sd.h"
 #include "settings.h"
 #include "file_references.h"
+#include "shelf_perf.h"
 #include "ttf_font.h"
 #include "app_font_context.h"
 #include "ui_gesture.h"
@@ -725,6 +726,7 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
 }
 
 static void on_enter(app_ctx_t* ctx) {
+    shelf_perf_finish();shelf_perf_poll(!usb_storage_active());
     (void)ctx;
     if(!usb_storage_active())transfer_appearance_cleanup();
     display_set_bulk_io(true);

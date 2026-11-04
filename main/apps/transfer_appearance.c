@@ -40,10 +40,13 @@ void transfer_appearance_cleanup(void){
 }
 static bool same_file(const char *a,const char *b){
     struct stat x,y;if(stat(a,&x)||stat(b,&y)||!S_ISREG(x.st_mode)||!S_ISREG(y.st_mode)||x.st_size!=y.st_size||x.st_size<=0)return false;
-    FILE *fa=fopen(a,"rb"),*fb=fopen(b,"rb");bool same=fa&&fb;unsigned char p[2048],q[2048];
-    for(size_t left=(size_t)x.st_size;same&&left;){size_t n=left<sizeof(p)?left:sizeof(p);same=fread(p,1,n,fa)==n&&fread(q,1,n,fb)==n&&!memcmp(p,q,n);left-=n;}
+    // 文件比较不可在UI任务栈上保留两块2KiB缓冲。/ Keep paired 2KiB comparison buffers off the UI task stack.
+    unsigned char *bytes=malloc(4096);if(!bytes)return false;
+    FILE *fa=fopen(a,"rb"),*fb=fopen(b,"rb");bool same=fa&&fb;
+    for(size_t left=(size_t)x.st_size;same&&left;){size_t n=left<2048?left:2048;same=fread(bytes,1,n,fa)==n&&fread(bytes+2048,1,n,fb)==n&&!memcmp(bytes,bytes+2048,n);left-=n;}
     if(fa)fclose(fa);
     if(fb)fclose(fb);
+    free(bytes);
     return same;
 }
 static bool matching_font(const char *stage,char *path,size_t cap){
@@ -60,10 +63,12 @@ static bool promote_font(const char *stage,const char *name,char *path,size_t ca
     const char *ext=strrchr(name,'.');if(!ext||strcasecmp(ext,".ttf"))return false;
     if(snprintf(path,cap,"/sdcard/fonts/%.*s-%.8s.ttf",(int)(ext-name),name,stage+strlen(WEB_FONT_ROOT)+1)>=(int)cap)return false;
     struct stat st;if(!stat(path,&st))return same_file(stage,path);
-    char part[256];snprintf(part,sizeof(part),"%s.part",path);FILE *in=fopen(stage,"rb"),*out=fopen(part,"wb");bool ok=in&&out;unsigned char bytes[4096];size_t n;
-    if(ok)while((n=fread(bytes,1,sizeof(bytes),in)))if(fwrite(bytes,1,n,out)!=n){ok=false;break;}
+    unsigned char *bytes=malloc(4096);if(!bytes)return false;
+    char part[256];snprintf(part,sizeof(part),"%s.part",path);FILE *in=fopen(stage,"rb"),*out=fopen(part,"wb");bool ok=in&&out;size_t n;
+    if(ok)while((n=fread(bytes,1,4096,in)))if(fwrite(bytes,1,n,out)!=n){ok=false;break;}
     if(in){if(ferror(in))ok=false;fclose(in);}
     if(out){if(fflush(out)||fsync(fileno(out)))ok=false;if(fclose(out))ok=false;}
+    free(bytes);
     if(ok)ok=rename(part,path)==0;
     if(!ok)unlink(part);
     return ok&&same_file(stage,path);
@@ -165,10 +170,9 @@ bool transfer_appearance_path_writable(const char *path){
     for(unsigned i=0;i<2;++i)if(assets[i][0]&&!strncasecmp(path,assets[i],n)&&(!assets[i][n]||assets[i][n]=='/'))return false;
     return true;
 }
-esp_err_t transfer_appearance_dispatch(const char *op,const char *body,read_pico_transfer_editor_reply_t *out,
+// GET不得继承编辑/同步分支的临时配置栈帧。/ GET must not inherit the edit/sync branch's temporary configuration frame.
+static __attribute__((noinline)) esp_err_t appearance_edit(const char *op,const char *body,read_pico_transfer_editor_reply_t *out,
     read_pico_transfer_cancel_fn cancelled,void *context){
-    memset(out,0,sizeof(*out));
-    if(!strcmp(op,"get"))return settings_reply(out);
     if(strstr(body,"\\u0000"))return response(out,400,"文字内容无效");
     const char *end=NULL;cJSON *o=cJSON_ParseWithOpts(body,&end,true);
     if(!o||!unique_keys(o)){cJSON_Delete(o);return response(out,400,"设置参数无效");}
@@ -223,4 +227,10 @@ esp_err_t transfer_appearance_dispatch(const char *op,const char *body,read_pico
     content_banner_config_t saved;
     if(content_banner_load_checked(&saved)!=ESP_OK||memcmp(&saved,&cfg,sizeof(cfg)))return response(out,500,"保存结果未确认，请重新读取设置核实");
     out->changed=true;return settings_reply(out);
+}
+esp_err_t transfer_appearance_dispatch(const char *op,const char *body,read_pico_transfer_editor_reply_t *out,
+    read_pico_transfer_cancel_fn cancelled,void *context){
+    memset(out,0,sizeof(*out));
+    if(!strcmp(op,"get"))return settings_reply(out);
+    return appearance_edit(op,body,out,cancelled,context);
 }

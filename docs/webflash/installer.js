@@ -4,7 +4,7 @@
  */
 const button = document.getElementById('flash-installer');
 const status = document.getElementById('flash-status');
-const expectedVersion = '0.1.7';
+const expectedVersion = '0.2.0';
 const expectedParts = new Map([
   ['bootloader.bin', 0], ['partition-table.bin', 0x8000],
   ['firmware.bin', 0x10000], ['ota-data-initial.bin', 0xd10000],

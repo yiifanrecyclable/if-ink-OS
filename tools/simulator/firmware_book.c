@@ -100,7 +100,8 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  if(panel==6||panel==8)panel=READER_PANEL_TOOLS;
  if(panel==10)panel=READER_PANEL_SHORTCUTS;
  app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);scan_shelf(&ctx);scan_documents(&ctx);s_scan_pending=false;
- ctx.leaf=(view!=READING&&view!=TOC)?page:0;
+ // -1只表示阅读续读；列表页必须从非负页码开始。/ -1 requests reader resume; list pages must start at a nonnegative index.
+ ctx.leaf=(view!=READING&&view!=TOC)?(page<0?0:page):0;
  if(view==READING||view==TOC){
    if(!open_book(&ctx,path))return 0;
    // -1是跨页面打开的续读请求；按原文字节位置重排，不用界面的默认第0页覆盖它。

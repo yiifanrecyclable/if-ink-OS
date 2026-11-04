@@ -1,35 +1,11 @@
-# if-ink OS
+# if-ink OS 0.2.0
 
-**稳定版 v0.1.7 · 测试版 v0.2.0-beta** · 支持 Markdown 文档的 Pico 固件。仅适用 MindReset Read Pico RDP-G01-W。
+为 Obsidian 用户打造的 Pico 系统，搭配 Send to E-ink Reader 与坚果云，支持 EPUB、TXT、Markdown 图文阅读、可定制 Banner、阅读打卡与数字拼豆。
 
-[在线刷机与下载](https://yiifanrecyclable.github.io/if-ink-OS/) · [版本与离线包](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.1.7) · [安装说明](docs/安装说明.md) · [构建与重新链接](BUILDING.md)
+[在线刷机与使用说明](https://yiifanrecyclable.github.io/if-ink-OS/) · [下载正式版](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.0)
 
-- EPUB、TXT、Markdown 离线阅读，支持图片与文字混排、表格、标题字号、粗体、斜体与高亮。
-- 坚果云 WebDAV 获取文件列表，按需下载 MD/TXT/EPUB，保存到 TF 卡。
-- 自定义 Banner 首页、每日阅读打卡与目标设定、壁纸轮播、最近阅读，以及统一字号、字体和分割线界面。
-- 阅读控制面板、书签、目录、可选快捷手势、WiFi 密码记忆、中文/English系统界面及独立在线升级。
-- WiFi／热点网页可编辑 Banner 与锁屏、预览实际设备排版、同步电脑TTF字体并管理TF文件。
+本版本基于已实测的 r9t7，保留持久封面、Banner 复用与文档按需扫描；r9t8 仅留本地。首次使用需要生成缓存，封面重启后按实际内容校验再复用。设备固定目录 books / fonts / markdown / pictures / banner pic，请保留TF隐藏数据。
 
-首次安装用电脑 Chrome/Edge 打开在线刷机页；已有 IF/if-ink OS 的设备可使用 TF 升级包。在线安装不需要 Python。离线 USB 包包含固件及刷写参数，手动刷写需提前准备 Python 和 esptool。TF 卡固定目录为 `books`、`fonts`、`markdown`；首次可下载字体与拼音词库资源包。含更新器的版本可在“设置 → 固件信息 → 在线升级”检查后续版本。同版本无需重复安装。0.1.7已通过完整构建与宿主检查，本版新增功能的最终墨水屏与休眠效果仍需真机验证。
+[构建与重新链接说明](BUILDING.md) · [第三方许可](THIRD_PARTY_NOTICES.md)
 
-Obsidian 推送插件为独立项目，本固件发布包不包含插件及任何账号配置。坚果云的应用密码在设备设置中手动填写。
-
-基于 [Pico Reader 0.3.3-rc83](https://github.com/wegooo-cell/read-pico-reader)，选择性采用后续 rc88/rc95 的阅读、刷新与存储改进；保留 if-ink OS 的界面与刷新策略。感谢[原作者主页](https://wegooo-cell.github.io/read-pico-reader/)。本项目是独立衍生版本，不是原作者或 MindReset 官方发布。
-
-主体 [Apache-2.0](LICENSE)；epdiy 使用 LGPL-3.0-or-later，其他组件及字体保留原许可。每版同时提供对应源码、固定依赖、实际构建配置和许可包，参见[第三方声明](THIRD_PARTY_NOTICES.md)。
-
-### Reading progress storage
-
-With an available SD card, resume positions, percentages and recent ordering live in the hidden `.readpico/progress` directory. Keep it when copying or backing up the card. Records use CRC-checked dual slots with sync and readback verification; write failures remain pending. Legacy NVS records remain readable and subsequent updates go to SD; without SD, legacy NVS is read-only and content saves require a card. Settings backup/restore includes the new store and accepts older backups. Unsaved positions already lost after a restart cannot be recovered.
-
-### Content records and preferences
-
-Bounded system preferences and credentials remain in internal NVS. Bookmarks, title overrides, pins, shelf removals, per-book help flags and reading statistics use SD `.readpico/records`; progress keeps `.readpico/progress`. Keep both hidden directories when backing up or moving cards.
-
-At an idle, trusted media boundary, recognized legacy NVS content is archived with checksums and independently verified against SD before exact-key retirement. Existing SD records and deletion markers win. Unknown/corrupt records and credentials are never automatically cleared. Content writes require SD and cannot refill NVS. Remaining unknown data may still exhaust NVS; diagnostics retain the inventory and migration results. Older firmware may not understand the new content store; back up before downgrading.
-
-### Settings persistence and power failures
-
-Preferences apply only after write, commit and independent readback. A failed save retains the last confirmed in-memory value and permits retry; failed verification means unconfirmed, not necessarily unwritten. Read errors never count as empty configuration for subsequent edits, and incomplete snapshots cannot be exported as backups. Settings failures never trigger automatic NVS erasure.
-
-Lock/power actions check current-page progress or draft saves. Failed saves still allow light sleep with RAM retained, while deep sleep is deferred; explicit power actions offer Retry, Proceed anyway and Cancel, with possible loss of unsaved data acknowledged before proceeding. Failed PMU shutdown/restart handoffs restore the usable page without unmounting SD or closing reading resources. The existing staged and full-off choices are retained.
+基于 [kiikoread/Pico Reader](https://github.com/wegooo-cell/read-pico-reader)，感谢[原作者主页](https://wegooo-cell.github.io/read-pico-reader/)。主体 Apache-2.0，epdiy 及其他组件按各自许可提供源码与声明。

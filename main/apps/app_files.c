@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include "app.h"
+#include "shelf_perf.h"
 #include "app_config.h"
 #include "app_content_open.h"
 #include "app_transfer_mode.h"
@@ -596,6 +597,7 @@ static void render_rename(uint8_t *fb) {
 }
 
 static void render(app_ctx_t *ctx, uint8_t *fb) {
+    SHELF_PERF_SCOPE(nav_render_perf,SP_NAV_RENDER,2,s_view);
     if (s_view == FILE_VIEW_ACTIONS) {
         file_view_t restore = s_view;
         s_view = FILE_VIEW_LIST;
@@ -1130,6 +1132,7 @@ static bool files_present(app_ctx_t *ctx,app_redraw_t redraw){
     if(redraw==APP_REDRAW_PAGE||redraw==APP_REDRAW_FULL){s_status_area=(EpdRect){0};prepare_thumbnails();}
     if(redraw==APP_REDRAW_PAGE && s_view!=FILE_VIEW_RENAME){
         render(ctx,ctx->fb);
+        SHELF_PERF_SCOPE(nav_output_perf,SP_NAV_OUTPUT,2,redraw);
         guard_draw_result(ctx->hl,update_display_navigation_page(ctx->hl,(EpdRect){0},ui_nav_rect()));
         return true;
     }

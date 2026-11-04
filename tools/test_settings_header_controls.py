@@ -17,7 +17,7 @@ with tempfile.TemporaryDirectory(prefix='settings-header-',dir=ROOT/'build') as 
         return json.loads(p.stdout)
     tap=lambda x,y:f't,{x},{y},{x},{y}'
     # Legacy page 32 is normalized to the same Banner browser page 31 on entry.
-    pages=(1,2,3,5,9,11,12,13,14,20,22,24,25,26,27,28,31,33)
+    pages=(1,2,3,5,9,11,12,13,14,20,22,24,25,26,27,28,31)
     destinations={3:2,12:27,22:21,25:2,26:14,28:27,31:21,32:21}
     for page in pages:
         view=f'settings-{page}'
@@ -35,4 +35,10 @@ with tempfile.TemporaryDirectory(prefix='settings-header-',dir=ROOT/'build') as 
         state=frame('transfer-2',tap(x,y),3)
         assert state['route']<0 and state['transfer_view']==2,state
     assert frame('transfer-2',tap(58,83),3)['route']==3
+    # The retired manual-log page is no longer exposed; the last device row still opens BOOT.
+    assert frame('settings-33')['settings_page']==0
+    geometry=frame('settings-0')['settings_geometry'];device,step=geometry[2],geometry[4]
+    for index,page in ((0,2),(2,14),(3,24),(4,11),(5,27),(6,13)):
+        y=device+step*index+step//2;scroll=max(0,y-1000)
+        assert frame('settings-0',tap(340,y-scroll),scroll)['settings_page']==page,(index,page)
 print('PASS Settings header exits: bounded press/release, inert titles/blanks, nested destinations, input and WiFi return')

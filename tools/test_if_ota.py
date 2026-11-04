@@ -65,6 +65,29 @@ int main(int argc,char **argv){
  snprintf(current.version,sizeof(current.version),"%s","0.1.7-beta");assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
  candidate(path,"Read_Pico_IF","0.1.7-beta-r2");assert(pico_ota_inspect(path,&info)==ESP_OK&&info.ready);
  snprintf(current.version,sizeof(current.version),"%s","0.1.7-beta-r2");assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
+ snprintf(current.version,sizeof(current.version),"%s","0.2.0-beta.9");
+ candidate(path,"Read_Pico_IF","0.2.0-r9t1");assert(pico_ota_inspect(path,&info)==ESP_OK&&info.ready);
+ snprintf(current.version,sizeof(current.version),"%s","0.2.0-r9t1");
+ assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
+ candidate(path,"Read_Pico_IF","0.2.0-r9t2");assert(pico_ota_inspect(path,&info)==ESP_OK&&info.ready);
+ snprintf(current.version,sizeof(current.version),"%s","0.2.0-r9t2");
+ assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
+ candidate(path,"Read_Pico_IF","0.2.0-r9t3");assert(pico_ota_inspect(path,&info)==ESP_OK&&info.ready);
+ snprintf(current.version,sizeof(current.version),"%s","0.2.0-r9t3");
+ assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
+ candidate(path,"Read_Pico_IF","0.2.0-r9t4");assert(pico_ota_inspect(path,&info)==ESP_OK&&info.ready);
+ snprintf(current.version,sizeof(current.version),"%s","0.2.0-r9t4");
+ assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
+ candidate(path,"Read_Pico_IF","0.2.0-r9t5");assert(pico_ota_inspect(path,&info)==ESP_OK&&info.ready);
+ snprintf(current.version,sizeof(current.version),"%s","0.2.0-r9t5");
+ assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
+ candidate(path,"Read_Pico_IF","0.2.0-r9t6");assert(pico_ota_inspect(path,&info)==ESP_OK&&info.ready);
+ snprintf(current.version,sizeof(current.version),"%s","0.2.0-r9t6");
+ assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
+ candidate(path,"Read_Pico_IF","0.2.0-r9t7");assert(pico_ota_inspect(path,&info)==ESP_OK&&info.ready);
+ snprintf(current.version,sizeof(current.version),"%s","0.2.0-r9t7");
+ assert(pico_ota_inspect(path,&info)==ESP_ERR_INVALID_STATE&&!info.ready);
+ candidate(path,"Read_Pico_IF","0.2.0-beta.9");assert(pico_ota_inspect(path,&info)==ESP_OK&&info.ready);
  puts("PASS IF local upgrade identity, beta3-to-r2, same-version rejection, missing slot, capacity, malformed header and truncation");
 }
 '''
