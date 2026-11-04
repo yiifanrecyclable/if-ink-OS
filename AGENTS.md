@@ -190,3 +190,7 @@ Every comment is bilingual. Comments only; no logic changes.
 - `enum` 成员短尾注：`///< 中文 / English`
 - 大 `.c` 用 `/* ---- 区块名 / Section ---- */` 分区。/ Large `.c` files use section banners.
 - 术语见表，不在注释里重复解释。/ Use the glossary; do not redefine terms.
+
+### Online installer release gate
+
+修改刷机页版本时，必须同时更新 installer.js 中 expectedRelease 的 version、size、sha256，并运行 `node --experimental-vm-modules tools/test_webflash_loader.mjs docs`。测试执行实际加载逻辑并校验四段快照，不打开串口；仅能下载 manifest 不能证明按钮可加载。开发工作区若使用 build/release-prep/publish-repo/docs，应将测试命令的 docs 参数替换为该路径。

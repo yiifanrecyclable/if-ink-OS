@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: verify current web installer release pins and load flow
+        run: node --experimental-vm-modules tools/test_webflash_loader.mjs docs
       - name: checked preferences and power failures
         run: |
           mkdir -p build

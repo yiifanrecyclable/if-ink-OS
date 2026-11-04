@@ -4,7 +4,11 @@
  */
 const button = document.getElementById('flash-installer');
 const status = document.getElementById('flash-status');
-const expectedVersion = '0.2.0';
+const expectedRelease = Object.freeze({
+  version: '0.2.0',
+  size: 3884544,
+  sha256: 'd2a8b8a4a0a71345e546a59363a5889e3e921c0833c887d0ea285e4ad39ea20b',
+});
 const expectedParts = new Map([
   ['bootloader.bin', 0], ['partition-table.bin', 0x8000],
   ['firmware.bin', 0x10000], ['ota-data-initial.bin', 0xd10000],
@@ -60,7 +64,7 @@ async function start() {
     if (!response.ok) throw new Error('manifest');
     const manifest = await response.json();
     const build = manifest.builds?.[0];
-    if (manifest.name !== 'if-ink OS' || manifest.version !== expectedVersion ||
+    if (manifest.name !== 'if-ink OS' || manifest.version !== expectedRelease.version ||
         manifest.builds.length !== 1 || build.chipFamily !== 'ESP32-S3' ||
         manifest.new_install_prompt_erase !== true || manifest.new_install_improv_wait_time !== 0 ||
         build.improv !== false || build.parts.length !== 4) throw new Error('target');
@@ -70,8 +74,8 @@ async function start() {
           seen.has(part.path) || !Number.isInteger(part.size) || part.size <= 0 ||
           !/^[a-f0-9]{64}$/.test(part.sha256) ||
           Math.ceil((part.offset + part.size) / 4096) * 4096 > regionEnds.get(part.path)) throw new Error('parts');
-      if (part.path === 'firmware.bin' && (part.size !== 3753840 ||
-          part.sha256 !== '1c3f2c4248aa80e130cb667607410582fde234f3c599af26a2ab9e4123f7e666')) throw new Error('image');
+      if (part.path === 'firmware.bin' && (part.size !== expectedRelease.size ||
+          part.sha256 !== expectedRelease.sha256)) throw new Error('image');
       seen.add(part.path);
     }
     button.prepareManifest = () => prepareBundleSnapshot(manifest, new URL(button.getAttribute('manifest'), document.baseURI).href);
@@ -79,8 +83,12 @@ async function start() {
     await customElements.whenDefined('esp-web-install-button');
     button.hidden = false;
     status.textContent = '连接后确认安装，完成前保持数据线连接。';
-  } catch {
-    unavailable('刷机工具未能加载，请刷新重试，或使用下方手动安装包。');
+  } catch (error) {
+    console.error('if-ink OS installer loading failed', error);
+    const mismatch = ['target', 'parts', 'image'].includes(error?.message);
+    unavailable(mismatch
+      ? '刷机文件与页面校验信息不一致，请刷新页面重试，或使用下方 TF / USB 安装包。'
+      : '刷机工具加载失败，请检查网络后刷新页面，或使用下方手动安装包。');
   }
 }
 void start();
