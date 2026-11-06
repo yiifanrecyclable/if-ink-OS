@@ -20,6 +20,12 @@ bool ui_banner_quote_fits_size(const char *text,const char *path,int px);
 bool ui_banner_preview(const char *text,const char *path,int px,content_quote_align_t align,content_quote_valign_t valign,uint32_t day,bool valid,uint8_t **out,bool *fits);
 /// 用完整草稿渲染缓存，失败不保存设置。/ Render a complete draft without persisting; false on image/alloc failure.
 bool ui_banner_preview_config(const content_banner_config_t *config,uint32_t day,bool valid,uint8_t **out,bool *fits);
+#ifdef IFINK_BANNER_LAYER_TEST
+/// 为首页读取或生成静态图层；hit_bits 第 0 位是背景，第 1 位是文字。
+/// Read or rebuild Home layers; hit_bits bit 0 is background and bit 1 is text.
+bool ui_banner_home_layers(const content_banner_config_t *config,uint32_t day,bool valid,
+                           uint8_t **out,int *hit_bits);
+#endif
 uint16_t ui_banner_default_date_y(int quote_px);
 /// 当前文字实际高度位置（相对Banner顶部，按字形高度限制边界）。/ Resolved text offset, constrained by actual ink height.
 uint16_t ui_banner_text_y(const content_banner_config_t *config);

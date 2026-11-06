@@ -10,6 +10,11 @@ while depth:
  elif s[i]=='}':depth-=1
  i+=1
 function=s[a:i]
+timeout_guard = re.search(r'#ifdef IFINK_WAKE_TIMING_TEST\n#include "shelf_perf.h"\n'
+                          r'(#define APP_LOCK_LIGHT_SLEEP_MS[^\n]+)\n#else\n'
+                          r'(#define APP_LOCK_LIGHT_SLEEP_MS[^\n]+)\n#endif',s)
+assert timeout_guard
+
 code=r'''
 #include <assert.h>
 #include <stdint.h>
@@ -21,7 +26,11 @@ typedef void *sc7a20h_handle_t;
 typedef int app_wake_source_t;
 #define APP_WAKE_TIMEOUT 3
 #define APP_WAKE_KEY 1
-#define APP_LOCK_LIGHT_SLEEP_MS 600000
+#ifdef IFINK_WAKE_TIMING_TEST
+#define EXPECTED_SLEEP_MS 60000
+#else
+#define EXPECTED_SLEEP_MS 600000
+#endif
 #define APP_LOCK_IGNORE_BOOT_MS 500
 #define APP_SLEEP_DEEP 1
 #define EPD_DRAW_SUCCESS 0
@@ -47,7 +56,7 @@ static enum EpdDrawError update_display_image_gray(void *hl){(void)hl;return DRA
 static void guard_draw_result(void *hl,enum EpdDrawError result){(void)hl;(void)result;}
 static void app_lock_wait_key_idle(int ms){(void)ms;}
 static void display_poweroff(void){}
-static app_wake_source_t app_light_sleep_wait_timed(sc7a20h_handle_t a,int ms){(void)a;assert(ms==600000);return ++waits<=2?APP_WAKE_TIMEOUT:APP_WAKE_KEY;}
+static app_wake_source_t app_light_sleep_wait_timed(sc7a20h_handle_t a,int ms){(void)a;assert(ms==EXPECTED_SLEEP_MS);return ++waits<=2?APP_WAKE_TIMEOUT:APP_WAKE_KEY;}
 static int epd_width(void){return 684;}
 static int epd_height(void){return 1216;}
 static int epd_get_rotation(void){return 3;}
@@ -70,7 +79,9 @@ int main(void){int64_t ignore=0;
  waits=caches=pmu=0;transfer_ok=false;enter_lock_and_sleep(NULL,&ignore,NULL,true);assert(!waits&&!pmu);
  puts("PASS: persistent save/cache/handoff failure retains RAM in light sleep, timeouts stay locked, key wake works, active transfers are protected");}
 '''
+guard = "#ifdef IFINK_WAKE_TIMING_TEST\n" + timeout_guard[1] + "\n#else\n" + timeout_guard[2] + "\n#endif\n"
 with tempfile.TemporaryDirectory(dir=R/'build',prefix='sleep-failure-') as d:
- p=Path(d);(p/'test.c').write_text(code)
- subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',str(p/'test.c'),'-o',str(p/'test')],check=True)
- subprocess.run([str(p/'test')],check=True)
+ p=Path(d);(p/'test.c').write_text(guard+code)
+ for flags in ([], ['-DIFINK_WAKE_TIMING_TEST=1']):
+  subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',*flags,str(p/'test.c'),'-o',str(p/'test')],check=True)
+  subprocess.run([str(p/'test')],check=True)

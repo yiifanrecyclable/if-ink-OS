@@ -814,7 +814,13 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     if (s_page == SETTINGS_POWER_SLEEP) {
         back_header(fb, UI_MSG("关机睡眠"));
         section(fb,UI_PAGE_Y(248), UI_MSG("选择电源菜单中“关机”的方式"));
-        const char *labels[] = {UI_MSG("彻底关机"), UI_MSG("先浅睡，10 分钟后深睡")};
+#ifdef IFINK_WAKE_TIMING_TEST
+        const char *staged = app_settings_language() == APP_LANGUAGE_EN
+            ? "Sleep, then power off after 1 minute" : "先浅睡，1 分钟后深睡";
+#else
+        const char *staged = UI_MSG("先浅睡，10 分钟后深睡");
+#endif
+        const char *labels[] = {UI_MSG("彻底关机"), staged};
         const char *details[] = {UI_MSG("完全断电，长按电源键开机"),
                                  UI_MSG("锁屏画面保留；深睡后短按电源键开机")};
         for (int i = 0; i < 2; ++i) {
@@ -868,9 +874,10 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         int title_px=ui_text_fit_px(UI_TEXT_TITLE,"if-ink OS",196,48);
         ui_text_fixed_vc(fb,36,center,title_px,"if-ink OS",EPD_DRAW_ALIGN_LEFT,false);
         int version_x=36+ui_text_fixed_width_px(title_px,"if-ink OS")+12;
-        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,"v0.2.0",156,48);
-        ui_text_fixed_vc(fb,version_x,center,version_px,"v0.2.0",EPD_DRAW_ALIGN_LEFT,false);
-        int width=648-version_x-ui_text_fixed_width_px(version_px,"v0.2.0")-24;
+        const char *version_label = "v0.2.1 beta";
+        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,version_label,156,48);
+        ui_text_fixed_vc(fb,version_x,center,version_px,version_label,EPD_DRAW_ALIGN_LEFT,false);
+        int width=648-version_x-ui_text_fixed_width_px(version_px,version_label)-24;
         const char *slogan=UI_MSG("支持md文档的Pico固件");
         int slogan_px=ui_text_fit_px(UI_TEXT_CAPTION,slogan,width,48);
         ui_text_fixed_vc_gray(fb,648,center,slogan_px,slogan,EPD_DRAW_ALIGN_RIGHT,8,15);
@@ -905,7 +912,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
                   reading_icons, reading_labels, reading_values, SETTINGS_DISPLAY_ROWS);
     const char *device_labels[] = {UI_MSG("日期与时间"), UI_MSG("系统语言"), UI_MSG("关机与休眠"), UI_MSG("电池管理"), UI_MSG("保存与恢复"), UI_MSG("固件信息"), UI_MSG("BOOT 刷机")};
     const char *device_values[] = {UI_MSG("设置  ›"), app_settings_language()==APP_LANGUAGE_EN?"English":"中文", app_settings_staged_shutdown() ? UI_MSG("先浅后深  ›") : UI_MSG("彻底断电  ›"),
-                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), "v0.2.0  ›", UI_MSG("电脑刷机  ›")};
+                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), "v0.2.1 beta  ›", UI_MSG("电脑刷机  ›")};
     static const int device_icons[] = {6, 17, 9, 13, 8, 14, 16};
     setting_group(fb, SETTINGS_DEVICE_Y - 34, UI_MSG("系统与设备"), SETTINGS_DEVICE_Y,
                   device_icons, device_labels, device_values, SETTINGS_DEVICE_ROWS);

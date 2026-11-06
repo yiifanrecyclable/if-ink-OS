@@ -76,6 +76,54 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='banner-layers-') as te
     info,_=render(events=choose+';'+tap(500,1098));assert info['quote_settings_committed'] and info['route']==0
     assert config.exists() and banner(render('baseline-home')[1])==banner(all_on)
     saved=config.read_bytes();render(events=off+';'+tap(180,1098));assert config.read_bytes()==saved
+    if os.getenv('BANNER_LAYER_TEST') == '1':
+        # Fresh renderer processes model cache reuse across deep wake.
+        caches = [card/'.readpico'/f'banner-{kind}-v1.bin' for kind in ('background','text')]
+        def signatures():
+            return [(p.stat().st_ino, p.stat().st_mtime_ns, p.read_bytes()) for p in caches]
+        original = signatures()
+        assert banner(render('baseline-home')[1]) == banner(all_on)
+        assert signatures() == original
+
+        fmt = '<IH6B192s160s288sH2x'
+        values = list(struct.unpack(fmt, saved))
+        values[1] = values[-1] = 70  # Date and quote overlap deliberately.
+        config.write_bytes(struct.pack(fmt, *values))
+        assert banner(render('baseline-home')[1]) == banner(render()[1])
+        aligned = signatures()
+        assert aligned[0] == original[0] and aligned[1] != original[1]
+        env['PICO_SIM_HOME_DAY'] = '20734'
+        assert banner(render('baseline-home')[1]) == banner(render()[1])
+        assert signatures() == aligned
+        env['PICO_SIM_HOME_DAY'] = '20733'
+
+        damaged = bytearray(aligned[1][2]); damaged[-1] ^= 1
+        caches[1].write_bytes(damaged)
+        env['PICO_TEST_FSYNC_FAIL'] = '1'
+        assert banner(render('baseline-home')[1]) == banner(render()[1])
+        assert caches[1].read_bytes() == damaged and not list(caches[1].parent.glob('banner-*.tmp'))
+        del env['PICO_TEST_FSYNC_FAIL']
+        assert banner(render('baseline-home')[1]) == banner(render()[1])
+        assert caches[1].read_bytes() == aligned[1][2]
+
+        image_path = card/'banner pic/dark.png'
+        image_original = image_path.read_bytes()
+        replacement = png(684, 300, 32)
+        size = max(len(image_original), len(replacement))
+        # Leave dimensions, length and mtime unchanged across the replacement.
+        image_path.write_bytes(image_original.ljust(size, b'\0'))
+        first = banner(render('baseline-home')[1])
+        stat = image_path.stat()
+        before = signatures()
+        image_path.write_bytes(replacement.ljust(size, b'\0'))
+        os.utime(image_path, ns=(stat.st_atime_ns, stat.st_mtime_ns))
+        second = banner(render('baseline-home')[1])
+        assert first != second and second == banner(render()[1])
+        after = signatures()
+        assert after[0] != before[0] and after[1] == before[1]
+
+        config.write_bytes(saved)
+        print('PASS persistent Banner: exact overlap and date parity, cross-process reuse, CRC recovery, failed-write fallback, same-size/mtime replacement.')
     (card/'banner pic/dark.png').unlink();info,missing=render('baseline-home');assert info['route']==-1 and banner(missing)==banner(initial)
     # The quote can move across the full banner; actual ink remains within both bounds.
     current=list(struct.unpack('<IH6B192s160s288sH2x',saved));current[2]=0;current[3]=0

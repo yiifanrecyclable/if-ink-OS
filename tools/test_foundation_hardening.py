@@ -25,6 +25,13 @@ if(!strcmp(mode,"cache-write")){
  put("/sdcard/books/test.txt");char p[288];book_index_cache_header_t h;
  assert(book_index_cache_prepare("/sdcard/books/test.txt","txt",1,p,sizeof(p),&h));cache_write(p,&h);
  FILE *f=book_index_cache_open_read(p,&h);assert(f);fclose(f);
+ uint32_t global_epoch=book_index_cache_epoch();
+ book_index_cache_invalidate_file(h.source_size,h.modified);
+ assert(book_index_cache_epoch()==global_epoch && !book_index_cache_open_read(p,&h));
+ unsigned unchanged=0;
+ for(unsigned i=1;i<=32;++i)unchanged+=book_index_cache_file_epoch(h.source_size+i,h.modified)==global_epoch;
+ assert(unchanged>=24);
+ assert(book_index_cache_prepare("/sdcard/books/test.txt","txt",1,p,sizeof(p),&h));cache_write(p,&h);
  book_index_cache_invalidate_all();assert(!book_index_cache_open_read(p,&h));
  assert(book_index_cache_prepare("/sdcard/books/test.txt","txt",1,p,sizeof(p),&h));cache_write(p,&h);return 0;
 }

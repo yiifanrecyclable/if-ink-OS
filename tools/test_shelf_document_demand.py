@@ -23,19 +23,22 @@ unit=r'''
 enum {SHELF,READING,TOC,MANAGE,BULK,IMPORT,SEARCH,EDIT,DOCUMENTS,DOCUMENT_BULK};
 enum {APP_REDRAW_NONE,APP_REDRAW_PAGE,ESP_ERR_NOT_FINISHED=8,READER_PANEL_NONE=0,UI_GESTURE_TAP=1};
 typedef int app_redraw_t;
-typedef struct {uint64_t now_ms;int leaf,home;} app_ctx_t;
+typedef struct {bool touched;} cst836u_touch_t;
+typedef struct {int64_t now_ms;int leaf,home;bool released;const cst836u_touch_t *touch;} app_ctx_t;
 typedef struct {int x0,y0,type;} ui_gesture_event_t;
 typedef struct {int unused;} read_pico_sd_info_t;
 #define SHELF_PERF_SCOPE(...) ((void)0)
 #define BOOK_STORE_PATH_MAX 288
 static int s_view,s_reader_panel,shelves,documents,opens,saves,probes,returns;
-static uint64_t s_poll_ms;
+static int64_t s_poll_ms,s_cover_next_ms;
+static bool s_document_scan_pending;
+static char s_document_message[64];
 static bool s_scan_pending,s_document_mode,s_document_delete_confirm,s_document_clear_confirm,s_document_menu;
 static bool s_requested_open_home,s_reader_return_home,open_ok=true;
 static char s_requested_open[288];
 static int read_pico_sd_get_info(read_pico_sd_info_t *p){(void)p;return probes;}
 static void scan_shelf(app_ctx_t *c){(void)c;++shelves;}
-static void scan_documents(app_ctx_t *c){c->leaf=0;++documents;}
+static void scan_documents(app_ctx_t *c){c->leaf=0;++documents;s_document_scan_pending=false;}
 static bool open_book(app_ctx_t *c,const char *p){(void)c;assert(p[0]);++opens;if(open_ok)s_view=READING;return open_ok;}
 static void copy_text(char *d,size_t n,const char *s){snprintf(d,n,"%s",s);}
 static void prepare_covers(app_ctx_t *c){(void)c;}
@@ -48,18 +51,28 @@ static void ui_nav_request(app_ctx_t *c,int i){assert(!i);c->home=1;}
 static void return_to_cached_shelf(app_ctx_t *c){(void)c;++returns;}
 '''
 unit+=block('static bool open_requested_book(app_ctx_t* ctx) {')+'\n'
-unit+='static app_redraw_t tick_scan(app_ctx_t *ctx){'+block('if (s_scan_pending && ctx->now_ms - s_poll_ms >= 500) {')+'return APP_REDRAW_NONE;}\n'
+unit+='static app_redraw_t tick_scan(app_ctx_t *ctx){const cst836u_touch_t *touch=ctx->touch;'+block('if (s_document_scan_pending &&')+block('if (s_scan_pending && (s_view == SHELF || s_view == BULK) &&')+'return APP_REDRAW_NONE;}\n'
 unit+='static app_redraw_t tabs(app_ctx_t *ctx,const ui_gesture_event_t *ev){'+block('if((s_view==SHELF||s_view==DOCUMENTS)&&ev->type==UI_GESTURE_TAP){')+'return APP_REDRAW_NONE;}\n'
 unit+=block('static app_redraw_t reader_return(app_ctx_t *ctx, bool home) {')+'\n'
 unit+=r'''
-static void reset(int view){s_view=view;shelves=documents=opens=saves=returns=probes=0;s_poll_ms=0;s_scan_pending=true;s_requested_open[0]=0;s_requested_open_home=s_reader_return_home=false;s_document_mode=false;open_ok=true;}
+static void reset(int view){s_view=view;shelves=documents=opens=saves=returns=probes=0;s_poll_ms=0;s_cover_next_ms=0;s_scan_pending=true;s_document_scan_pending=false;s_requested_open[0]=0;s_requested_open_home=s_reader_return_home=false;s_document_mode=false;open_ok=true;}
 int main(void){
  app_ctx_t c={.now_ms=1000};ui_gesture_event_t e={.type=UI_GESTURE_TAP,.x0=1};
  reset(SHELF);assert(tick_scan(&c)==APP_REDRAW_PAGE);assert(shelves==1&&!documents&&!s_scan_pending);
  assert(tick_scan(&c)==APP_REDRAW_NONE&&shelves==1&&!documents);
  assert(tabs(&c,&e)==APP_REDRAW_PAGE&&s_view==DOCUMENTS&&s_document_mode&&documents==1);
  assert(tabs(&c,&e)==APP_REDRAW_PAGE&&documents==2); /* Explicit entry refreshes external changes. */
- for(int i=DOCUMENTS;i<=DOCUMENT_BULK;++i){reset(i);assert(tick_scan(&c)==APP_REDRAW_PAGE&&shelves==1&&documents==1);}
+ for(int i=DOCUMENTS;i<=DOCUMENT_BULK;++i){
+  reset(i);assert(tick_scan(&c)==APP_REDRAW_NONE&&!shelves&&!documents&&s_scan_pending);
+  s_document_scan_pending=true;
+  assert(tick_scan(&c)==APP_REDRAW_PAGE&&!shelves&&documents==1&&s_scan_pending);
+ }
+ reset(SHELF);s_cover_next_ms=c.now_ms+150;
+ assert(tick_scan(&c)==APP_REDRAW_NONE&&!shelves);
+ c.now_ms+=150;c.released=true;
+ assert(tick_scan(&c)==APP_REDRAW_NONE&&!shelves);
+ assert(tabs(&c,&e)==APP_REDRAW_PAGE&&s_view==DOCUMENTS);
+ c.released=false;assert(tick_scan(&c)==APP_REDRAW_NONE&&!shelves&&documents==1);
  reset(SHELF);probes=ESP_ERR_NOT_FINISHED;assert(tick_scan(&c)==APP_REDRAW_NONE&&s_scan_pending&&!shelves&&!documents);
  probes=0;c.now_ms+=500;assert(tick_scan(&c)==APP_REDRAW_PAGE&&shelves==1&&!documents);
  reset(SHELF);s_scan_pending=false;strcpy(s_requested_open,"/sdcard/markdown/direct.md");s_requested_open_home=true;

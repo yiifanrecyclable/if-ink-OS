@@ -70,7 +70,7 @@ static bool cover_cache_key(const char *source, const char *title, const char *a
         .template_version = BOOK_AUTO_COVER_VERSION,
         .width = BOOK_COVER_W, .height = BOOK_COVER_H,
         .file_size = (uint64_t)st.st_size, .modified = (int64_t)st.st_mtime,
-        .path_hash = path_hash, .text_hash = text_hash, .media_epoch = book_index_cache_epoch(),
+        .path_hash = path_hash, .text_hash = text_hash, .media_epoch = book_index_cache_file_epoch(st.st_size, st.st_mtime),
     };
     return snprintf(path, cap, "/sdcard/.readpico/covers/%016llx-%ux%u%s.bin",
                     (unsigned long long)path_hash, BOOK_COVER_W, BOOK_COVER_H, fitted ? "-fit2" : "") < (int)cap;
@@ -84,7 +84,7 @@ static bool cover_cache_read(const char *path, const cover_cache_header_t *expec
     cover_cache_header_t found;
     bool ok = fread(&found, 1, sizeof(found), file) == sizeof(found) &&
               found.magic == expected->magic && found.schema == expected->schema &&
-              found.media_epoch == expected->media_epoch && expected->media_epoch == book_index_cache_epoch() &&
+              found.media_epoch == expected->media_epoch && expected->media_epoch == book_index_cache_file_epoch(expected->file_size, expected->modified) &&
               found.template_version == expected->template_version &&
               found.width > 0 && found.width <= BOOK_COVER_W && found.height > 0 && found.height <= BOOK_COVER_H &&
               (expected->schema == 2u || (found.width == expected->width && found.height == expected->height)) &&
@@ -132,7 +132,7 @@ _Static_assert(sizeof(cover_persist_header_t)==376,"Stable derived cover cache h
 
 static bool cover_source_unchanged(const char *source,const cover_cache_header_t *key){
     struct stat st;
-    return key->media_epoch==book_index_cache_epoch()&&!stat(source,&st)&&S_ISREG(st.st_mode)&&
+    return key->media_epoch==book_index_cache_file_epoch(key->file_size, key->modified)&&!stat(source,&st)&&S_ISREG(st.st_mode)&&
            st.st_size>=0&&(uint64_t)st.st_size==key->file_size&&(int64_t)st.st_mtime==key->modified;
 }
 static bool cover_persist_identity(const char *source,const char *title,const char *author,

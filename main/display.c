@@ -22,6 +22,9 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#ifdef IFINK_WAKE_TIMING_TEST
+#include "shelf_perf.h"
+#endif
 
 // 刷屏、驱动释放和空闲断电共享递归锁，复合输出在最后才交还。/ Serialize scans, drive release and idle poweroff across composite outputs.
 static StaticSemaphore_t s_output_lock_storage;
@@ -111,11 +114,28 @@ static int s_page_refreshes;
 // After wake, clean only once the complete target is drawn and establish a white baseline instead of reusing wallpaper state.
 static enum EpdDrawError resume_clean(EpdiyHighlevelState *hl) {
     use_scan_for(&E0470_FULL_WAVEFORM,MODE_GC16);
+#ifdef IFINK_WAKE_TIMING_TEST
+    shelf_perf_span_t clear = shelf_perf_begin(SP_WAKE_CLEAR, 0, 0);
+#endif
     epd_poweron();epd_clear();epd_hl_waveform(hl,&E0470_FULL_WAVEFORM);
+#ifdef IFINK_WAKE_TIMING_TEST
+    shelf_perf_end(&clear);
+    shelf_perf_span_t output = shelf_perf_begin(SP_WAKE_OUTPUT, 0, 0);
+#endif
     enum EpdDrawError result=epd_hl_update_screen_from_white(hl,MODE_GC16,25);
+#ifdef IFINK_WAKE_TIMING_TEST
+    output.b = result;
+    shelf_perf_end(&output);
+#endif
     if(result & EPD_DRAW_EMPTY_LINE_QUEUE){
         s_pclk_mhz=DISPLAY_PCLK_SAFE_MHZ;read_pico_epd_set_pclk(DISPLAY_PCLK_SAFE_MHZ);
+#ifdef IFINK_WAKE_TIMING_TEST
+        SHELF_PERF_SCOPE(retry, SP_WAKE_OUTPUT, 1, 0);
+#endif
         epd_clear();result=epd_hl_update_screen_from_white(hl,MODE_GC16,25);
+#ifdef IFINK_WAKE_TIMING_TEST
+        retry.b = result;
+#endif
     }
     if(result==EPD_DRAW_SUCCESS)s_resume_clean=false;
     s_page_refreshes=0;

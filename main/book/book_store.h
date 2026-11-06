@@ -50,5 +50,7 @@ esp_err_t book_store_delete(const char* path, bool* removed);
 /// 上传结束后由UI线程通知书架重扫；不修改已保存的阅读进度。
 /// Notify a shelf rescan from the UI thread after upload without changing saved progress.
 void book_store_notify_changed(void);
-/// 当前内容版本，仅由UI线程读写。/ Content revision, accessed only by the UI thread.
+/// 已单独失效图书缓存后通知清单变化。/ Notify a listing change after scoped book cache invalidation.
+void book_store_notify_list_changed(void);
+/// 书库清单版本，供同步任务与 UI 共用。/ Book listing revision shared by the sync worker and UI.
 unsigned book_store_revision(void);

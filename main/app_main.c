@@ -22,6 +22,7 @@
 #include "freertos/task.h"
 #include "app_registry.h"
 #include "display.h"
+#include "e0470_epaper_waveform.h"
 #include "epd_highlevel.h"
 #include "epdiy.h"
 #include "esp_log.h"
@@ -32,12 +33,57 @@
 #include "read_pico_pmu.h"
 #include "read_pico_pmu_protocol.h"
 #include "settings.h"
+#include "shelf_perf.h"
 #include "ttf_font.h"
 #include "app_font_context.h"
+#include "ui_font.h"
 #include "ui_kit.h"
 #include "vcom_setup.h"
+#ifdef IFINK_WAKE_TIMING_TEST
+#include "esp_timer.h"
+#define WAKE_SCOPE SHELF_PERF_SCOPE
+#else
+#define WAKE_SCOPE(...) ((void)0)
+#endif
+
+#ifdef IFINK_WAKE_TONE_TEST
+#include "read_pico_buzzer.h"
+#endif
 
 static const char* TAG = "read_pico";
+
+static bool is_key_resume_boot(bool pmu_ready) {
+    if (!pmu_ready || !sleep_resume_pending()) return false;
+    const pmu_snapshot_t *pmu = read_pico_pmu_get();
+    enum { PMU_WAKE_REASON_KEY = 2 };
+    return pmu && pmu->status_ok && pmu->wake_reason == PMU_WAKE_REASON_KEY;
+}
+
+#ifdef IFINK_WAKE_TONE_TEST
+static void mark_key_wake(void) {
+    // 提示音用于录像与诊断对时。/ The tone aligns diagnostic recordings with the video.
+    enum { WAKE_TONE_HZ = 2700, WAKE_TONE_MS = 80 };
+    SHELF_PERF_SCOPE(tone, SP_WAKE_TONE, WAKE_TONE_MS, 0);
+    tone.b = read_pico_buzzer_tone(WAKE_TONE_HZ, WAKE_TONE_MS);
+}
+#endif
+
+static void present_wake_notice(EpdiyHighlevelState *hl, uint8_t *fb) {
+    SHELF_PERF_SCOPE(notice, SP_WAKE_NOTICE, 0, 0);
+    const char *text = ui_i18n_english() ? "Starting…" : "启动中";
+    const int size = 36;
+    int above = 0, below = 0;
+    ui_font_measure_line_px(size, text, &above, &below);
+    if (above + below <= 0) return;
+    const EpdRect area = {UI_LOCK_WIDTH / 2 - 120, UI_LOCK_HEIGHT / 2 - 40, 240, 80};
+    epd_fill_rect(area, UI_GRAY_WHITE, fb);
+    ui_font_draw_text_px(fb, UI_LOCK_WIDTH / 2, UI_LOCK_HEIGHT / 2 + (above - below) / 2,
+                         size, text, EPD_DRAW_ALIGN_CENTER, UI_INK_BLACK, UI_INK_WHITE, false);
+    // 此处已有校验过的壁纸参考；即使局刷失败，完整首帧也会重新清屏。
+    // The validated wallpaper is our baseline. The first complete frame clears even after a failed hint.
+    notice.a = 1;
+    notice.b = update_display_area_diff_with(hl, &E0470_WAVEFORM, MODE_GL16, area);
+}
 
 // 主机上电会丢失系统时间；PMU 在主机断电后继续走时。先取实时值再恢复，
 // 不使用启动时缓存的快照，以免将已经经过的开机耗时丢掉。
@@ -86,12 +132,32 @@ static bool images_match_panel(void) {
 }
 
 void app_main(void) {
-    app_settings_init();
-    sleep_resume_init(esp_app_get_description()->app_elf_sha256,esp_reset_reason()==ESP_RST_POWERON||esp_reset_reason()==ESP_RST_DEEPSLEEP);
+    const esp_reset_reason_t reset_reason = esp_reset_reason();
+#ifdef IFINK_WAKE_TIMING_TEST
+    shelf_perf_init();
+    shelf_perf_event(SP_WAKE_BOOT, reset_reason, (int)esp_timer_get_time(), 0, 0);
+#endif
+    {
+        WAKE_SCOPE(settings, SP_WAKE_SETTINGS, 0, 0);
+        app_settings_init();
+        sleep_resume_init(esp_app_get_description()->app_elf_sha256,
+                          reset_reason == ESP_RST_POWERON || reset_reason == ESP_RST_DEEPSLEEP);
+    }
     read_pico_handle_t hw;
-    if (read_pico_init(&hw) != ESP_OK) return;
-    if (hw.pmu_ready) restore_time_from_pmu();
-    const bool vcom_ok = resolve_vcom_at_boot();
+    {
+        WAKE_SCOPE(board, SP_WAKE_BOARD, 0, 0);
+        if (read_pico_init(&hw) != ESP_OK) return;
+    }
+    const bool key_wake = is_key_resume_boot(hw.pmu_ready);
+#ifdef IFINK_WAKE_TONE_TEST
+    if (key_wake) mark_key_wake();
+#endif
+    bool vcom_ok;
+    {
+        WAKE_SCOPE(pmu, SP_WAKE_PMU, hw.pmu_ready, 0);
+        if (hw.pmu_ready) restore_time_from_pmu();
+        vcom_ok = resolve_vcom_at_boot();
+    }
     pmu_selftest_bind(hw.sensor);
 
     if (!images_match_panel()) return;
@@ -101,24 +167,42 @@ void app_main(void) {
 
     sleep_resume_target_t resume={0};
     bool restored=false;
-    if(vcom_ok&&sleep_resume_pending()){
+    const bool resume_pending = vcom_ok && sleep_resume_pending();
+    if(resume_pending){
         read_pico_sd_info_t card={0};
-        for(unsigned wait=0;wait<150&&read_pico_sd_get_info(&card)==ESP_ERR_NOT_FINISHED;++wait)vTaskDelay(pdMS_TO_TICKS(20));
-        restored=card.present&&card.mounted&&sleep_resume_restore(framebuffer,hl.back_fb,(size_t)epd_width()*epd_height()/2,(unsigned)epd_get_rotation(),&resume);
+        {
+            WAKE_SCOPE(sd_wait, SP_WAKE_SD_WAIT, 0, 0);
+            for(unsigned wait=0;wait<150&&read_pico_sd_get_info(&card)==ESP_ERR_NOT_FINISHED;++wait)vTaskDelay(pdMS_TO_TICKS(20));
+        }
+        {
+            WAKE_SCOPE(restore, SP_WAKE_RESTORE, card.mounted, 0);
+            restored=card.present&&card.mounted&&sleep_resume_restore(framebuffer,hl.back_fb,(size_t)epd_width()*epd_height()/2,(unsigned)epd_get_rotation(),&resume);
+        }
     }
-    if(restored)display_resume_clean_next();
-    if(!restored){
+#ifdef IFINK_WAKE_TIMING_TEST
+    const pmu_snapshot_t *boot_pmu = hw.pmu_ready ? read_pico_pmu_get() : NULL;
+    shelf_perf_event(SP_WAKE_RESUME_RESULT, resume_pending, restored, restored ? (int)resume.tab : -1,
+                     boot_pmu && boot_pmu->status_ok ? boot_pmu->wake_reason : -1);
+#endif
+    if (restored) {
+        if (key_wake && hw.touch_ready) present_wake_notice(&hl, framebuffer);
+        display_resume_clean_next();
+    } else {
+        WAKE_SCOPE(splash, SP_WAKE_SPLASH, 0, 0);
         epd_poweron();read_pico_i2c_census_take();epd_clear();epd_hl_set_all_white(&hl);
         ui_draw_full_image(framebuffer,loading_4bpp_bin_start);update_display_from_white(&hl);
     }
     const app_desc_t *first=app_home_page();
     bool reader_resume=restored&&resume.path[0];
-    if(reader_resume){
-        (void)ttf_font_open_builtin();
-        if(app_book_request_open(resume.path))first=app_at(1);
-        else {reader_resume=false;app_font_activate_system();}
-    }else{
-        app_font_activate_system();if(restored)first=app_at(resume.tab);
+    {
+        WAKE_SCOPE(font, SP_WAKE_FONT, reader_resume, 0);
+        if(reader_resume){
+            (void)ttf_font_open_builtin();
+            if(app_book_request_open(resume.path))first=app_at(1);
+            else {reader_resume=false;app_font_activate_system();}
+        }else{
+            app_font_activate_system();if(restored)first=app_at(resume.tab);
+        }
     }
 
     if (!hw.touch_ready) {

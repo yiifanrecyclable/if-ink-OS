@@ -4,6 +4,13 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.1 beta / 2026-11-06
+
+- 深睡后按键唤醒时，在已恢复的壁纸中央显示「启动中」。/ Show “Starting…” over the restored wallpaper on a key wake from deep sleep.
+- TF 卡在首页首次扫描期间保持就绪时，跳过紧接首帧的重复扫描。/ Skip the second Home scan when the SD card stays ready through the first scan.
+- 修复阅读中定期全刷后顶部标题字号变化。/ Preserve reader title sizing after scheduled full refresh.
+- 从坚果云同步文档时保留书架封面；新增或更新图书时复用其他未变化的封面。/ Keep shelf covers after document sync and reuse unchanged covers after book imports or replacements.
+
 ## 0.2.0 beta r9 / 2026-11-03
 
 - TXT/EPUB索引、元数据与封面统一按媒体会话及文件提交失效，避免同名同大小同修改时间替换后沿用旧内容；冷启动或外部介质交接后首次使用会重建派生缓存。/ Retire TXT/EPUB indexes, metadata and covers at media-session/file-commit boundaries; first use after a cold start or external handoff rebuilds derived caches.

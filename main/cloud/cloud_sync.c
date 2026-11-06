@@ -9,6 +9,7 @@
 
 #include "cloud_sync.h"
 #include "book_store.h"
+#include "book_index_cache.h"
 #include "cloud_dav.h"
 #include "esp_crt_bundle.h"
 #include "esp_heap_caps.h"
@@ -642,15 +643,30 @@ static esp_err_t download_one(const cloud_entry_t *entry) {
         const char *directory = kind == SYNC_FILE_BOOK ? app_settings_books_dir() : sync_file_directory(kind);
         int n = ui_snprintf(path, sizeof(path), "%s/%s", directory,
                          entry->filename);
-        bool unchanged;
+        bool unchanged = false;
         if (n >= (int)sizeof(path))
             e = ESP_ERR_INVALID_SIZE;
         else if (kind == SYNC_FILE_FONT && active_font_replace(path, body_sha)) {
             fail_notice(ui_message(UI_MSG("此字体正在使用，请切换其他字体后再更新")), ui_message(UI_MSG("字体正在使用")));
             e = ESP_ERR_INVALID_STATE;
         }
-        else
+        else {
+            struct stat before, after;
+            int previous = kind == SYNC_FILE_BOOK ? stat(path, &before) : -1;
+            bool missing = kind == SYNC_FILE_BOOK && previous != 0 && errno == ENOENT;
             e = document_store_sync_commit(path, body_sha, body_bytes, assets, count, &unchanged);
+            if (kind == SYNC_FILE_BOOK && e == ESP_OK && !unchanged) {
+                if ((previous == 0 || missing) && stat(path, &after) == 0) {
+                    if (previous == 0)
+                        book_index_cache_invalidate_file(before.st_size, before.st_mtime);
+                    book_index_cache_invalidate_file(after.st_size, after.st_mtime);
+                    book_store_notify_list_changed();
+                } else book_store_notify_changed();
+            } else if ((kind == SYNC_FILE_BOOK || kind == SYNC_FILE_FONT) &&
+                       (e != ESP_OK || !unchanged)) {
+                book_store_notify_changed();
+            }
+        }
     }
     if (e != ESP_OK) {
         ESP_LOGW("pico_cloud","download failed at %s: %s",phase,esp_err_to_name(e));
@@ -690,7 +706,11 @@ static void worker(void *argument) {
             fail_notice(ui_message(UI_MSG("无法校准系统时间，请检查网络")), ui_message(UI_MSG("网络校时失败")));
     }
     if (e == ESP_OK) {
+        // 遗留事务可能来自任何类型，无法按当前选择推断影响范围。
+        // A pending transaction can affect a file outside the current selection.
+        bool pending = access("/sdcard/.pico-sync/transaction", F_OK) == 0 || errno != ENOENT;
         e = document_store_sync_recover();
+        if (pending) book_store_notify_changed();
         if (e != ESP_OK)
             fail_notice(ui_message(UI_MSG("TF卡同步恢复未完成，原文件已保留")), ui_message(UI_MSG("TF卡恢复未完成")));
     }
@@ -733,7 +753,6 @@ static void worker(void *argument) {
             if (e != ESP_OK && (s_session_fatal || !access("/sdcard/.pico-sync/transaction", F_OK)))
                 break;
         }
-        book_store_notify_changed();
     }
     cloud_status_t final;
     cloud_get_status(&final);

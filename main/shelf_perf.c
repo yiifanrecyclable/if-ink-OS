@@ -34,8 +34,17 @@ static unsigned s_count,s_dropped;
 static int64_t s_start,s_last_loop,s_retry;
 static uint32_t s_request;
 static bool s_active,s_pending;
-static const char *const names[]={"unknown","boot","enter","reuse","scan","roots","capacity","enumerate","documents","render","cover_load","cache_probe","cache_write","index_probe","index_write","present","epd","frame","loop_gap","input","media","scan_wait","nav_switch","nav_exit","nav_font","nav_enter","nav_present","nav_render","nav_output","home_banner","cover_source","cover_decode","cover_persist_read","cover_persist_write"};
-_Static_assert(sizeof(names)/sizeof(names[0])==SP_COVER_PERSIST_WRITE+1,"Timing stage names must match the exported stage IDs");
+static const char *const names[]={"unknown","boot","enter","reuse","scan","roots","capacity","enumerate","documents","render","cover_load","cache_probe","cache_write","index_probe","index_write","present","epd","frame","loop_gap","input","media","scan_wait","nav_switch","nav_exit","nav_font","nav_enter","nav_present","nav_render","nav_output","home_banner","cover_source","cover_decode","cover_persist_read","cover_persist_write",
+    "wake_boot","wake_settings","wake_board","wake_pmu","wake_sd_wait",
+    "wake_restore","wake_resume_result","wake_splash","wake_font",
+    "wake_ui_prepare","wake_first_frame","wake_ui_ready",
+    "wake_clear","wake_output","wake_light",
+    "wake_tone","wake_maintenance","wake_assets","wake_font_retry",
+    "wake_page_enter","wake_media_poll","wake_home_recents","wake_home_history",
+    "wake_home_scan","wake_home_cover_cache",
+    "banner_layer_key","banner_layer_read","banner_layer_render",
+    "banner_layer_write","banner_layer_compose","wake_notice"};
+_Static_assert(sizeof(names)/sizeof(names[0])==SP_WAKE_NOTICE+1,"Timing stage names must match the exported stage IDs");
 static bool enabled(void){return owner()&&s_active;}
 static void record(int kind,int stage,int64_t start,int64_t end,uint32_t request,int a,int b,int c,int d){
     if(s_count==PERF_COUNT){++s_dropped;return;}
@@ -44,7 +53,9 @@ static void record(int kind,int stage,int64_t start,int64_t end,uint32_t request
 void shelf_perf_init(void){
     if(s_records)return;
     const char *v=esp_app_get_description()->version;
-    if(strncmp(v,"0.2.0-r9t",9))return;
+    if(strncmp(v,"0.2.0-r9t",9) && strcmp(v,"0.2.1-beta-r1t2") &&
+       strcmp(v,"0.2.1-beta-r1t3") && strcmp(v,"0.2.1-beta-r1t4") &&
+       strcmp(v,"0.2.1-beta-r1t5") && strcmp(v,"0.2.1-beta-r1t6"))return;
 #ifdef ESP_PLATFORM
     s_owner=xTaskGetCurrentTaskHandle();
 #else
@@ -84,7 +95,7 @@ void shelf_perf_poll(bool safe){
     s_retry=esp_timer_get_time()+5000000;
     if(mkdir("/sdcard/diagnostics",0700)&&errno!=EEXIST)return;
     char path[144];int fd=-1;
-    const char *version=esp_app_get_description()->version,*suffix=version+6; // r9tN
+    const char *version=esp_app_get_description()->version,*suffix=strrchr(version,'-')+1;
     for(unsigned i=1;i<10000;++i){
         snprintf(path,sizeof(path),"/sdcard/diagnostics/shelf-perf-%s-%04u.csv",suffix,i);
         fd=open(path,O_WRONLY|O_CREAT|O_EXCL,0600);if(fd>=0||errno!=EEXIST)break;

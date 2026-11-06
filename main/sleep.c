@@ -45,7 +45,12 @@
 
 static const char* TAG = "read_pico";
 
+#ifdef IFINK_WAKE_TIMING_TEST
+#include "shelf_perf.h"
+#define APP_LOCK_LIGHT_SLEEP_MS (60U * 1000U)
+#else
 #define APP_LOCK_LIGHT_SLEEP_MS (10U * 60U * 1000U)
+#endif
 #define APP_LOCK_KEY_POLL_US (2LL * 1000 * 1000)
 #define APP_LOCK_STUCK_IRQ_US (3LL * 1000 * 1000)
 #define APP_LOCK_SLEEP_ERROR_LIMIT 5
@@ -284,6 +289,9 @@ app_wake_source_t app_light_sleep_wait_timed(sc7a20h_handle_t acc, uint32_t time
         }
     }
 
+#ifdef IFINK_WAKE_TIMING_TEST
+    shelf_perf_event(SP_WAKE_LIGHT, wake, (int)esp_sleep_get_wakeup_causes(), timeout_ms, 0);
+#endif
     if(wake==APP_WAKE_TIMEOUT)app_settings_trace_storage("lock_wake_cleanup");
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_TIMER);
     gpio_wakeup_disable((gpio_num_t)READ_PICO_IOE_INT_GPIO);

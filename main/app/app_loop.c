@@ -349,6 +349,9 @@ static bool run_power_action(app_ctx_t *ctx,const app_desc_t *current,bool resta
 }
 
 void app_loop_run(const app_loop_config_t* config) {
+#ifdef IFINK_WAKE_TIMING_TEST
+    shelf_perf_span_t wake_ui = shelf_perf_begin(SP_WAKE_UI_PREPARE, 0, 0);
+#endif
     const app_desc_t* current = config->first_app != NULL
         ? config->first_app
         : app_home_page();
@@ -393,23 +396,59 @@ void app_loop_run(const app_loop_config_t* config) {
     esp_err_t initial_media_error=read_pico_sd_get_info(&initial_media);
     record_store_media(initial_media_error==ESP_OK&&initial_media.present&&initial_media.mounted&&!usb_storage_active());
     s_records_maintenance_pending=record_store_ready();
-    maintain_content_records();
+    {
+#ifdef IFINK_WAKE_TONE_TEST
+        SHELF_PERF_SCOPE(maintenance, SP_WAKE_MAINTENANCE, s_records_maintenance_pending, 0);
+#endif
+        maintain_content_records();
+    }
     bool media_mounted = initial_media.mounted || (ttf_font_ready() && !ttf_font_is_builtin());
     bool media_invalidated = false;
-    if (initial_media.mounted && !usb_storage_active()) {app_settings_wallpaper_media_ready();(void)bundled_assets_install();}
+    if (initial_media.mounted && !usb_storage_active()) {
+#ifdef IFINK_WAKE_TONE_TEST
+        SHELF_PERF_SCOPE(assets, SP_WAKE_ASSETS, 0, 0);
+#endif
+        app_settings_wallpaper_media_ready();
+        (void)bundled_assets_install();
+    }
     s_media_recovery_requested = false;
     read_pico_pmu_suppress_key_until_release();
     app_lock_ignore_for(APP_LOCK_IGNORE_BOOT_MS);
 
     // The SD probe starts during board setup and is usually ready by the first product frame.
     // Retry here so the very first bookshelf paint already has a full CJK system face.
-    if(!config->reader_resume)try_load_saved_sd_font(false);
-    if (current->on_enter != NULL) current->on_enter(&ctx);
-    poll_media(&ctx, current, &media_mounted, &media_invalidated);
+    if (!config->reader_resume) {
+#ifdef IFINK_WAKE_TONE_TEST
+        SHELF_PERF_SCOPE(font_retry, SP_WAKE_FONT_RETRY, 0, 0);
+#endif
+        try_load_saved_sd_font(false);
+    }
+    if (current->on_enter != NULL) {
+#ifdef IFINK_WAKE_TONE_TEST
+        SHELF_PERF_SCOPE(page_enter, SP_WAKE_PAGE_ENTER, app_index_of(current), 0);
+#endif
+        current->on_enter(&ctx);
+    }
+    {
+#ifdef IFINK_WAKE_TONE_TEST
+        SHELF_PERF_SCOPE(media_poll, SP_WAKE_MEDIA_POLL, media_mounted, 0);
+#endif
+        poll_media(&ctx, current, &media_mounted, &media_invalidated);
+    }
     // 首帧必须整屏 GC16：fb 里还是 app_main 画的开机图，DU 盖不掉。
     // First frame must be full GC16: fb still holds the splash; DU cannot cover it.
     if(app_settings_load_status()!=ESP_OK)storage_notice(UI_MSG("部分设置读取异常，请检查"));
+#ifdef IFINK_WAKE_TIMING_TEST
+    wake_ui.a = app_index_of(current);
+    shelf_perf_end(&wake_ui);
+    {
+        SHELF_PERF_SCOPE(first_frame, SP_WAKE_FIRST_FRAME, app_index_of(current), 0);
+        app_present(&ctx, current, APP_REDRAW_FULL);
+    }
+    shelf_perf_event(SP_WAKE_UI_READY, app_index_of(current), display_resume_clean_pending(), 0, 0);
+#else
     app_present(&ctx, current, APP_REDRAW_FULL);
+#endif
     ESP_LOGI(TAG, "UI ready on %s", current->title);
 
     while (true) {

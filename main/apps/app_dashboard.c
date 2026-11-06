@@ -98,6 +98,7 @@ typedef struct {
     char author[128];
     off_t size;
     time_t modified;
+    uint32_t file_epoch;
     uint8_t *pixels;
     unsigned width,height;
 } home_cover_cache_t;
@@ -175,6 +176,9 @@ static void scan_root(const char *root) {
 }
 
 static void scan_books(void) {
+#ifdef IFINK_WAKE_TONE_TEST
+    SHELF_PERF_SCOPE(home_scan, SP_WAKE_HOME_SCAN, 0, 0);
+#endif
     char last[BOOK_STORE_PATH_MAX];
     if (book_progress_last_path(last, sizeof(last)) && is_book(strrchr(last, '/') ? strrchr(last, '/') + 1 : last)) {
         struct stat st;
@@ -261,6 +265,9 @@ static const char *recent_list_path(size_t row) {
 }
 
 static void refresh_recent_documents(void) {
+#ifdef IFINK_WAKE_TONE_TEST
+    SHELF_PERF_SCOPE(home_recents, SP_WAKE_HOME_RECENTS, 0, 0);
+#endif
     s_has_documents=has_markdown_documents();
     s_recent_document_count = 0;
     memset(s_recent_documents, 0, sizeof(s_recent_documents));
@@ -301,6 +308,9 @@ static void clear_cover_cache(void) {
 }
 
 static void restore_cover_cache(void) {
+#ifdef IFINK_WAKE_TONE_TEST
+    SHELF_PERF_SCOPE(home_cover_cache, SP_WAKE_HOME_COVER_CACHE, 0, 0);
+#endif
     home_cover_cache_t old[7];
     memcpy(old, s_cover_cache, sizeof(old));
     memset(s_cover_cache, 0, sizeof(s_cover_cache));
@@ -312,7 +322,8 @@ static void restore_cover_cache(void) {
         for (int j = 0; j < 7; ++j) {
             if (!old[j].pixels || strcmp(book->path, old[j].path) ||
                 strcmp(book->title, old[j].title) || strcmp(book->author, old[j].author) ||
-                st.st_size != old[j].size || st.st_mtime != old[j].modified) continue;
+                st.st_size != old[j].size || st.st_mtime != old[j].modified ||
+                old[j].file_epoch != book_index_cache_file_epoch(st.st_size, st.st_mtime)) continue;
             s_cover_cache[i] = old[j];
             book->cover = old[j].pixels;
             book->cover_width=old[j].width;book->cover_height=old[j].height;
@@ -338,6 +349,7 @@ static bool load_cover(home_book_t *item, int slot) {
     ui_snprintf(cached->author, sizeof(cached->author), "%s", item->author);
     cached->size = st.st_size;
     cached->modified = st.st_mtime;
+    cached->file_epoch = book_index_cache_file_epoch(st.st_size, st.st_mtime);
     cached->pixels = pixels;
     cached->width=width;cached->height=height;
     item->cover = pixels;
@@ -543,6 +555,16 @@ static void prepare_quote_bitmap(void){
     home_banner_key_t key;bool reusable=quote_bitmap_key(&cfg,&key);
     if(reusable&&s_quote_key_valid&&s_quote_bitmap&&!memcmp(&key,&s_quote_key,sizeof(key))){banner_perf.b=1;return;}
     clear_quote_bitmap();
+#ifdef IFINK_BANNER_LAYER_TEST
+    int layer_hits = 0;
+    if (reusable && ui_banner_home_layers(&cfg, s_reading_end_day, s_reading_days_valid,
+                                        &s_quote_bitmap, &layer_hits)) {
+        s_quote_key = key;
+        s_quote_key_valid = true;
+        banner_perf.b = 4 + layer_hits;
+        return;
+    }
+#endif
     if(ui_banner_preview_config(&cfg,s_reading_end_day,s_reading_days_valid,&s_quote_bitmap,&fits)){
         if(reusable){s_quote_key=key;s_quote_key_valid=true;}
     }else{
@@ -671,11 +693,19 @@ static bool present(app_ctx_t *ctx, app_redraw_t redraw) {
 static void on_enter(app_ctx_t *ctx) {
     (void)ctx;
     s_history_open=false;
+    read_pico_sd_info_t sd = {0};
+    bool ready_at_entry = read_pico_sd_get_info(&sd) == ESP_OK && sd.mounted;
+    unsigned store_revision = book_store_revision();
+    uint32_t media_epoch = book_index_cache_epoch();
     refresh_recent_documents();
     s_home_force_full_once = app_settings_home_full_refresh();
-    s_reading_days_valid = book_ticket_recent_days(s_reading_days, &s_reading_end_day);
+    {
+#ifdef IFINK_WAKE_TONE_TEST
+        SHELF_PERF_SCOPE(home_history, SP_WAKE_HOME_HISTORY, 0, 0);
+#endif
+        s_reading_days_valid = book_ticket_recent_days(s_reading_days, &s_reading_end_day);
+    }
     prepare_quote_bitmap();
-    read_pico_sd_info_t sd = {0};
     esp_err_t sd_err = read_pico_sd_get_info(&sd);
     bool cache_matches = s_books_cache_valid && sd_err != ESP_ERR_NOT_FINISHED &&
                          s_cached_store_revision == book_store_revision() &&
@@ -699,7 +729,18 @@ static void on_enter(app_ctx_t *ctx) {
     if (s_scan_pending) read_pico_sd_start_probe();
     scan_books();
     restore_cover_cache();
-    if (cache_matches || sd_err != ESP_ERR_NOT_FINISHED) remember_scan_state(&sd);
+    if (ready_at_entry && sd_err == ESP_OK && sd.mounted) {
+        // 已就绪的同一张卡在进页时已读完；晚到或变化的介质仍由 tick 补读。
+        // Entry already scanned a stable, mounted card. Keep the deferred scan for late or changed media.
+        read_pico_sd_info_t after = {0};
+        bool stable = read_pico_sd_get_info(&after) == ESP_OK && after.present && after.mounted &&
+                      store_revision == book_store_revision() && media_epoch == book_index_cache_epoch();
+        s_scan_pending = !stable;
+        if (stable) remember_scan_state(&after);
+        else s_books_cache_valid = false;
+    } else if (cache_matches || sd_err != ESP_ERR_NOT_FINISHED) {
+        remember_scan_state(&sd);
+    }
 }
 static void on_media_lost(app_ctx_t *ctx) {
     (void)ctx;clear_quote_bitmap();

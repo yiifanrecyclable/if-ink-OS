@@ -13,6 +13,20 @@
 #include <time.h>
 #include "ui_lunar.h"
 #include "esp_heap_caps.h"
+#ifdef IFINK_BANNER_LAYER_TEST
+#include "book/document_store.h"
+#include "read_pico_sd.h"
+#include "settings.h"
+#include "shelf_perf.h"
+#include "ui_font.h"
+#include <errno.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <zlib.h>
+#ifdef ESP_PLATFORM
+#include "esp_app_desc.h"
+#endif
+#endif
 #define BANNER_TEXT_WIDTH (UI_LOCK_WIDTH-2*UI_BANNER_QUOTE_INSET)
 static const char *const longest_date="2088年12月30日 · 星期三 · 癸亥猪年闰腊月三十";
 static int width(const char *text,bool custom,int px){return custom?ttf_text_width_px(px,text):ui_text_fixed_width_px(px,text);}
@@ -149,25 +163,293 @@ uint16_t ui_banner_text_y(const content_banner_config_t *cfg){
     if(cfg->font[0]){if(ttf_font_open(saved)!=ESP_OK)ttf_font_open_builtin();ttf_set_weight(weight);}
     return (uint16_t)(y-UI_STATUS_HEIGHT);
 }
+static ui_banner_positions_t banner_positions(const content_banner_config_t *cfg, const char *date) {
+    ui_banner_positions_t p = ui_banner_positions_size(date, cfg->quote_px);
+    p.quote_align = cfg->align;
+    p.quote_valign = cfg->valign;
+    if (cfg->text_y != CONTENT_BANNER_TEXT_AUTO) {
+        p.quote_top = UI_STATUS_HEIGHT + cfg->text_y;
+        p.free_y = true;
+    }
+    if (cfg->date_y != CONTENT_BANNER_DATE_AUTO) p.date_top = UI_STATUS_HEIGHT + cfg->date_y;
+    return p;
+}
+
+static bool banner_draw_quote_layer(uint8_t *page, const content_banner_config_t *cfg,
+                                   ui_banner_positions_t p, bool *fits) {
+    bool custom = false, restored = true;
+    if (cfg->font[0]) {
+        char saved[TTF_FONT_PATH_MAX];
+        strlcpy(saved, ttf_font_path(), sizeof(saved));
+        int weight = ttf_get_weight();
+        custom = ttf_font_open(cfg->font) == ESP_OK && ttf_font_has_text(cfg->text);
+        if (custom) {
+            ui_banner_quote_draw(page, cfg->text, true, p);
+            *fits = fits_active(cfg->text, true, p);
+        }
+        restored = ttf_font_open(saved) == ESP_OK;
+        if (!restored) ttf_font_open_builtin();
+        ttf_set_weight(weight);
+    }
+    if (!custom) {
+        ui_banner_quote_draw(page, cfg->text, false, p);
+        *fits = fits_active(cfg->text, false, p);
+    }
+    return restored && (custom || !cfg->font[0]);
+}
+
+#ifdef IFINK_BANNER_LAYER_TEST
+enum {
+    BANNER_HEIGHT = 300,
+    BANNER_BITMAP_BYTES = UI_LOCK_WIDTH * BANNER_HEIGHT / 2,
+    BANNER_MASK_BYTES = UI_LOCK_WIDTH * BANNER_HEIGHT / 8,
+    BANNER_PAGE_BYTES = UI_LOCK_WIDTH * UI_LOCK_HEIGHT / 2,
+    BANNER_BACKGROUND = 1,
+    BANNER_TEXT = 2,
+    BANNER_IMAGE_HASH_LIMIT = 2 * 1024 * 1024,
+    BANNER_FONT_HASH_LIMIT = 16 * 1024 * 1024,
+};
+static const EpdRect banner_area = {0, UI_STATUS_HEIGHT, UI_LOCK_WIDTH, BANNER_HEIGHT};
+static const char banner_background_cache[] = "/sdcard/.readpico/banner-background-v1.bin";
+static const char banner_text_cache[] = "/sdcard/.readpico/banner-text-v1.bin";
+
+typedef struct {
+    char key[65];
+    uint32_t crc;
+} banner_cache_header_t;
+
+static bool banner_builtin_covers_quote(const char *text) {
+    char glyphs[CONTENT_HOME_QUOTE_BYTES];
+    size_t count = 0;
+    for (; *text; ++text) {
+        if (*text != '\n') glyphs[count++] = *text;
+    }
+    glyphs[count] = 0;
+    return ui_font_has_text(glyphs) && ui_font_has_text("国Ag…");
+}
+
+static bool banner_layer_key(int kind, const content_banner_config_t *cfg,
+                             ui_banner_positions_t p, char key[65]) {
+    SHELF_PERF_SCOPE(perf, SP_BANNER_LAYER_KEY, kind, 0);
+    struct {
+        uint8_t build[32];
+        char source_hash[65], text[sizeof(cfg->text)];
+        int32_t kind, align, valign, top, px, weight, language;
+        uint8_t free_y, custom_font, system_font;
+    } input;
+    memset(&input, 0, sizeof(input));
+#ifdef ESP_PLATFORM
+    memcpy(input.build, esp_app_get_description()->app_elf_sha256, sizeof(input.build));
+#endif
+    input.kind = kind;
+    const char *source = cfg->image;
+    if (kind == BANNER_TEXT) {
+        strlcpy(input.text, cfg->text, sizeof(input.text));
+        input.align = p.quote_align;
+        input.valign = p.quote_valign;
+        input.top = p.quote_top;
+        input.px = p.quote_px;
+        input.free_y = p.free_y;
+        input.weight = ttf_get_weight();
+        input.language = app_settings_language();
+        input.custom_font = cfg->font[0] != 0;
+        input.system_font = app_settings_system_font_path()[0] && !ttf_font_is_builtin();
+        // 只核验参与格言绘制的外部字体。/ Verify only the external face used by the quote.
+        source = cfg->font;
+        if (!input.custom_font && !ttf_font_is_builtin() &&
+            (input.system_font || !banner_builtin_covers_quote(cfg->text))) {
+            source = ttf_font_path();
+        }
+    }
+    // 体积过大的资源继续正常渲染，避免为了验证缓存多读大文件。
+    // Large assets remain renderable without an extra read just to validate a cache.
+    off_t limit = kind == BANNER_BACKGROUND ? BANNER_IMAGE_HASH_LIMIT : BANNER_FONT_HASH_LIMIT;
+    struct stat st;
+    if (source[0] && (stat(source, &st) || !S_ISREG(st.st_mode) ||
+        st.st_size <= 0 || st.st_size > limit ||
+        document_store_hash_file(source, input.source_hash, NULL) != ESP_OK)) return false;
+    perf.b = document_store_hash_bytes(&input, sizeof(input), key);
+    return perf.b != 0;
+}
+
+static bool banner_layer_read(int kind, const char *path, const char key[65],
+                              uint8_t *layer, size_t size) {
+    SHELF_PERF_SCOPE(perf, SP_BANNER_LAYER_READ, kind, 0);
+    struct stat st;
+    banner_cache_header_t header;
+    if (stat(path, &st) || !S_ISREG(st.st_mode) ||
+        st.st_size != (off_t)(sizeof(header) + size)) return false;
+    FILE *file = fopen(path, "rb");
+    if (!file) return false;
+    bool ok = fread(&header, sizeof(header), 1, file) == 1 &&
+              !memcmp(header.key, key, sizeof(header.key)) &&
+              fread(layer, 1, size, file) == size && fgetc(file) == EOF && !ferror(file) &&
+              header.crc == crc32(0, layer, size);
+    fclose(file);
+    perf.b = ok;
+    return ok;
+}
+
+static void banner_layer_write(int kind, const char *path, const char key[65],
+                               const uint8_t *layer, size_t size) {
+    SHELF_PERF_SCOPE(perf, SP_BANNER_LAYER_WRITE, kind, 0);
+    char temp[sizeof(banner_background_cache) + sizeof(".tmp")];
+    snprintf(temp, sizeof(temp), "%s.tmp", path);
+    if (mkdir("/sdcard/.readpico", 0777) && errno != EEXIST) return;
+    FILE *file = fopen(temp, "wb");
+    if (!file) return;
+    banner_cache_header_t header;
+    memset(&header, 0, sizeof(header));
+    memcpy(header.key, key, sizeof(header.key));
+    header.crc = crc32(0, layer, size);
+    bool ok = fwrite(&header, sizeof(header), 1, file) == 1 &&
+              fwrite(layer, 1, size, file) == size && !fflush(file) && !fsync(fileno(file));
+    if (fclose(file)) ok = false;
+    // FAT 可能拒绝覆盖，只有派生缓存允许删除重建。/ FAT may refuse replacement. Only the derived cache may be removed.
+    if (ok && (rename(temp, path) == 0 ||
+        (errno == EEXIST && unlink(path) == 0 && rename(temp, path) == 0))) {
+        perf.b = 1;
+        return;
+    }
+    unlink(temp);
+}
+
+static void banner_text_mask(const uint8_t *glyph, uint8_t *mask) {
+    memset(mask, 0, BANNER_MASK_BYTES);
+    // 掩码包含原有两像素描边，覆盖处保留文字或纯白。/ The mask includes the original two-pixel white outline.
+    for (int y = 0; y < BANNER_HEIGHT; ++y) {
+        for (int x = 0; x < UI_LOCK_WIDTH;) {
+            if (layer_gray(glyph, x, y) == 15) {
+                ++x;
+                continue;
+            }
+            int start = x;
+            while (x < UI_LOCK_WIDTH && layer_gray(glyph, x, y) < 15) ++x;
+            int left = start < 2 ? 0 : start - 2;
+            int right = x + 2 > UI_LOCK_WIDTH ? UI_LOCK_WIDTH : x + 2;
+            for (int row = y - 2; row <= y + 2; ++row) {
+                if (row < 0 || row >= BANNER_HEIGHT) continue;
+                for (int col = left; col < right; ++col) {
+                    size_t pixel = (size_t)row * UI_LOCK_WIDTH + col;
+                    mask[pixel / 8] |= 1u << (pixel % 8);
+                }
+            }
+        }
+    }
+}
+
+static bool banner_background_layer(uint8_t *page, uint8_t *image,
+                                    const content_banner_config_t *cfg,
+                                    ui_banner_positions_t p, int *hit_bits) {
+    if (!cfg->mode) {
+        memset(image, 255, BANNER_BITMAP_BYTES);
+        return true;
+    }
+    char key[65];
+    bool keyed = banner_layer_key(BANNER_BACKGROUND, cfg, p, key);
+    if (keyed && banner_layer_read(BANNER_BACKGROUND, banner_background_cache,
+                                  key, image, BANNER_BITMAP_BYTES)) {
+        *hit_bits |= BANNER_BACKGROUND;
+        return true;
+    }
+    {
+        SHELF_PERF_SCOPE(perf, SP_BANNER_LAYER_RENDER, BANNER_BACKGROUND, 0);
+        memset(page, 255, BANNER_PAGE_BYTES);
+        if (!ui_wallpaper_draw(page, cfg->image, banner_area)) return false;
+        ui_bitmap_capture(page, banner_area, image);
+        perf.b = 1;
+    }
+    if (keyed) banner_layer_write(BANNER_BACKGROUND, banner_background_cache, key, image, BANNER_BITMAP_BYTES);
+    return true;
+}
+
+static void banner_quote_layer(uint8_t *page, uint8_t *glyph, const content_banner_config_t *cfg,
+                               ui_banner_positions_t p, int *hit_bits) {
+    size_t size = BANNER_BITMAP_BYTES + BANNER_MASK_BYTES;
+    char key[65];
+    bool keyed = banner_layer_key(BANNER_TEXT, cfg, p, key);
+    if (keyed && banner_layer_read(BANNER_TEXT, banner_text_cache, key, glyph, size)) {
+        *hit_bits |= BANNER_TEXT;
+        return;
+    }
+    bool fits;
+    bool rendered;
+    {
+        SHELF_PERF_SCOPE(perf, SP_BANNER_LAYER_RENDER, BANNER_TEXT, 0);
+        memset(page, 255, BANNER_PAGE_BYTES);
+        rendered = banner_draw_quote_layer(page, cfg, p, &fits);
+        ui_bitmap_capture(page, banner_area, glyph);
+        banner_text_mask(glyph, glyph + BANNER_BITMAP_BYTES);
+        perf.b = rendered;
+    }
+    if (keyed && rendered) banner_layer_write(BANNER_TEXT, banner_text_cache, key, glyph, size);
+}
+
+static void banner_compose(uint8_t *page, uint8_t *image, const uint8_t *glyph,
+                           const content_banner_config_t *cfg, const char *date,
+                           ui_banner_positions_t p) {
+    SHELF_PERF_SCOPE(perf, SP_BANNER_LAYER_COMPOSE, cfg->show_date, cfg->show_text);
+    if (cfg->show_date) {
+        ui_bitmap_draw(page, banner_area, image);
+        banner_date_draw(page, date, p, true);
+        ui_bitmap_capture(page, banner_area, image);
+    }
+    if (!glyph) return;
+    const uint8_t *mask = glyph + BANNER_BITMAP_BYTES;
+    for (size_t i = 0; i < BANNER_MASK_BYTES; ++i) {
+        unsigned coverage = mask[i];
+        if (!coverage) continue;
+        for (size_t byte = 4 * i; coverage; ++byte, coverage >>= 2) {
+            unsigned nibbles = (coverage & 1 ? 0x0f : 0) | (coverage & 2 ? 0xf0 : 0);
+            image[byte] = (image[byte] & ~nibbles) | (glyph[byte] & nibbles);
+        }
+    }
+}
+
+bool ui_banner_home_layers(const content_banner_config_t *cfg, uint32_t day, bool valid,
+                           uint8_t **out, int *hit_bits) {
+    *out = NULL;
+    *hit_bits = 0;
+    read_pico_sd_info_t sd = {0};
+    if (!content_banner_valid(cfg) || cfg->version != 3 ||
+        read_pico_sd_get_info(&sd) != ESP_OK || !sd.mounted) return false;
+    const int caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+    uint8_t *page = heap_caps_malloc(BANNER_PAGE_BYTES, caps);
+    uint8_t *image = heap_caps_malloc(BANNER_BITMAP_BYTES, caps);
+    uint8_t *glyph = cfg->show_text ? heap_caps_malloc(BANNER_BITMAP_BYTES + BANNER_MASK_BYTES, caps) : NULL;
+    bool ok = page && image && (!cfg->show_text || glyph);
+    if (ok) {
+        char date[160];
+        ui_banner_date_line(day, valid, date, sizeof(date));
+        ui_banner_positions_t p = banner_positions(cfg, date);
+        ok = banner_background_layer(page, image, cfg, p, hit_bits);
+        if (ok) {
+            if (glyph) banner_quote_layer(page, glyph, cfg, p, hit_bits);
+            banner_compose(page, image, glyph, cfg, date, p);
+        }
+    }
+    free(page);
+    free(glyph);
+    if (!ok) {
+        free(image);
+        return false;
+    }
+    *out = image;
+    return true;
+}
+#endif
+
 bool ui_banner_preview_config(const content_banner_config_t *cfg,uint32_t day,bool valid,uint8_t **out,bool *fits){
     *out=NULL;*fits=false;if(!content_banner_valid(cfg)||cfg->version!=3)return false;
     uint8_t *page=heap_caps_malloc(UI_LOCK_WIDTH*UI_LOCK_HEIGHT/2,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
     uint8_t *image=heap_caps_malloc(UI_LOCK_WIDTH*300/2,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
     if(!page||!image){free(page);free(image);return false;}
-    memset(page,255,UI_LOCK_WIDTH*UI_LOCK_HEIGHT/2);char date[160];ui_banner_date_line(day,valid,date,sizeof(date));
-    ui_banner_positions_t p=ui_banner_positions_size(date,cfg->quote_px);p.quote_align=cfg->align;p.quote_valign=cfg->valign;
-    if(cfg->text_y!=CONTENT_BANNER_TEXT_AUTO){p.quote_top=UI_STATUS_HEIGHT+cfg->text_y;p.free_y=true;}
-    if(cfg->date_y!=CONTENT_BANNER_DATE_AUTO)p.date_top=UI_STATUS_HEIGHT+cfg->date_y;
+    memset(page,255,UI_LOCK_WIDTH*UI_LOCK_HEIGHT/2);
+    char date[160];ui_banner_date_line(day,valid,date,sizeof(date));
+    ui_banner_positions_t p=banner_positions(cfg,date);
     *fits=true;
     if(cfg->show_text){
-        bool custom=false;
-        if(cfg->font[0]){char saved[TTF_FONT_PATH_MAX];strlcpy(saved,ttf_font_path(),sizeof(saved));int weight=ttf_get_weight();
-            custom=ttf_font_open(cfg->font)==ESP_OK&&ttf_font_has_text(cfg->text);
-            if(custom){ui_banner_quote_draw(page,cfg->text,true,p);*fits=fits_active(cfg->text,true,p);}
-            if(ttf_font_open(saved)!=ESP_OK)ttf_font_open_builtin();
-            ttf_set_weight(weight);
-        }
-        if(!custom){ui_banner_quote_draw(page,cfg->text,false,p);*fits=fits_active(cfg->text,false,p);}
+        (void)banner_draw_quote_layer(page,cfg,p,fits);
         ui_bitmap_capture(page,(EpdRect){0,UI_STATUS_HEIGHT,UI_LOCK_WIDTH,300},image);
     }
     memset(page,255,UI_LOCK_WIDTH*UI_LOCK_HEIGHT/2);

@@ -14,7 +14,7 @@ UNIT=r'''
 #include "book_index_cache.h"
 #include "book_epub.h"
 static unsigned epoch,extracts,decodes,generated;
-uint32_t book_index_cache_epoch(void){return epoch;}
+uint32_t book_index_cache_file_epoch(uint64_t size,int64_t modified){(void)size;(void)modified;return epoch;}
 bool book_title_from_path(const char *p,char *out,size_t cap){const char *name=strrchr(p,'/');name=name?name+1:p;snprintf(out,cap,"%s",name);char *dot=strrchr(out,'.');if(dot)*dot=0;return *out;}
 bool ui_font_has_text(const char *p){return !strstr(p,"external");}
 esp_err_t book_epub_cover(const char *p,uint8_t **out,size_t *n,bool *png){

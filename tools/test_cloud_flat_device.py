@@ -15,6 +15,8 @@ preamble=r'''
 #include "cloud_sync.h"
 #include "sync_file_policy.h"
 #include "book_progress.h"
+#include "book_index_cache.h"
+#include "book_store.h"
 #include "record_store.h"
 #include "esp_heap_caps.h"
 #include <assert.h>
@@ -27,7 +29,9 @@ preamble=r'''
 #define CLOUD_CACHE "/sdcard/.pico-cloud"
 #define ESP_LOGW(...) ((void)0)
 static bool s_notice_error, cancel_download, fail_verify;
-static int fetched;
+static int fetched, listing_changes, broad_changes;
+void book_store_notify_list_changed(void){++listing_changes;}
+void book_store_notify_changed(void){++broad_changes;book_index_cache_invalidate_all();}
 static const unsigned char *body=(const unsigned char*)"# old\n";
 static size_t body_length=6;
 static const char *book_folder="/sdcard/books";
@@ -77,10 +81,21 @@ int main(void){
  fail_verify=false;fetched=0;assert(download_one(&md)==ESP_OK);check_body("/sdcard/markdown/周记1.md","# new\n",6);
  assert(!book_progress_load("/sdcard/markdown/周记1.md",6,&progress));
  assert(document_store_scan(&docs,&count)==ESP_OK&&count==1&&docs[0].pinned&&!strcmp(date,docs[0].date));free(docs);
+ assert(!listing_changes && !broad_changes);
  cloud_entry_t txt=entry("随笔.txt","\"strong\"");fetched=0;book_folder="/sdcard/library";
  assert(download_one(&txt)==ESP_OK&&fetched==1);check_body("/sdcard/library/随笔.txt","# new\n",6);
+ assert(listing_changes==1 && !broad_changes);
+ fetched=0;assert(download_one(&txt)==ESP_OK && listing_changes==1 && !broad_changes);
+ struct stat old;assert(!stat("/sdcard/library/随笔.txt",&old));
+ uint32_t old_epoch=book_index_cache_file_epoch(old.st_size,old.st_mtime);
+ uint32_t global_epoch=book_index_cache_epoch();
+ body=(const unsigned char*)"# txt\n";fetched=0;
+ assert(download_one(&txt)==ESP_OK && listing_changes==2 && !broad_changes);
+ assert(book_index_cache_file_epoch(old.st_size,old.st_mtime)!=old_epoch);
+ assert(book_index_cache_epoch()==global_epoch);
  static const unsigned char zip[]={80,75,3,4,69,80,85,66};body=zip;body_length=sizeof(zip);cloud_entry_t epub=entry("Book.epub","W/\"weak\"");fetched=0;
  assert(download_one(&epub)==ESP_OK&&fetched==2);check_body("/sdcard/library/Book.epub",(const char*)zip,sizeof(zip));
+ assert(listing_changes==3 && !broad_changes);
  epub.manifest=true;fetched=0;assert(download_one(&epub)==ESP_ERR_NOT_SUPPORTED&&fetched==0);
  const char *files[]={"fixture.png","fixture.ttf"};
  const char *names[]={"壁纸.PNG","used.ttf"};const char *targets[]={"/sdcard/pictures/壁纸.PNG","/sdcard/fonts/used.ttf"};
@@ -89,6 +104,7 @@ int main(void){
   unsigned char *data=malloc((size_t)n+1);assert(data&&fread(data,1,n,f)==(size_t)n);fclose(f);
   body=data;body_length=n;cloud_entry_t resource=entry(names[i],"\"strong\"");fetched=0;
   assert(download_one(&resource)==ESP_OK&&fetched==1);check_body(targets[i],(const char*)data,n);
+  assert(listing_changes==3 && broad_changes==(int)i);
   // 正在使用的字体同文可重下，变化时不触碰原文件。/ Active font no-ops succeed; changed content cannot replace its open file.
   fetched=0;assert(download_one(&resource)==ESP_OK);data[n]=0;body_length=n+1;resource.bytes=n+1;
   if(i==1){assert(download_one(&resource)!=ESP_OK);check_body(targets[i],(const char*)data,n);}
@@ -110,7 +126,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='flat-device-') as temp
     test.write_text('\n'.join([preamble,function('strong_etag'),function('active_font_replace'),function('download_one'),main]))
     args=['cc','-std=gnu11','-D_DEFAULT_SOURCE','-DPICO_HOST_SIMULATOR=1','-DPICO_SIM_CARD_PATH="'+str(work/'card')+'"','-Wall','-Wextra','-Werror','-Wno-unused-function','-Wno-unused-parameter','-Wno-sign-compare','-Wno-misleading-indentation','-Wno-deprecated-declarations','-fsanitize=address,undefined','-g','-include',str(ROOT/'tools/simulator/fs.h')]
     args += ['-I'+str(ROOT/p) for p in ('tools/simulator/include','tools/simulator/vendor/cjson','main','main/cloud','main/book','components/md4c')]
-    args += [str(test)] + [str(ROOT/p) for p in ('main/ui/ui_i18n.c','tools/simulator/fs.c','tools/simulator/nvs.c','tools/simulator/vendor/cjson/cJSON.c','main/cloud/cloud_protocol.c','main/book/document_store.c','main/book/document_image.c','main/book/book_progress.c','main/book/book_progress_kv.c','main/book/record_store.c','main/book/book_markdown.c','main/book/markdown_text.c','main/book/html_text.c','components/md4c/md4c.c')]
+    args += [str(test)] + [str(ROOT/p) for p in ('main/ui/ui_i18n.c','tools/simulator/fs.c','tools/simulator/nvs.c','tools/simulator/vendor/cjson/cJSON.c','main/cloud/cloud_protocol.c','main/book/document_store.c','main/book/book_index_cache.c','main/book/document_image.c','main/book/book_progress.c','main/book/book_progress_kv.c','main/book/record_store.c','main/book/book_markdown.c','main/book/markdown_text.c','main/book/html_text.c','components/md4c/md4c.c')]
     args += ['-lz','-lm','-o',str(binary)]
     subprocess.run(args,check=True)
     subprocess.run([str(binary)],cwd=work,env={**os.environ,'PICO_SIM_CARD_ROOT':str(work/'card'),'ASAN_OPTIONS':'detect_leaks=0','PICO_TEST_FATFS_RENAME':'1'},check=True)

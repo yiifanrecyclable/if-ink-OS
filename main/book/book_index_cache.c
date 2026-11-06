@@ -20,6 +20,17 @@
 
 #define CACHE_MAGIC UINT32_C(0x52494332)
 static _Atomic uint32_t s_epoch;
+// 以文件元数据分桶，覆盖 FAT 的别名与大小写；碰撞只会多失效。
+// Bucket by file metadata to cover FAT aliases and case variants. Collisions only cause extra misses.
+static _Atomic uint32_t s_file_epochs[256];
+
+static unsigned file_epoch_bucket(uint64_t size, int64_t modified) {
+    uint32_t hash = (uint32_t)size ^ (uint32_t)(size >> 32) ^ (uint32_t)modified;
+    hash ^= hash >> 16;
+    hash *= UINT32_C(0x7feb352d);
+    hash ^= hash >> 15;
+    return hash & 255;
+}
 uint32_t book_index_cache_epoch(void){
     uint32_t value=atomic_load(&s_epoch);
     if(!value){
@@ -37,6 +48,14 @@ uint32_t book_index_cache_epoch(void){
 }
 void book_index_cache_invalidate_all(void){
     (void)book_index_cache_epoch();atomic_fetch_add(&s_epoch,1);
+}
+
+uint32_t book_index_cache_file_epoch(uint64_t size, int64_t modified) {
+    return book_index_cache_epoch() + atomic_load(&s_file_epochs[file_epoch_bucket(size, modified)]);
+}
+
+void book_index_cache_invalidate_file(uint64_t size, int64_t modified) {
+    atomic_fetch_add(&s_file_epochs[file_epoch_bucket(size, modified)], 1);
 }
 
 static uint64_t cache_hash(const char* source, const char* tag) {
@@ -59,7 +78,7 @@ bool book_index_cache_prepare(const char* source, const char* tag, uint32_t vers
     *header = (book_index_cache_header_t){
         .magic = CACHE_MAGIC, .version = version, .source_size = (uint32_t)st.st_size,
         .modified = (int64_t)st.st_mtime, .path_hash = hash,
-        .media_epoch = book_index_cache_epoch(),
+        .media_epoch = book_index_cache_file_epoch(st.st_size, st.st_mtime),
     };
     int n = snprintf(path, cap, "/sdcard/.readpico/index/%016llx-%s.bin",
                      (unsigned long long)hash, tag);
@@ -76,7 +95,7 @@ FILE* book_index_cache_open_read(const char* path, const book_index_cache_header
         found.magic == expected->magic && found.version == expected->version &&
         found.source_size == expected->source_size && found.modified == expected->modified &&
         found.path_hash == expected->path_hash && found.media_epoch == expected->media_epoch &&
-        expected->media_epoch == book_index_cache_epoch();
+        expected->media_epoch == book_index_cache_file_epoch(expected->source_size, expected->modified);
     if (!ok) { fclose(file); return NULL; }
     perf.b=1;return file;
 }

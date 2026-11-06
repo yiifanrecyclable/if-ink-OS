@@ -24,6 +24,9 @@ typedef struct {
 /// Retire cached identities after media handoff or file commits; no body reads or library scans.
 void book_index_cache_invalidate_all(void);
 uint32_t book_index_cache_epoch(void);
+/// 已知文件变更只使对应元数据桶失效。/ Retire only the metadata bucket for a known file mutation.
+void book_index_cache_invalidate_file(uint64_t size, int64_t modified);
+uint32_t book_index_cache_file_epoch(uint64_t size, int64_t modified);
 
 /// 仅为 /sdcard 下的普通文件生成缓存键。/ Build a cache key only for regular files under /sdcard.
 bool book_index_cache_prepare(const char* source, const char* tag, uint32_t version,

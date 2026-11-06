@@ -5,8 +5,20 @@ cmake_minimum_required(VERSION 3.22)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # "Trim" the build. Include the minimal set of components, main, and anything it depends on.
 idf_build_set_property(MINIMAL_BUILD ON)
-set(PROJECT_VER "0.2.0")
+set(PROJECT_VER "0.2.1-beta.1")
 project(Read_Pico_IF)
+
+# 一分钟的深睡诊断仅用于本地唤醒测试。/ Keep the one-minute interval local to wake diagnostics.
+if(PROJECT_VER MATCHES "^0[.]2[.]1-beta-r1t[3456]$")
+    idf_component_get_property(ifink_main_lib main COMPONENT_LIB)
+    target_compile_definitions(${ifink_main_lib} PRIVATE IFINK_WAKE_TIMING_TEST=1)
+    if(PROJECT_VER MATCHES "^0[.]2[.]1-beta-r1t[456]$")
+        target_compile_definitions(${ifink_main_lib} PRIVATE IFINK_WAKE_TONE_TEST=1)
+    endif()
+    if(PROJECT_VER STREQUAL "0.2.1-beta-r1t5")
+        target_compile_definitions(${ifink_main_lib} PRIVATE IFINK_BANNER_LAYER_TEST=1)
+    endif()
+endif()
 
 # 固件描述时间统一为 UTC，与概览页标识一致；保留已有编译缓存启动器。
 # Compile app-description timestamps in UTC to match Overview; preserve any compiler-cache launcher.

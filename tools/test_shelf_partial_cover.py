@@ -67,7 +67,7 @@ for n in ['epd_draw_hline','epd_draw_vline','epd_fill_rect','epd_fill_circle_hel
 for n in ['ui_gray_level','clamp_radius','draw_arc','ui_draw_round_rect','ui_fill_round_rect']:unit+=function(kit,n)
 unit+=function((R/'main/ui/ui_image_dither.c').read_text(),'ui_image_dither_gray')
 for n in ['shelf_grid_side','shelf_rows','shelf_cell_height','row_rect','shelf_cover_height','shelf_cover_top','shelf_caption_width','shelf_image_rect','draw_shelf_cover','render_shelf_cover']:unit+=function(book,n)
-pending=book.split('if (s_view == SHELF && !(ctx->touch && ctx->touch->touched)) {',1)[1].split('// 目录暂借',1)[0]
+pending=book.split('if (s_view == SHELF && !s_scan_pending && ctx->now_ms >= s_cover_next_ms &&',1)[1].split('// 目录暂借',1)[0]
 assert 'render_shelf_cover(ctx, row);' in pending and 'render(ctx, ctx->fb);' not in pending
 unit+=r'''
 static EpdRect band(int row){EpdRect c=row_rect(row);return (EpdRect){c.x,c.y,c.width,shelf_cover_top(c)-c.y+shelf_cover_height()};}

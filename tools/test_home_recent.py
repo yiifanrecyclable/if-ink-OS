@@ -34,6 +34,7 @@ UNIT = r'''
 #define ui_snprintf snprintf
 #include <string.h>
 #define BOOK_STORE_PATH_MAX 288
+#define ESP_OK 0
 #define ESP_ERR_NOT_FINISHED 7
 typedef struct { char path[BOOK_STORE_PATH_MAX]; } home_book_t;
 typedef struct { bool present, mounted; } read_pico_sd_info_t;
@@ -50,14 +51,20 @@ static uint32_t s_reading_days[30];
 static bool s_reading_days_valid;
 static uint32_t s_reading_end_day;
 static int s_cover_next,scans,refreshes,probes;
+static bool card_mounted = true, replace_during_scan;
+static uint32_t media_epoch = 1;
 static char latest[BOOK_STORE_PATH_MAX];
 static bool book_ticket_recent_days(uint32_t *out,uint32_t *end){(void)out;*end=1;return true;}
-static esp_err_t read_pico_sd_get_info(read_pico_sd_info_t *out){*out=(read_pico_sd_info_t){.present=true,.mounted=true};return 0;}
+static esp_err_t read_pico_sd_get_info(read_pico_sd_info_t *out){
+    *out=(read_pico_sd_info_t){.present=true,.mounted=card_mounted};
+    return card_mounted ? ESP_OK : ESP_ERR_NOT_FINISHED;
+}
 static unsigned book_store_revision(void){return 7;}
+static uint32_t book_index_cache_epoch(void){return media_epoch;}
 static const char *app_settings_books_dir(void){return "/sdcard/books";}
 static bool app_settings_home_full_refresh(void){return false;}
 static bool book_progress_last_path(char *out,size_t cap){snprintf(out,cap,"%s",latest);return latest[0]!=0;}
-static void scan_books(void){++scans;snprintf(s_current.path,sizeof(s_current.path),"%s",latest);}
+static void scan_books(void){++scans;if(replace_during_scan)++media_epoch;snprintf(s_current.path,sizeof(s_current.path),"%s",latest);}
 static void refresh_progress(void){++refreshes;}
 static void restore_cover_cache(void){}
 static void read_pico_sd_start_probe(void){++probes;}
@@ -69,13 +76,20 @@ UNIT += r'''
 int main(void){
     app_ctx_t ctx={0};
     strcpy(latest,"/sdcard/books/old.epub");on_enter(&ctx);
-    assert(scans==1&&probes==1&&!strcmp(s_current.path,latest));
+    assert(scans==1&&probes==1&&!s_scan_pending&&!strcmp(s_current.path,latest));
     strcpy(latest,"/sdcard/books/new.epub");on_enter(&ctx);
     assert(scans==2&&probes==1&&!s_scan_pending&&!strcmp(s_current.path,latest));
     on_enter(&ctx);
     assert(scans==2&&refreshes==1&&probes==1);
     latest[0]=0;on_enter(&ctx);
     assert(scans==3&&!s_current.path[0]);
+
+    s_books_cache_valid=false;card_mounted=false;on_enter(&ctx);
+    assert(scans==4&&s_scan_pending&&!s_books_cache_valid);
+    card_mounted=true;replace_during_scan=true;on_enter(&ctx);
+    assert(scans==5&&s_scan_pending&&!s_books_cache_valid);
+    replace_during_scan=false;on_enter(&ctx);
+    assert(scans==6&&!s_scan_pending&&s_books_cache_valid);
     /* 2026-10-05 Monday through Sunday, including future days and all 30-day edges. */
     for(uint32_t day=20731;day<20738;++day){
         int today=(day+3)%7;
@@ -114,7 +128,7 @@ int main(void){
     assert(home_heatmap_gray(5399,90)>0x33&&home_heatmap_gray(5400,90)==0x33);
     assert(home_heatmap_gray(5400,0)==home_heatmap_gray(5400,90));
     puts("home_heatmap: calendar boundaries, future dates and all six target scales passed");
-    puts("home_recent: latest book invalidates the home cache without an SD reprobe");
+    puts("home_recent: stable mount skips duplicate scan, pending or changed media defers, and latest book changes still rescan");
 }
 '''
 

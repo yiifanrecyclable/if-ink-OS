@@ -60,6 +60,7 @@ size_t book_store_file_limit(const book_store_root_t*r){return r->is_flash?BOOK_
 uint64_t book_store_free_bytes(const book_store_root_t*r){return r->is_flash?1024*1024:7ULL<<30;}
 bool book_store_flash_ready(void){return true;}
 void book_store_notify_changed(void){book_index_cache_invalidate_all();++revision;}
+void book_store_notify_list_changed(void){++revision;}
 unsigned book_store_revision(void){return revision;}
 esp_err_t book_store_delete(const char*p,bool*removed){
  *removed=false;const char *base=strrchr(p,'/');if(!base||(strncmp(p,"/sdcard/books/",14)&&strncmp(p,"/flash/books/",13)))return ESP_ERR_INVALID_ARG;

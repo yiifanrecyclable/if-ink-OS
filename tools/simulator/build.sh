@@ -37,6 +37,7 @@ _binary_loading_4bpp_bin_start:
 EOF
 flags=(-DPICO_HOST_SIMULATOR=1 -DCJSON_NESTING_LIMIT=16)
 if [[ "${SANITIZE:-0}" == 1 ]]; then flags=(-DPICO_HOST_SIMULATOR=1 -DCJSON_NESTING_LIMIT=16 -fsanitize=address,undefined -fno-omit-frame-pointer -g); fi
+if [[ "${BANNER_LAYER_TEST:-0}" == 1 ]]; then flags+=(-DIFINK_BANNER_LAYER_TEST=1); fi
 cc "${flags[@]}" -std=gnu11 -Wall -Wextra -Werror -Wno-deprecated-declarations -c tools/simulator/vendor/cjson/cJSON.c -o build/simulator/cJSON-render.o
 cc "${flags[@]}" "-DPICO_SIM_CARD_PATH=\"$card\"" -std=gnu11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-parameter \
     -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -ffunction-sections -fdata-sections \

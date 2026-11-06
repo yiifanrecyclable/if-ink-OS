@@ -21,6 +21,7 @@
 #include "settings.h"
 
 #include <errno.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -33,11 +34,12 @@
 
 static const char* TAG = "book_store";
 static wl_handle_t s_wl = WL_INVALID_HANDLE;
-static unsigned s_revision;
+static _Atomic unsigned s_revision;
 static bool s_roots_degraded;
 
 void book_store_notify_changed(void) { book_index_cache_invalidate_all();++s_revision; }
-unsigned book_store_revision(void) { return s_revision; }
+void book_store_notify_list_changed(void) { atomic_fetch_add(&s_revision, 1); }
+unsigned book_store_revision(void) { return atomic_load(&s_revision); }
 bool book_store_roots_degraded(void) { return s_roots_degraded; }
 
 static esp_err_t ensure_dir(const char* path) {
