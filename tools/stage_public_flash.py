@@ -55,6 +55,7 @@ def stage(output: Path) -> None:
         ROOT / "licenses/LGPL-3.0.txt": "LGPL-3.0.txt",
         ROOT / "licenses/GPL-3.0.txt": "GPL-3.0.txt",
         ROOT / "components/read_pico_search/LICENSE.pypinyin": "PYPINYIN-MIT.txt",
+        ROOT / "licenses/UNICODE-3.0.txt": "UNICODE-3.0.txt",
         ROOT / "main/assets/OFL-Noto.txt": "OFL-Noto.txt",
         ROOT / "components/pico_weread/vendor/LICENSE-CrossMux.txt": "CROSSMUX-MIT.txt",
         ROOT / "components/pico_weread/vendor/LICENSE-FreeInk-SDK.txt": "FREEINK-SDK-MIT.txt",

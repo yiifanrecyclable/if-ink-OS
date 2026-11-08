@@ -503,7 +503,8 @@ static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bo
     if (end < s_len && (s_text[end] == '\r' || s_text[end] == '\n')) {
         *next = end + 1;
         if (s_text[end] == '\r' && *next < s_len && s_text[*next] == '\n') (*next)++;
-        *paragraph_end = true;
+        // Markdown 块内换行只占行高，段间距在块尾计算。/ Markdown breaks inside a block take one line; paragraph spacing follows the block.
+        *paragraph_end = !s_markdown || !block || end == limit;
     }
     return *next > off;
 }
@@ -782,7 +783,8 @@ int book_layout_draw_slice(uint8_t* fb,size_t page,EpdRect rect,int px,book_layo
             else if (align == 2) x += available - line_width;
             int baseline = rect.y + (int)used + ttf_ascender_px(line_px);
             const blk_t *line_block = block_at(off);
-            bool final_line = paragraph_end || next >= s_len ||
+            bool explicit_break = s_text[next - 1] == '\n' || s_text[next - 1] == '\r';
+            bool final_line = explicit_break || next >= s_len ||
                 (line_block && next >= line_block->offset + line_block->len);
             if (s_markdown) {
                 bool justify = !heading && !align && !(line_block && line_block->literal) && (!final_line || line_width > available);

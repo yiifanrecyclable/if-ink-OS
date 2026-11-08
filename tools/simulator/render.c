@@ -50,6 +50,7 @@ int simulator_settings_update_state(void);
 int simulator_settings_update_confirmation(void);
 int simulator_settings_update_channel(void);
 int simulator_document_rows(void);
+int simulator_document_row_top(void);
 const char *simulator_document_page_first(void);
 int simulator_document_row_height(void);
 int simulator_management_rows(void);
@@ -355,6 +356,7 @@ int main(int argc, char **argv) {
     if(font_probe)printf(",\"font_text_covered\":%s,\"builtin_text_covered\":%s",font_text_covered?"true":"false",builtin_text_covered?"true":"false");
     printf(",\"ui_body_px\":%d,\"ui_title_px\":%d,\"ui_caption_px\":%d,\"ui_row_height\":%d,\"ui_detail_height\":%d,\"document_rows\":%d,\"document_row_step\":%d,\"management_rows\":%d,\"home_geometry\":[",ui_text_effective_px(UI_TEXT_BODY),ui_text_effective_px(UI_TEXT_TITLE),ui_text_effective_px(UI_TEXT_CAPTION),ui_list_row_height(false),ui_list_row_height(true),simulator_document_rows(),simulator_document_row_height(),simulator_management_rows());
     for(int i=0;i<12;++i){if(i)printf(",");printf("%d",simulator_home_geometry(i));}printf("]");
+    printf(",\"document_row_top\":%d",simulator_document_row_top());
     printf(",\"update_state\":%d,\"update_confirmation\":%s",simulator_settings_update_state(),simulator_settings_update_confirmation()?"true":"false");
     printf(",\"update_channel\":%d",simulator_settings_update_channel());
     extern const char *simulator_settings_notice(void);printf(",\"settings_notice\":");json_string(simulator_settings_notice());
@@ -379,6 +381,8 @@ int main(int argc, char **argv) {
     printf(",\"content_sort_open\":%s,\"book_sort_mode\":%u,\"document_sort_mode\":%u,\"document_selected_count\":%u,\"document_batch_confirm\":%s,\"document_items\":[",simulator_content_sort_open()?"true":"false",simulator_content_sort_mode(false),simulator_content_sort_mode(true),simulator_document_selected_count(),simulator_document_batch_confirm()?"true":"false");
     for(unsigned i=0;i<3;++i){if(i)printf(",");json_string(simulator_document_item(i));}printf("],\"book_items\":[");
     for(unsigned i=0;i<3;++i){if(i)printf(",");json_string(simulator_shelf_item(i));}printf("]");
+    extern int simulator_content_card_geometry(unsigned);
+    printf(",\"content_card_geometry\":[");for(unsigned i=0;i<10;++i){if(i)printf(",");printf("%d",simulator_content_card_geometry(i));}printf("]");
     printf(",\"book_progresses\":[");for(unsigned i=0;i<3;++i){if(i)printf(",");printf("%d",simulator_list_progress(false,i));}printf("],\"document_progresses\":[");for(unsigned i=0;i<3;++i){if(i)printf(",");printf("%d",simulator_list_progress(true,i));}printf("]");
     printf(",\"home_progresses\":[");for(int i=-1;i<4;++i){if(i>=0)printf(",");printf("%d",simulator_home_progress(i));}printf("]");
     printf(",\"banner_draft\":[");for(unsigned i=0;i<13;++i){if(i)printf(",");printf("%d",simulator_banner_draft(i));}printf("]");
@@ -397,6 +401,13 @@ int main(int argc, char **argv) {
     extern const char *simulator_files_item(int),*simulator_files_note(int),*simulator_files_message(void);
     extern int simulator_files_card_geometry(int);extern unsigned simulator_files_notice_serial(void);extern const char *simulator_files_notice(void);
     printf(",\"files_card_geometry\":[");for(int i=0;i<16;++i){if(i)printf(",");printf("%d",simulator_files_card_geometry(i));}printf("],\"files_notice_serial\":%u,\"files_notice\":",simulator_files_notice_serial());json_string(simulator_files_notice());
+    extern int simulator_files_font_preview_px(void),simulator_files_font_warning(void);
+    printf(",\"files_font_preview_px\":%d,\"files_font_warning\":%d",simulator_files_font_preview_px(),simulator_files_font_warning());
+    extern unsigned simulator_files_batch_count(void);
+    extern uint64_t simulator_files_batch_bytes(void);
+    extern int simulator_files_batch_state(void),simulator_files_batch_top(void);
+    printf(",\"files_batch_count\":%u,\"files_batch_bytes\":%llu,\"files_batch_state\":%d,\"files_batch_top\":%d",
+           simulator_files_batch_count(),(unsigned long long)simulator_files_batch_bytes(),simulator_files_batch_state(),simulator_files_batch_top());
     printf(",\"files_row_height\":%d,\"files_message\":",simulator_files_row_height());json_string(simulator_files_message());
     printf(",\"files_grid\":%d,\"files_grid_available\":%d,\"files_grid_modes\":%d,\"files_grid_geometry\":[",simulator_files_grid(),simulator_files_grid_available(),simulator_files_grid_modes());for(int i=0;i<7;++i){if(i)printf(",");printf("%d",simulator_files_grid_geometry(i));}printf("],\"files_items\":[");
     for(int i=0;i<simulator_files_count();++i){if(i)printf(",");printf("{\"path\":");json_string(simulator_files_item(i));printf(",\"note\":");json_string(simulator_files_note(i));printf(",\"image_folder\":%d}",simulator_files_item_image_folder(i));}printf("],\"files_thumbs\":[");for(int i=0;i<9;++i){if(i)printf(",");printf("%d",simulator_files_thumb_ready(i));}printf("]");

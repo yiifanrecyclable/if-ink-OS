@@ -103,6 +103,8 @@ ICONS = (
     "signature",         # 状态栏签名 / Status signature
     "languages",         # 系统语言 / System language
     "folder-image",      # 图片文件夹·组合图标 / Image folder composite
+    "search",            # 内容页搜索 / content search
+    "arrow-up-down",     # 内容页排序 / content sort
 )
 
 _NUMBER = re.compile(r"[-+]?(?:\d*\.\d+|\d+\.?)(?:[eE][-+]?\d+)?")

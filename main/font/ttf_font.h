@@ -54,6 +54,11 @@ bool ttf_font_is_builtin(void);
 bool ttf_font_path_is_builtin(const char* path);
 /// 选择系统或阅读字体缓存；调用方须持有绘制锁，失败不丢失另一字体。/ Select a cached face under the draw lock, retaining the other face on failure.
 esp_err_t ttf_font_select_context(bool system,const char *path);
+/// 借用另一缓存槽预载，回调绘制期间临时切换活动字形。/ Preload in the other slot and temporarily select the face for a draw callback.
+bool ttf_font_prepare_preview(const char *path);
+bool ttf_font_with_preview(const char *path, void (*draw)(void *), void *ctx);
+/// 文件操作前释放匹配文件或目录的缓存句柄。/ Close cached handles for a file or directory before editing it.
+bool ttf_font_release_path(const char *root);
 /// 释放两套字体的来源及缓存；拔卡和USB存储切换前调用。/ Release both faces and caches before card loss or USB storage access.
 void ttf_font_unload(void);
 int ttf_font_scan(void);

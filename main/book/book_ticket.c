@@ -236,7 +236,7 @@ bool book_ticket_draw(uint8_t *fb, bool reader_background) {
     book_progress_t progress = {0};
     bool progress_valid = file_valid && book_progress_load(path, st.st_size, &progress);
     char title[256] = {0}, author[128] = {0};
-    if (!book_title_from_path(path, title, sizeof(title))) snprintf(title, sizeof(title), "未命名");
+    if (!book_title_display(path, title, sizeof(title))) snprintf(title, sizeof(title), "未命名");
     const char *ext = strrchr(path, '.');
     if (ext && !strcasecmp(ext, ".epub")) {
         char meta_title[256] = {0};

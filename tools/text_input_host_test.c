@@ -33,6 +33,8 @@ int main(int argc,char **argv){
  char small[4]="";ui_text_input_open(&in,small,sizeof(small),true,false,UI_INPUT_CHINESE);spell(&in,"wo");assert(in.candidate_count);assert(tap(&in,DONE)==UI_INPUT_CHANGED);assert(in.pinyin[0]);tap(&in,CANDIDATE);assert(strlen(small)==3);spell(&in,"wo");tap(&in,CANDIDATE);assert(in.pinyin[0]&&strlen(small)==3);tap(&in,BACKSPACE);assert(!strcmp(in.pinyin,"w"));tap(&in,CLEAR);assert(!*small&&!in.pinyin[0]);
  text[0]=0;ui_text_input_open(&in,text,sizeof(text),true,false,UI_INPUT_ENGLISH);spell(&in,"abc");assert(!strcmp(text,"abc"));tap(&in,SHIFT);spell(&in,"d");assert(!strcmp(text,"abcD"));tap(&in,LANGUAGE);assert(in.mode==UI_INPUT_CHINESE);spell(&in,"wo");assert(!strcmp(in.pinyin,"wo"));tap(&in,RAW);assert(!strcmp(text,"abcDwo"));
  tap(&in,CLEAR);spell(&in,"wo");size_t page=in.candidate_page;while(in.candidate_count>5)tap(&in,NEXT);size_t last=in.candidate_page;assert(last>page);tap(&in,NEXT);assert(in.candidate_page==last);tap(&in,PREVIOUS);assert(in.candidate_page==last-1);tap(&in,CLEAR);
+ spell(&in,"hong");assert(in.candidate_count>=5&&!strcmp(in.candidates[0],"红"));
+ tap(&in,CANDIDATE);assert(!strcmp(text,"红"));tap(&in,CLEAR);
  assert(tap(&in,DONE)==UI_INPUT_DONE);assert(tap(&in,CANCEL)==UI_INPUT_CANCEL);
  // 所有可见英文标点都能通过键盘输入；密码页没有中文标点。/ All printable ASCII punctuation is reachable; secret keyboard offers ASCII symbols.
  ui_text_input_open(&in,text,sizeof(text),false,true,UI_INPUT_ENGLISH);tap(&in,SYMBOLS);bool seen[128]={0};

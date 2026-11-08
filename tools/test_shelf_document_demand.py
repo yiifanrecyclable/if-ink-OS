@@ -21,15 +21,14 @@ unit=r'''
 #include <stdio.h>
 #include <string.h>
 enum {SHELF,READING,TOC,MANAGE,BULK,IMPORT,SEARCH,EDIT,DOCUMENTS,DOCUMENT_BULK};
-enum {APP_REDRAW_NONE,APP_REDRAW_PAGE,ESP_ERR_NOT_FINISHED=8,READER_PANEL_NONE=0,UI_GESTURE_TAP=1};
+enum {APP_REDRAW_NONE,APP_REDRAW_PAGE,ESP_ERR_NOT_FINISHED=8,READER_PANEL_NONE=0};
 typedef int app_redraw_t;
 typedef struct {bool touched;} cst836u_touch_t;
 typedef struct {int64_t now_ms;int leaf,home;bool released;const cst836u_touch_t *touch;} app_ctx_t;
-typedef struct {int x0,y0,type;} ui_gesture_event_t;
 typedef struct {int unused;} read_pico_sd_info_t;
 #define SHELF_PERF_SCOPE(...) ((void)0)
 #define BOOK_STORE_PATH_MAX 288
-static int s_view,s_reader_panel,shelves,documents,opens,saves,probes,returns;
+static int s_view,s_reader_panel,shelves,documents,opens,saves,probes,returns,clears;
 static int64_t s_poll_ms,s_cover_next_ms;
 static bool s_document_scan_pending;
 static char s_document_message[64];
@@ -42,8 +41,7 @@ static void scan_documents(app_ctx_t *c){c->leaf=0;++documents;s_document_scan_p
 static bool open_book(app_ctx_t *c,const char *p){(void)c;assert(p[0]);++opens;if(open_ok)s_view=READING;return open_ok;}
 static void copy_text(char *d,size_t n,const char *s){snprintf(d,n,"%s",s);}
 static void prepare_covers(app_ctx_t *c){(void)c;}
-static int content_tab(int i){return i;}
-static bool ui_rect_hit(int r,int x,int y){(void)y;return r==x;}
+static void clear_content_search(app_ctx_t *c){(void)c;++clears;}
 static void track_ticket_stats(app_ctx_t *c){(void)c;}
 static void save_progress(void){++saves;}
 static void free_book(void){}
@@ -52,16 +50,16 @@ static void return_to_cached_shelf(app_ctx_t *c){(void)c;++returns;}
 '''
 unit+=block('static bool open_requested_book(app_ctx_t* ctx) {')+'\n'
 unit+='static app_redraw_t tick_scan(app_ctx_t *ctx){const cst836u_touch_t *touch=ctx->touch;'+block('if (s_document_scan_pending &&')+block('if (s_scan_pending && (s_view == SHELF || s_view == BULK) &&')+'return APP_REDRAW_NONE;}\n'
-unit+='static app_redraw_t tabs(app_ctx_t *ctx,const ui_gesture_event_t *ev){'+block('if((s_view==SHELF||s_view==DOCUMENTS)&&ev->type==UI_GESTURE_TAP){')+'return APP_REDRAW_NONE;}\n'
+unit+=block('static app_redraw_t content_tab_action(app_ctx_t *ctx, bool documents) {')+'\n'
 unit+=block('static app_redraw_t reader_return(app_ctx_t *ctx, bool home) {')+'\n'
 unit+=r'''
-static void reset(int view){s_view=view;shelves=documents=opens=saves=returns=probes=0;s_poll_ms=0;s_cover_next_ms=0;s_scan_pending=true;s_document_scan_pending=false;s_requested_open[0]=0;s_requested_open_home=s_reader_return_home=false;s_document_mode=false;open_ok=true;}
+static void reset(int view){s_view=view;shelves=documents=opens=saves=returns=probes=clears=0;s_poll_ms=0;s_cover_next_ms=0;s_scan_pending=true;s_document_scan_pending=false;s_requested_open[0]=0;s_requested_open_home=s_reader_return_home=false;s_document_mode=false;open_ok=true;}
 int main(void){
- app_ctx_t c={.now_ms=1000};ui_gesture_event_t e={.type=UI_GESTURE_TAP,.x0=1};
+ app_ctx_t c={.now_ms=1000};
  reset(SHELF);assert(tick_scan(&c)==APP_REDRAW_PAGE);assert(shelves==1&&!documents&&!s_scan_pending);
  assert(tick_scan(&c)==APP_REDRAW_NONE&&shelves==1&&!documents);
- assert(tabs(&c,&e)==APP_REDRAW_PAGE&&s_view==DOCUMENTS&&s_document_mode&&documents==1);
- assert(tabs(&c,&e)==APP_REDRAW_PAGE&&documents==2); /* Explicit entry refreshes external changes. */
+ assert(content_tab_action(&c,true)==APP_REDRAW_PAGE&&s_view==DOCUMENTS&&s_document_mode&&documents==1&&clears==1);
+ assert(content_tab_action(&c,true)==APP_REDRAW_PAGE&&documents==2&&clears==1); /* Explicit entry refreshes external changes. */
  for(int i=DOCUMENTS;i<=DOCUMENT_BULK;++i){
   reset(i);assert(tick_scan(&c)==APP_REDRAW_NONE&&!shelves&&!documents&&s_scan_pending);
   s_document_scan_pending=true;
@@ -71,7 +69,7 @@ int main(void){
  assert(tick_scan(&c)==APP_REDRAW_NONE&&!shelves);
  c.now_ms+=150;c.released=true;
  assert(tick_scan(&c)==APP_REDRAW_NONE&&!shelves);
- assert(tabs(&c,&e)==APP_REDRAW_PAGE&&s_view==DOCUMENTS);
+ assert(content_tab_action(&c,true)==APP_REDRAW_PAGE&&s_view==DOCUMENTS);
  c.released=false;assert(tick_scan(&c)==APP_REDRAW_NONE&&!shelves&&documents==1);
  reset(SHELF);probes=ESP_ERR_NOT_FINISHED;assert(tick_scan(&c)==APP_REDRAW_NONE&&s_scan_pending&&!shelves&&!documents);
  probes=0;c.now_ms+=500;assert(tick_scan(&c)==APP_REDRAW_PAGE&&shelves==1&&!documents);

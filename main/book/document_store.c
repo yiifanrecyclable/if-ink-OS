@@ -11,6 +11,7 @@
 #include "document_store.h"
 #include "book_markdown.h"
 #include "book_progress.h"
+#include "book_title.h"
 #include "document_image.h"
 #include "markdown_text.h"
 #include "sync_file_policy.h"
@@ -71,6 +72,28 @@ static bool allowed(const char *path) {
     return path && !strncmp(path, DOCUMENT_ROOT "/", 17) && !strchr(path + 17, '/') && strlen(path) < 288 &&
            is_md(path + 17);
 }
+#define LOCAL_PATH_MAX 288
+#define LOCAL_DEPTH_MAX 8
+static bool local_path(const char *path, bool directory) {
+    const size_t root = sizeof(DOCUMENT_ROOT)-1;
+    if (!path || strncmp(path,DOCUMENT_ROOT,root) || (path[root] && path[root]!='/') ||
+        strlen(path)>=LOCAL_PATH_MAX) return false;
+    if (!path[root]) return directory;
+    const char *part=path+root+1;
+    for(unsigned depth=0;depth<=LOCAL_DEPTH_MAX;++depth){
+        const char *slash=strchr(part,'/');
+        size_t len=slash?(size_t)(slash-part):strlen(part);
+        if(!len||len>240||(depth==0&&len==11&&!strncasecmp(part,"attachments",len)))return false;
+        char name[241];
+        memcpy(name,part,len);name[len]=0;
+        if(!document_store_safe_filename(name))return false;
+        if(!slash)return directory?depth<LOCAL_DEPTH_MAX:is_md(name);
+        part=slash+1;
+    }
+    return false;
+}
+bool document_store_local_directory(const char *path){return local_path(path,true);}
+bool document_store_local_path(const char *path){return local_path(path,false);}
 // FatFs不能重命名覆盖：完整临时文件先落盘，旧索引留作回退，再安装新索引。
 // FatFs cannot rename over an existing file: retain the old index for rollback before installing the synced replacement.
 static bool replace_metadata(const char *temporary, const char *destination) {
@@ -106,11 +129,23 @@ static bool restore_metadata(const char *destination) {
     if (lstat(backup, &st)) return errno == ENOENT;
     return S_ISREG(st.st_mode) && !rename(backup, destination);
 }
+static void index_path(const char *path,const char *suffix,char *out,size_t cap){
+    const char *base=strrchr(path,'/');
+    if(base==path+sizeof(DOCUMENT_ROOT)-1)snprintf(out,cap,DOCUMENT_ROOT "/.index/%s.%s",base+1,suffix);
+    else snprintf(out,cap,"%.*s/.pico-index/%s.%s",(int)(base-path),path,base+1,suffix);
+}
 static void metadata(const char *path, char *out, size_t cap) {
-    snprintf(out, cap, DOCUMENT_ROOT "/.index/%s.pico", path + 17);
+    index_path(path,"pico",out,cap);
 }
 static void preferences(const char *path, char *out, size_t cap) {
-    snprintf(out, cap, DOCUMENT_ROOT "/.index/%s.prefs", path + 17);
+    index_path(path,"prefs",out,cap);
+}
+static bool ensure_index(const char *path){
+    char index[512];index_path(path,"pico",index,sizeof(index));
+    *strrchr(index,'/')=0;
+    struct stat st;
+    if(!lstat(index,&st))return S_ISDIR(st.st_mode);
+    return errno==ENOENT&&(!mkdir(index,0700)||errno==EEXIST);
 }
 static void read_flags(const char *path, bool *pinned, bool *starred) {
     *pinned = *starred = false;
@@ -129,12 +164,12 @@ static void read_flags(const char *path, bool *pinned, bool *starred) {
     fclose(f);
 }
 esp_err_t document_store_set_flags(const char *path, bool pinned, bool starred) {
-    if (!allowed(path))
+    if (!allowed(path)&&!document_store_local_path(path))
         return ESP_ERR_INVALID_ARG;
     struct stat st;
     if (lstat(path, &st) || !S_ISREG(st.st_mode))
         return ESP_ERR_NOT_FOUND;
-    (void)mkdir(DOCUMENT_ROOT "/.index", 0700);
+    if(!ensure_index(path))return ESP_FAIL;
     char file[512], temp[520];
     preferences(path, file, sizeof(file));
     if (!restore_metadata(file)) return ESP_FAIL;
@@ -201,82 +236,114 @@ static bool hash_asset(digest_t *h, const char *path) {
         digest_update(h, sum, 32);
     return ok && hashed;
 }
-static esp_err_t clear_reader(const char *path) {
-    esp_err_t e = book_progress_forget(path);
-    if (e != ESP_OK)
-        return e;
-    uint32_t hash = UINT32_C(2166136261);
-    for (const unsigned char *p = (const unsigned char *)path; *p; p++)
-        hash = (hash ^ *p) * UINT32_C(16777619);
-    char key[11];
-    snprintf(key, sizeof(key), "m_%08lx", (unsigned long)hash);
-    records_handle_t h;
-    e = records_open("rp_marks", NVS_READWRITE, &h);
-    if (e != ESP_OK)
-        return e;
-    size_t size = 0;
-    e = records_get_blob(h, key, NULL, &size);
-    if (e == ESP_OK) {
-        uint8_t *data = malloc(size);
-        if (!data) {
-            records_close(h);
-            return ESP_ERR_NO_MEM;
-        }
-        e = records_get_blob(h, key, data, &size);
-        uint32_t magic = 0;
-        if (size >= 4)
-            memcpy(&magic, data, 4);
-        size_t offset = magic == UINT32_C(0x52504d31) ? 14 : magic == UINT32_C(0x52504d32) ? 12 : SIZE_MAX;
-        if (e == ESP_OK && (offset == SIZE_MAX || size < offset + 288 || !memchr(data + offset, 0, 288) ||
-                            strcmp((char *)data + offset, path)))
-            e = ESP_ERR_INVALID_STATE;
-        free(data);
-        if (e == ESP_OK)
-            e = records_erase_key(h, key);
-    }
-    if (e == ESP_ERR_NVS_NOT_FOUND)
-        e = ESP_OK;
-    if (e == ESP_OK)
-        e = records_commit(h);
-    records_close(h);
-    return e;
+static void marks_key(const char *path,char key[11]){
+    uint32_t hash=UINT32_C(2166136261);
+    for(const unsigned char *p=(const unsigned char *)path;*p;++p)hash=(hash^*p)*UINT32_C(16777619);
+    snprintf(key,11,"m_%08lx",(unsigned long)hash);
 }
+static esp_err_t read_marks(records_handle_t h,const char *key,const char *path,uint8_t **data,size_t *size,size_t *offset){
+    esp_err_t err=records_get_blob(h,key,NULL,size);
+    if(err!=ESP_OK)return err;
+    *data=malloc(*size);
+    if(!*data)return ESP_ERR_NO_MEM;
+    err=records_get_blob(h,key,*data,size);
+    if(err!=ESP_OK)return err;
+    uint32_t magic=0;
+    if(*size>=4)memcpy(&magic,*data,4);
+    *offset=magic==UINT32_C(0x52504d31)?14:magic==UINT32_C(0x52504d32)?12:SIZE_MAX;
+    if(*offset==SIZE_MAX||*size<*offset+LOCAL_PATH_MAX||
+       !memchr(*data+*offset,0,LOCAL_PATH_MAX)||strcmp((char *)*data+*offset,path))return ESP_ERR_INVALID_STATE;
+    return ESP_OK;
+}
+static esp_err_t clear_reader(const char *path){
+    esp_err_t err=book_progress_forget(path);
+    if(err!=ESP_OK)return err;
+    records_handle_t h;
+    err=records_open("rp_marks",NVS_READWRITE,&h);
+    if(err!=ESP_OK)return err;
+    char key[11];marks_key(path,key);
+    uint8_t *data=NULL;size_t size=0,offset=0;
+    err=read_marks(h,key,path,&data,&size,&offset);
+    free(data);
+    if(err==ESP_OK)err=records_erase_key(h,key);
+    if(err==ESP_ERR_NVS_NOT_FOUND)err=ESP_OK;
+    if(err==ESP_OK)err=records_commit(h);
+    records_close(h);
+    return err;
+}
+static esp_err_t copy_marks(const char *source,const char *target){
+    records_handle_t h;
+    esp_err_t err=records_open("rp_marks",NVS_READWRITE,&h);
+    if(err!=ESP_OK)return err;
+    char from[11],to[11];marks_key(source,from);marks_key(target,to);
+    uint8_t *data=NULL;size_t size=0,offset=0;
+    err=read_marks(h,from,source,&data,&size,&offset);
+    if(err==ESP_OK){
+        if(!strcmp(from,to))err=ESP_ERR_INVALID_STATE;
+        else{
+            memset(data+offset,0,LOCAL_PATH_MAX);
+            memcpy(data+offset,target,strlen(target)+1);
+            err=records_set_blob(h,to,data,size);
+            if(err==ESP_OK)err=records_commit(h);
+        }
+    }else if(err==ESP_ERR_NVS_NOT_FOUND)err=ESP_OK;
+    free(data);records_close(h);
+    return err;
+}
+typedef esp_err_t (*local_doc_visit_t)(const char *,const struct stat *,void *);
+static esp_err_t walk_documents(char path[LOCAL_PATH_MAX],unsigned depth,bool strict,local_doc_visit_t visit,void *ctx,void (*leave)(const char *)){
+    DIR *dir=opendir(path);
+    if(!dir)return strict||!depth?ESP_FAIL:ESP_OK;
+    size_t len=strlen(path);
+    esp_err_t err=ESP_OK;
+    while(err==ESP_OK){
+        errno=0;
+        struct dirent *de=readdir(dir);
+        if(!de){if(errno&&strict)err=ESP_FAIL;break;}
+        if(de->d_name[0]=='.'||(!depth&&!strcasecmp(de->d_name,"attachments")))continue;
+        int n=snprintf(path+len,LOCAL_PATH_MAX-len,"/%s",de->d_name);
+        if(n<0||(size_t)n>=LOCAL_PATH_MAX-len){if(strict)err=ESP_ERR_INVALID_SIZE;continue;}
+        struct stat st;
+        if(lstat(path,&st)){if(strict)err=ESP_FAIL;continue;}
+        if(S_ISDIR(st.st_mode)){
+            if(document_store_local_directory(path))err=walk_documents(path,depth+1,strict,visit,ctx,leave);
+            else if(strict)err=ESP_ERR_INVALID_SIZE;
+        }else if(S_ISREG(st.st_mode)&&(allowed(path)||document_store_local_path(path))){
+            err=visit(path,&st,ctx);
+        }
+    }
+    path[len]=0;
+    closedir(dir);
+    if(err==ESP_OK&&leave)leave(path);
+    return err;
+}
+
 // 无法解析其他正文时保留图片，避免错误清理。
 // Retain assets if another document cannot be parsed, avoiding destructive cleanup.
-static bool referenced(const char *asset, const char *except) {
-    DIR *d = opendir(DOCUMENT_ROOT);
-    if (!d)
-        return true;
-    struct dirent *de;
-    bool used = false;
-    while (!used && (de = readdir(d))) {
-        if (!is_md(de->d_name) || de->d_name[0] == '.')
-            continue;
-        char path[288];
-        snprintf(path, sizeof(path), DOCUMENT_ROOT "/%s", de->d_name);
-        if (except && !strcmp(path, except))
-            continue;
-        html_text_t t = {0};
-        if (parse_file(path, &t, NULL) != ESP_OK) {
-            used = true;
-            break;
-        }
-        for (size_t i = 0; i < t.image_count; i++) {
-            char p[512];
-            if (markdown_attachment_path(path, t.images[i], p, sizeof(p)) && !strcmp(p, asset)) {
-                used = true;
-                break;
-            }
-        }
-        html_text_free(&t);
+typedef struct {const char *asset,*except;} reference_search_t;
+static esp_err_t check_reference(const char *path,const struct stat *st,void *context){
+    (void)st;
+    const reference_search_t *search=context;
+    if(search->except&&!strcmp(path,search->except))return ESP_OK;
+    html_text_t text={0};
+    esp_err_t err=parse_file(path,&text,NULL);
+    for(size_t i=0;err==ESP_OK&&i<text.image_count;++i){
+        char asset[512];
+        if(markdown_attachment_path(path,text.images[i],asset,sizeof(asset))&&!strcasecmp(asset,search->asset))
+            err=ESP_ERR_INVALID_STATE;
     }
-    closedir(d);
-    return used;
+    html_text_free(&text);
+    return err;
+}
+static bool referenced(const char *asset,const char *except){
+    char path[LOCAL_PATH_MAX]=DOCUMENT_ROOT;
+    reference_search_t search={asset,except};
+    return walk_documents(path,0,true,check_reference,&search,NULL)!=ESP_OK;
 }
 static bool clean_old(const char *meta, const char *document, const html_text_t *current) {
     FILE *f = fopen(meta, "rb");
     if (!f)
-        return true;
+        return errno==ENOENT;
     char line[512];
     bool ok = true;
     (void)fgets(line, sizeof(line), f);
@@ -328,11 +395,11 @@ esp_err_t document_store_validate(const char *path) {
 static esp_err_t refresh_at(const char *path, bool *changed, const char *first_date) {
     if (changed)
         *changed = false;
-    if (!allowed(path))
+    if (!allowed(path)&&!document_store_local_path(path))
         return ESP_ERR_INVALID_ARG;
     (void)mkdir(DOCUMENT_ROOT, 0700);
     (void)mkdir(DOCUMENT_ROOT "/attachments", 0700);
-    (void)mkdir(DOCUMENT_ROOT "/.index", 0700);
+    if(!ensure_index(path))return ESP_FAIL;
     digest_t hash;
     digest_init(&hash);
     html_text_t t = {0};
@@ -421,30 +488,36 @@ esp_err_t document_store_refresh(const char *path, bool *changed) {
     esp_err_t e = document_store_sync_recover();
     return e == ESP_OK ? refresh_at(path, changed, NULL) : e;
 }
+static bool remove_index(const char *path){
+    char sibling[520];
+    snprintf(sibling,sizeof(sibling),"%s.before",path);
+    if(unlink(sibling)&&errno!=ENOENT)return false;
+    snprintf(sibling,sizeof(sibling),"%s.part",path);
+    if(unlink(sibling)&&errno!=ENOENT)return false;
+    return !unlink(path)||errno==ENOENT;
+}
 esp_err_t document_store_delete(const char *path) {
     esp_err_t recovery = document_store_sync_recover();
     if (recovery != ESP_OK)
         return recovery;
-    if (!allowed(path))
+    if (!allowed(path)&&!document_store_local_path(path))
         return ESP_ERR_INVALID_ARG;
     struct stat st;
-    if (lstat(path, &st) == 0 && (!S_ISREG(st.st_mode) || unlink(path)))
-        return ESP_FAIL;
+    if (!lstat(path,&st)) {
+        if(!S_ISREG(st.st_mode)||unlink(path))return ESP_FAIL;
+    } else if(errno!=ENOENT)return ESP_FAIL;
     esp_err_t e = clear_reader(path);
     if (e != ESP_OK)
         return e;
     char meta[512];
     metadata(path, meta, sizeof(meta));
-    if (!clean_old(meta, path, NULL))
+    if (!restore_metadata(meta)||!clean_old(meta, path, NULL))
         return ESP_FAIL;
-    if (unlink(meta) && access(meta, F_OK) == 0)
-        return ESP_FAIL;
+    if(!remove_index(meta))return ESP_FAIL;
     preferences(path, meta, sizeof(meta));
-    if (unlink(meta) && access(meta, F_OK) == 0)
-        return ESP_FAIL;
-    snprintf(meta, sizeof(meta), DOCUMENT_ROOT "/.index/%s.sync", path + 17);
-    if (unlink(meta) && access(meta, F_OK) == 0)
-        return ESP_FAIL;
+    if(!remove_index(meta))return ESP_FAIL;
+    index_path(path,"sync",meta,sizeof(meta));
+    if(!remove_index(meta))return ESP_FAIL;
     return ESP_OK;
 }
 static int by_name(const void *a, const void *b) {
@@ -452,6 +525,64 @@ static int by_name(const void *a, const void *b) {
     if (x->pinned != y->pinned)
         return x->pinned ? -1 : 1;
     return strcmp(x->name, y->name);
+}
+typedef struct {document_entry_t **entries;size_t *count,capacity;} document_scan_t;
+static esp_err_t scan_document(const char *path,const struct stat *st,void *context){
+    document_scan_t *scan=context;
+    if(st->st_size<0||(uint64_t)st->st_size>UINT32_MAX)return ESP_OK;
+    (void)refresh_at(path,NULL,NULL);
+    if(*scan->count==scan->capacity){
+        size_t next=scan->capacity?scan->capacity*2:16;
+        document_entry_t *entries=realloc(*scan->entries,next*sizeof(*entries));
+        if(!entries)return ESP_ERR_NO_MEM;
+        *scan->entries=entries;scan->capacity=next;
+    }
+    document_entry_t *entry=&(*scan->entries)[(*scan->count)++];
+    memset(entry,0,sizeof(*entry));
+    snprintf(entry->path,sizeof(entry->path),"%s",path);
+    snprintf(entry->name,sizeof(entry->name),"%s",strrchr(path,'/')+1);
+    entry->size=(uint32_t)st->st_size;
+    char meta[512],line[80];
+    metadata(path,meta,sizeof(meta));
+    FILE *f=fopen(meta,"rb");
+    if(f){
+        if(fgets(line,sizeof(line),f)&&fgets(line,sizeof(line),f)){
+            line[strcspn(line,"\r\n")]=0;
+            snprintf(entry->date,sizeof(entry->date),"%.10s",line);
+        }
+        fclose(f);
+    }
+    read_flags(path,&entry->pinned,&entry->starred);
+    return ESP_OK;
+}
+static void cleanup_orphan_indexes(const char *dir){
+    char index[512];
+    snprintf(index,sizeof(index),"%s/%s",dir,!strcmp(dir,DOCUMENT_ROOT)?".index":".pico-index");
+    DIR *d=opendir(index);
+    if(!d)return;
+    struct dirent *de;
+    while((de=readdir(d))){
+        const char *dot=strrchr(de->d_name,'.');
+        if(!dot||(strcmp(dot,".pico")&&strcmp(dot,".prefs")&&strcmp(dot,".sync")))continue;
+        char path[LOCAL_PATH_MAX];
+        int n=snprintf(path,sizeof(path),"%s/%.*s",dir,(int)(dot-de->d_name),de->d_name);
+        if(n<0||(size_t)n>=sizeof(path))continue;
+        struct stat st;
+        if(lstat(path,&st)&&errno==ENOENT)(void)document_store_delete(path);
+    }
+    closedir(d);
+}
+static esp_err_t any_local_document(const char *path,const struct stat *st,void *context){
+    (void)path;
+    bool *found=context;
+    *found=st->st_size>=0&&(uint64_t)st->st_size<=UINT32_MAX;
+    return *found?ESP_ERR_INVALID_STATE:ESP_OK;
+}
+bool document_store_has_local(void){
+    char root[LOCAL_PATH_MAX]=DOCUMENT_ROOT;
+    bool found=false;
+    (void)walk_documents(root,0,false,any_local_document,&found,NULL);
+    return found;
 }
 esp_err_t document_store_scan(document_entry_t **entries, size_t *count) {
     if (!entries || !count)
@@ -464,68 +595,11 @@ esp_err_t document_store_scan(document_entry_t **entries, size_t *count) {
     (void)mkdir(DOCUMENT_ROOT, 0700);
     (void)mkdir(DOCUMENT_ROOT "/attachments", 0700);
     (void)mkdir(DOCUMENT_ROOT "/.index", 0700);
-    DIR *d = opendir(DOCUMENT_ROOT);
-    if (!d)
-        return ESP_FAIL;
-    struct dirent *de;
-    size_t cap = 0;
-    esp_err_t result = ESP_OK;
-    while ((de = readdir(d))) {
-        if (de->d_name[0] == '.' || !is_md(de->d_name) || strlen(de->d_name) > 255)
-            continue;
-        char path[288];
-        snprintf(path, sizeof(path), DOCUMENT_ROOT "/%s", de->d_name);
-        struct stat st;
-        if (lstat(path, &st) || !S_ISREG(st.st_mode) || st.st_size < 0 || st.st_size > UINT32_MAX)
-            continue;
-        bool changed;
-        (void)document_store_refresh(path, &changed);
-        if (*count == cap) {
-            size_t next = cap ? cap * 2 : 16;
-            document_entry_t *p = realloc(*entries, next * sizeof(*p));
-            if (!p) {
-                result = ESP_ERR_NO_MEM;
-                break;
-            }
-            *entries = p;
-            cap = next;
-        }
-        document_entry_t *entry = &(*entries)[(*count)++];
-        memset(entry, 0, sizeof(*entry));
-        snprintf(entry->path, sizeof(entry->path), "%s", path);
-        snprintf(entry->name, sizeof(entry->name), "%s", de->d_name);
-        entry->size = (uint32_t)st.st_size;
-        char meta[512], line[80];
-        metadata(path, meta, sizeof(meta));
-        FILE *f = fopen(meta, "rb");
-        if (f) {
-            if (fgets(line, sizeof(line), f) && fgets(line, sizeof(line), f)) {
-                line[strcspn(line, "\r\n")] = 0;
-                snprintf(entry->date, sizeof(entry->date), "%.10s", line);
-            }
-            fclose(f);
-        }
-        read_flags(path, &entry->pinned, &entry->starred);
-    }
-    closedir(d);
+    char root[LOCAL_PATH_MAX]=DOCUMENT_ROOT;
+    document_scan_t scan={entries,count,0};
+    esp_err_t result=walk_documents(root,0,false,scan_document,&scan,cleanup_orphan_indexes);
     if (*count > 1)
         qsort(*entries, *count, sizeof(**entries), by_name);
-    d = opendir(DOCUMENT_ROOT "/.index");
-    if (d) {
-        while ((de = readdir(d))) {
-            size_t n = strlen(de->d_name), suffix = n >= 6 && !strcmp(de->d_name + n - 6, ".prefs") ? 6 : 5;
-            if (n <= suffix || (suffix == 5 && strcmp(de->d_name + n - 5, ".pico")))
-                continue;
-            char path[288];
-            if (n - suffix > 255)
-                continue;
-            snprintf(path, sizeof(path), DOCUMENT_ROOT "/%.*s", (int)(n - suffix), de->d_name);
-            struct stat st;
-            if (lstat(path, &st) && access(path, F_OK) != 0)
-                (void)document_store_delete(path);
-        }
-        closedir(d);
-    }
     return result;
 }
 
@@ -1288,17 +1362,128 @@ bool document_store_hash_bytes(const void *data, size_t length, char hex[65]) {
     return true;
 }
 
+#define LOCAL_MOVE_FILE DOCUMENT_ROOT "/.index/.move"
+#define LOCAL_MOVE_TEMP LOCAL_MOVE_FILE ".part"
+typedef struct {
+    char magic[8],source[LOCAL_PATH_MAX],target[LOCAL_PATH_MAX];
+    uint32_t size,crc;
+} local_move_t;
+static uint32_t local_move_crc(const local_move_t *move){
+    return (uint32_t)crc32(0,(const Bytef *)move,sizeof(*move)-sizeof(move->crc));
+}
+static int local_file_state(const char *path,struct stat *st){
+    if(!lstat(path,st))return S_ISREG(st->st_mode)?1:-1;
+    return errno==ENOENT?0:-1;
+}
+static const char *const move_indexes[]={"pico","prefs","sync"};
+static esp_err_t move_indexes_forward(const local_move_t *move){
+    if(!ensure_index(move->target))return ESP_FAIL;
+    for(unsigned i=0;i<sizeof(move_indexes)/sizeof(move_indexes[0]);++i){
+        char old[512],next[512],backup[520];
+        index_path(move->source,move_indexes[i],old,sizeof(old));
+        index_path(move->target,move_indexes[i],next,sizeof(next));
+        snprintf(backup,sizeof(backup),"%s.before",old);
+        struct stat st;
+        if(!restore_metadata(old))return ESP_FAIL;
+        int state=local_file_state(old,&st);
+        if(state<0)return ESP_FAIL;
+        if(state){
+            if(local_file_state(next,&st)!=0)return ESP_FAIL;
+            // 当前索引已完整；先清旧备份，避免中断后把旧路径的记录恢复回来。
+            // Remove the superseded backup before moving the current index.
+            if((unlink(backup)&&errno!=ENOENT)||rename(old,next))return ESP_FAIL;
+        }
+        if(sync_parent(old)!=ESP_OK||sync_parent(next)!=ESP_OK)return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+static esp_err_t move_reader_forward(const local_move_t *move){
+    esp_err_t err=book_progress_copy_for_move(move->source,move->target,move->size);
+    if(err==ESP_OK)err=copy_marks(move->source,move->target);
+    char title[121];
+    if(err==ESP_OK){
+        err=book_title_get_checked(move->source,title,sizeof(title));
+        if(err==ESP_OK)err=book_title_set(move->target,title);
+        else if(err==ESP_ERR_NVS_NOT_FOUND)err=ESP_OK;
+    }
+    if(err==ESP_OK)err=clear_reader(move->source);
+    if(err==ESP_OK)err=book_title_clear(move->source);
+    return err;
+}
+static esp_err_t recover_local_move(void){
+    FILE *f=fopen(LOCAL_MOVE_FILE,"rb");
+    if(!f)return errno==ENOENT?ESP_OK:ESP_FAIL;
+    local_move_t move;
+    bool ok=fread(&move,1,sizeof(move),f)==sizeof(move)&&fgetc(f)==EOF&&!ferror(f);
+    if(fclose(f))ok=false;
+    if(!ok||memcmp(move.magic,"IFMDMV1",8)||move.crc!=local_move_crc(&move)||
+       !memchr(move.source,0,sizeof(move.source))||!memchr(move.target,0,sizeof(move.target))||
+       !document_store_local_path(move.source)||!document_store_local_path(move.target)||
+       !strcasecmp(move.source,move.target))return ESP_FAIL;
+    struct stat st;
+    int source=local_file_state(move.source,&st),target=local_file_state(move.target,&st);
+    esp_err_t err=ESP_OK;
+    if(source==0&&target==1&&st.st_size>=0&&(uint64_t)st.st_size==move.size){
+        if(sync_parent(move.source)!=ESP_OK||sync_parent(move.target)!=ESP_OK)return ESP_FAIL;
+        err=move_indexes_forward(&move);
+        if(err==ESP_OK)err=move_reader_forward(&move);
+    }else if(source!=1||target!=0)return ESP_FAIL;
+    if(err!=ESP_OK)return err;
+    return !unlink(LOCAL_MOVE_FILE)?sync_parent(LOCAL_MOVE_FILE):ESP_FAIL;
+}
+static esp_err_t local_move_start(const char *source,const char *target,bool *moved){
+    if(!document_store_local_path(source)||!document_store_local_path(target)||!strcasecmp(source,target))
+        return ESP_ERR_INVALID_ARG;
+    struct stat st;
+    if(local_file_state(target,&st)!=0)return ESP_ERR_INVALID_STATE;
+    if(local_file_state(source,&st)!=1||st.st_size<0||(uint64_t)st.st_size>UINT32_MAX)return ESP_FAIL;
+    uint32_t size=(uint32_t)st.st_size;
+    if(!ensure_index(source)||!ensure_index(target))return ESP_FAIL;
+    for(unsigned i=0;i<sizeof(move_indexes)/sizeof(move_indexes[0]);++i){
+        char next[512];
+        index_path(target,move_indexes[i],next,sizeof(next));
+        if(!restore_metadata(next)||local_file_state(next,&st)!=0)return ESP_ERR_INVALID_STATE;
+    }
+    esp_err_t err=clear_reader(target);
+    if(err==ESP_OK)err=book_title_clear(target);
+    if(err!=ESP_OK)return err;
+    local_move_t move={.magic="IFMDMV1",.size=size};
+    snprintf(move.source,sizeof(move.source),"%s",source);
+    snprintf(move.target,sizeof(move.target),"%s",target);
+    move.crc=local_move_crc(&move);
+    FILE *f=fopen(LOCAL_MOVE_TEMP,"wb");
+    if(!f)return ESP_FAIL;
+    bool ok=fwrite(&move,1,sizeof(move),f)==sizeof(move)&&!fflush(f)&&!fsync(fileno(f));
+    if(fclose(f))ok=false;
+    if(!ok||rename(LOCAL_MOVE_TEMP,LOCAL_MOVE_FILE)){unlink(LOCAL_MOVE_TEMP);return ESP_FAIL;}
+    if(sync_parent(LOCAL_MOVE_FILE)!=ESP_OK)return ESP_FAIL;
+    *moved=rename(source,target)==0;
+    err=recover_local_move();
+    return *moved?err:ESP_FAIL;
+}
+esp_err_t document_store_move(const char *source,const char *target,bool *moved){
+    if(!moved)return ESP_ERR_INVALID_ARG;
+    *moved=false;
+    if(atomic_flag_test_and_set(&s_sync_lock))return ESP_FAIL;
+    esp_err_t err=sync_recover_locked();
+    if(err==ESP_OK)err=recover_local_move();
+    if(err==ESP_OK)err=local_move_start(source,target,moved);
+    atomic_flag_clear(&s_sync_lock);
+    return err;
+}
 esp_err_t document_store_sync_recover(void) {
     if (atomic_flag_test_and_set(&s_sync_lock))
         return ESP_ERR_INVALID_STATE;
     esp_err_t e = sync_recover_locked();
+    if(e==ESP_OK)e=recover_local_move();
     atomic_flag_clear(&s_sync_lock);
     return e;
 }
 esp_err_t document_store_sync_prepare(void) {
     if (atomic_flag_test_and_set(&s_sync_lock))
         return ESP_ERR_INVALID_STATE;
-    esp_err_t e = sync_prepare_locked();
+    esp_err_t e = recover_local_move();
+    if(e==ESP_OK)e=sync_prepare_locked();
     atomic_flag_clear(&s_sync_lock);
     return e;
 }

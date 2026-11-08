@@ -52,9 +52,37 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='input-pages-') as tmp:
     assert (card/'books/abc.txt').exists() and not (card/'books/Test.txt').exists()
     info,_=render('files-2',events(clear,language,letters('cancelled'),cancel));assert info['files_view']==1
     assert (card/'books/abc.txt').exists() and not (card/'books/cancelled.txt').exists()
-    # Search supports both direct Latin spelling and Chinese candidates, and returns to its own page.
-    info,_=render('book-4',events(tap(550,251),letters('abc'),done));assert info['book_view']==4 and len([x for x in info['book_items'] if x])==1
-    info,_=render('book-9',events(tap(550,251),letters('test'),cancel));assert info['book_view']==9
+    # 内容搜索通过统一键盘；用同一会话覆盖清除、取消、打开、返回及切换标签。
+    # Exercise clearing, canceling, opening, returning and tab changes through the shared keyboard.
+    (card/'books/Other.txt').write_text('Chapter\n\nAnother book.\n')
+    (card/'markdown/Other.md').write_text('# Another note\n\nText.\n')
+    search=tap(539,92);clear_search=tap(476,92)
+    docs=tap(260,92);books=tap(110,92)
+    for native,field,query,selected,tab_roundtrip in (
+        ('book-0','book_items','abc','abc.txt',events(docs,books)),
+        ('book-8','document_items','test','Test.md',events(books,docs)),
+    ):
+        full,_=render(native)
+        full_items=[p for p in full[field] if p]
+        assert len(full_items)==2
+        matched=events(search,letters(query),done)
+        info,matched_frame=render(native,matched)
+        items=[p for p in info[field] if p]
+        assert len(items)==1 and Path(items[0]).name==selected
+        restored,_=render(native,events(matched,clear_search))
+        assert [p for p in restored[field] if p]==full_items
+        assert render(native,events(matched,search,clear,letters('zzzz'),cancel))[1]==matched_frame
+        assert render(native,events(matched,search,'k,1,0,0,0'))[1]==matched_frame
+        assert render(native,events(matched,search,clear,done))[0][field]==full[field]
+        assert render(native,events(matched,tab_roundtrip))[0][field]==full[field]
+        empty=events(search,letters('zzzz'),done)
+        assert not any(render(native,empty)[0][field])
+        assert render(native,events(empty,clear_search))[0][field]==full[field]
+    matched=events(search,letters('test'),done)
+    opened,_=render('book-8',events(matched,tap(340,180)))
+    assert opened['book_view']==1 and opened['book_path']=='/sdcard/markdown/Test.md',opened['book_path']
+    returned,_=render('book-8',events(matched,tap(340,180),tap(600,100),tap(60,110)))
+    assert returned['book_view']==8 and [p for p in returned['document_items'] if p]==[opened['book_path']], (returned['book_view'],returned['reader_panel'],returned['document_items'])
     info,_=render('transfer-3',events(letters('short'),done));assert info['transfer_view']==3
     info,_=render('transfer-3',events(letters('dummy'),cancel));assert info['transfer_view']==2
     info,_=render('settings-20',events(tap(340,password_y),letters('dummy'),cancel));assert info['settings_page']==20

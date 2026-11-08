@@ -64,6 +64,12 @@
 #include "pmu_selftest.h"
 #include "soc/rtc_cntl_reg.h"
 
+#ifdef IFINK_INKBUDDY
+#define SETTINGS_FIRMWARE_LABEL "v0.2.1 beta r2t2"
+#else
+#define SETTINGS_FIRMWARE_LABEL "v0.2.2 beta"
+#endif
+
 static void fit_value(char *value, int width);
 static char s_notice[96];
 typedef enum { SETTINGS_MAIN, SETTINGS_WIFI, SETTINGS_TIME,
@@ -874,7 +880,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         int title_px=ui_text_fit_px(UI_TEXT_TITLE,"if-ink OS",196,48);
         ui_text_fixed_vc(fb,36,center,title_px,"if-ink OS",EPD_DRAW_ALIGN_LEFT,false);
         int version_x=36+ui_text_fixed_width_px(title_px,"if-ink OS")+12;
-        const char *version_label = "v0.2.1 beta";
+        const char *version_label = SETTINGS_FIRMWARE_LABEL;
         int version_px=ui_text_fit_px(UI_TEXT_CAPTION,version_label,156,48);
         ui_text_fixed_vc(fb,version_x,center,version_px,version_label,EPD_DRAW_ALIGN_LEFT,false);
         int width=648-version_x-ui_text_fixed_width_px(version_px,version_label)-24;
@@ -912,7 +918,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
                   reading_icons, reading_labels, reading_values, SETTINGS_DISPLAY_ROWS);
     const char *device_labels[] = {UI_MSG("日期与时间"), UI_MSG("系统语言"), UI_MSG("关机与休眠"), UI_MSG("电池管理"), UI_MSG("保存与恢复"), UI_MSG("固件信息"), UI_MSG("BOOT 刷机")};
     const char *device_values[] = {UI_MSG("设置  ›"), app_settings_language()==APP_LANGUAGE_EN?"English":"中文", app_settings_staged_shutdown() ? UI_MSG("先浅后深  ›") : UI_MSG("彻底断电  ›"),
-                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), "v0.2.1 beta  ›", UI_MSG("电脑刷机  ›")};
+                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), SETTINGS_FIRMWARE_LABEL "  ›", UI_MSG("电脑刷机  ›")};
     static const int device_icons[] = {6, 17, 9, 13, 8, 14, 16};
     setting_group(fb, SETTINGS_DEVICE_Y - 34, UI_MSG("系统与设备"), SETTINGS_DEVICE_Y,
                   device_icons, device_labels, device_values, SETTINGS_DEVICE_ROWS);

@@ -4,6 +4,15 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.2 beta / 2026-11-08
+
+- 存储卡管理的 books 与 markdown 目录及其子目录共用跨页勾选和批量移动、删除。长按仍打开单文件操作。Markdown 在本机目录树内移动时保留共享插图与阅读记录，云端仍按根目录文件名入库。/ Select books or Markdown files across pages in Storage for batch moves and deletes. Long-press for single-file actions. Local Markdown moves retain shared images and reading records, and cloud imports still use root filenames.
+- 存储卡管理中点按字体先预览，滑块只改变预览字号，系统、书籍和文档字体可独立设置。移动或删除在用字体前会提示，完成后相关字体恢复默认。文件页左上统一使用 ×。/ Preview fonts in Storage and set the system, book and document faces independently. The slider changes only the sample. Moving or deleting a font in use prompts for confirmation and resets the affected choices. Storage pages use a common close icon.
+- 书架和文档列表的长按详情使用与存储卡管理一致的底部操作卡，可重命名显示名称、置顶、删除和清除阅读进度。/ Long-press a book or document for the shared bottom action card with display-name editing, pinning, deletion, and progress clearing.
+- 内容页提供搜索与排序图标。点搜索关键词旁的 × 即可恢复完整清单；批量操作集中在存储卡管理。/ Use search and sort icons on Content. Tap the query chip’s × to restore the full list. Bulk actions are in Storage.
+- 中文拼音单字候选按读音字频排列，生僻字仍可翻页。/ Rank single-character Pinyin input candidates by frequency for each reading while retaining rare characters on later pages.
+- Markdown 阅读保留正文中的单次换行；空行分段并应用阅读设置中的段间距。/ Preserve single line breaks in Markdown prose and apply the reader's paragraph spacing at blank-line boundaries.
+
 ## 0.2.1 beta / 2026-11-06
 
 - 深睡后按键唤醒时，在已恢复的壁纸中央显示「启动中」。/ Show “Starting…” over the restored wallpaper on a key wake from deep sleep.

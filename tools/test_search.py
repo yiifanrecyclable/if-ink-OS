@@ -52,6 +52,26 @@ if len(sys.argv) > 1:
         actual = match((name + ".epub").encode(), query.encode())
         assert actual == expected, (name, query, expected, actual)
     print("search: 500 official-dictionary expansion-oracle comparisons PASS")
+    expected_candidates = {}
+    for cp, readings in dictionary.items():
+        cp = int(cp)
+        if 0x4e00 <= cp <= 0x9fff:
+            for reading in set(generator.normalize(v) for v in readings.split(",")):
+                expected_candidates.setdefault(reading, set()).add(cp)
+    candidates = lib.read_pico_search_candidates
+    candidates.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint32), ctypes.c_size_t, ctypes.c_size_t]
+    candidates.restype = ctypes.c_size_t
+    buffer = (ctypes.c_uint32 * (max(map(len, expected_candidates.values())) + 1))()
+    for reading, expected in expected_candidates.items():
+        encoded = reading.encode()
+        n = candidates(encoded, buffer, len(buffer), 0)
+        ordered = list(buffer[:n])
+        assert n == len(expected) and set(ordered) == expected, reading
+        for skip in range(0, n + 1, 5):
+            count = candidates(encoded, buffer, 5, skip)
+            assert list(buffer[:count]) == ordered[skip:skip+5], (reading, skip)
+        assert not candidates(encoded, buffer, 5, n)
+    print(f"candidates: all {len(expected_candidates)} supported syllables preserve membership and paging")
 
 obj = BUILD / "search.o"
 subprocess.run(flags + ["-fstack-usage", "-c", str(source), "-o", str(obj)], check=True)

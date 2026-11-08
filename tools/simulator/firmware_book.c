@@ -6,12 +6,6 @@
 #define app_book simulator_descriptor_book
 #include "../../main/apps/app_book.c"
 #include "ui_gesture.h"
-// 仅保留旧编辑页的宿主夹具，设备不再编译这个不可达入口。/ Keep the legacy editor fixture only in the host simulator.
-static void editor_start(void){
-    free(s_editor_cover);s_editor_cover=NULL;
-    copy_text(s_editor_title,sizeof(s_editor_title),s_managed.name);s_editor_notice[0]=0;
-    ui_text_input_open(&s_title_input,s_editor_title,sizeof(s_editor_title),true,false,UI_INPUT_CHINESE);s_view=EDIT;
-}
 static ui_gesture_t s_sim_reader_gesture;
 extern unsigned ttf_sim_font_loads;
 static unsigned s_sim_event_draws,s_sim_event_loads,s_sim_area_updates,s_sim_area_violations;
@@ -63,15 +57,28 @@ bool simulator_reader_image_slot(unsigned i,int *x,int *y,int *w,int *h){
 }
 bool simulator_document_zoom(void){return false;}
 unsigned simulator_document_image_top(void){return 0;}
-size_t simulator_document_count(void){return s_document_count;}
+size_t simulator_document_count(void){return document_visible_count();}
 bool simulator_document_starred_only(void){return s_document_starred_only;}
 bool simulator_document_menu(void){return s_document_menu;}
 bool simulator_document_delete_confirm(void){return s_document_delete_confirm;}
-const char *simulator_document_first(void){return s_document_count?s_documents[0].path:"";}
-const char *simulator_document_item(unsigned i){return i<s_document_count?s_documents[i].path:"";}
+const char *simulator_document_item(unsigned i){const document_entry_t *d=document_visible_at(i);return d?d->path:"";}
+const char *simulator_document_first(void){return simulator_document_item(0);}
 const char *simulator_shelf_item(unsigned i){return i<(unsigned)s_visible_count?s_shelf[i].path:"";}
-int simulator_list_progress(bool documents,unsigned i){return documents?(i<s_document_count&&s_documents[i].has_progress?s_documents[i].pct:-1):(i<(unsigned)s_visible_count&&s_shelf[i].has_progress?s_shelf[i].pct:-1);}
+int simulator_list_progress(bool documents,unsigned i){
+    if (!documents) return i<(unsigned)s_visible_count&&s_shelf[i].has_progress?s_shelf[i].pct:-1;
+    const document_entry_t *d=document_visible_at(i);return d&&d->has_progress?d->pct:-1;
+}
 bool simulator_content_sort_open(void){return s_sort_open;}
+int simulator_content_card_geometry(unsigned i){
+    bool documents=s_view==DOCUMENTS&&s_document_menu;
+    if(!documents&&s_view!=MANAGE)return 0;
+    ui_action_card_t card=documents?details_card(s_document_delete_confirm||s_document_clear_confirm,s_document_message):
+                                   details_card(s_clear_confirm,s_manage_message);
+    EpdRect action=ui_nav_action_button(0,DETAIL_ACTIONS),close=card.close;
+    const int values[]={card.top,UI_NAV_TOP,action.x,action.y,action.width,action.height,
+                        close.x,close.y,close.width,close.height};
+    return i<sizeof(values)/sizeof(values[0])?values[i]:0;
+}
 unsigned simulator_document_selected_count(void){return document_selected_count();}
 bool simulator_document_batch_confirm(void){return s_document_batch_confirm;}
 unsigned simulator_content_sort_mode(bool documents){return documents?s_document_options.mode:s_book_options.mode;}
@@ -118,8 +125,8 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  if(view==DOCUMENTS||view==DOCUMENT_BULK)s_document_mode=true;
  s_reader_fullscreen=panel==100||app_settings_reader_fullscreen();s_reader_immersive=app_settings_reader_immersive();if(panel==100)s_reader_panel=READER_PANEL_NONE;
  if(view==TOC){s_toc_jump_open=panel==1;s_toc_jump_percent=45;}
- if(s_count){s_managed=s_shelf[0];snprintf(s_editor_title,sizeof(s_editor_title),"%s",s_managed.name);}
- if(view==EDIT)editor_start();
+ if(s_count)s_managed=s_shelf[0];
+ if(view==EDIT)editor_start(false);
  if(view==SEARCH){s_search_parent=BULK;ui_text_input_open(&s_search_input,s_search_draft,sizeof(s_search_draft),true,false,UI_INPUT_ENGLISH);}
  simulator_settle_covers(&ctx);render(&ctx,fb);s_presented_view=s_view;
  unsigned draws=s_sim_reader_draws,loads=ttf_sim_font_loads;
@@ -141,6 +148,7 @@ bool simulator_markdown_committed(void){return s_md_committed;}
 unsigned simulator_markdown_size(unsigned index){return index<4?(s_reader_slider>=5?s_md_draft[index]:s_md_sizes[index]):0;}
 
 int simulator_document_rows(void){return document_rows();}
+int simulator_document_row_top(void){return document_row(0).y;}
 int simulator_document_row_height(void){return document_row_step();}
 int simulator_management_rows(void){return management_rows();}
 

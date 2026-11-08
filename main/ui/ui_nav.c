@@ -28,6 +28,43 @@
 
 EpdRect ui_nav_rect(void) { return (EpdRect){0,UI_NAV_TOP,UI_LOCK_WIDTH,UI_NAV_HEIGHT}; }
 
+int ui_nav_action_height(void) { return ui_text_line_height(UI_TEXT_BODY) + 48; }
+
+ui_action_card_t ui_nav_action_card(int extra_height) {
+    int header = ui_text_line_height(UI_TEXT_BODY) + ui_text_line_height(UI_TEXT_CAPTION) + 40;
+    int path = ui_text_line_height(UI_TEXT_CAPTION) + 24;
+    int top = UI_NAV_TOP - header - path - ui_nav_action_height() - extra_height - 12;
+    return (ui_action_card_t){top, header, path, {592, top+12, 76, 76}};
+}
+
+EpdRect ui_nav_action_button(int index, int count) {
+    int inset = count == 4 ? 0 : 24;
+    int width = (UI_LOCK_WIDTH - 2*inset) / count;
+    int height = ui_nav_action_height();
+    return (EpdRect){inset + index*width, UI_NAV_TOP-12-height, width, height};
+}
+
+void ui_nav_draw_action_card(uint8_t *fb, ui_action_card_t card) {
+    int top = card.top;
+    ui_fade_region(fb, (EpdRect){0, UI_STATUS_HEIGHT, UI_LOCK_WIDTH, top-UI_STATUS_HEIGHT}, 0x99);
+    for (int d = 0; d < UI_NAV_SHADOW_DEPTH; ++d)
+        epd_fill_rect((EpdRect){0, top-UI_NAV_SHADOW_DEPTH+d, UI_LOCK_WIDTH, 1},
+                      (uint8_t)(0xff-(d+1)*0x66/UI_NAV_SHADOW_DEPTH), fb);
+    epd_fill_rect((EpdRect){0, top, UI_LOCK_WIDTH, UI_NAV_TOP-top}, UI_GRAY_WHITE, fb);
+    ui_hairline(fb, top, 0, UI_LOCK_WIDTH, UI_GRAY_SECTION_LINE);
+}
+
+void ui_nav_draw_action_row(uint8_t *fb, const char *const *labels, int count) {
+    EpdRect first = ui_nav_action_button(0, count);
+    ui_hairline(fb, first.y, 36, 612, UI_GRAY_ITEM_LINE);
+    for (int i = 0; i < count; ++i) {
+        EpdRect r = ui_nav_action_button(i, count);
+        if (i) epd_fill_rect((EpdRect){r.x, r.y+24, 1, r.height-48}, UI_GRAY_ITEM_LINE, fb);
+        int px = ui_text_fit_px(UI_TEXT_BODY, labels[i], r.width-16, r.height-16);
+        ui_text_fixed_vc(fb, r.x+r.width/2, r.y+r.height/2, px, labels[i], EPD_DRAW_ALIGN_CENTER, false);
+    }
+}
+
 EpdRect ui_nav_close_rect(void){return(EpdRect){24,UI_PAGE_Y(73),68,68};}
 static void header_stroke(uint8_t *fb,int x0,int y0,int x1,int y1,uint8_t gray){
     int vx=x1-x0,vy=y1-y0,len=vx*vx+vy*vy;
@@ -41,11 +78,12 @@ static void header_stroke(uint8_t *fb,int x0,int y0,int x1,int y1,uint8_t gray){
         if(dx*dx+dy*dy<=2.25f)epd_draw_pixel(x,y,gray,fb);
     }
 }
-void ui_nav_close(uint8_t *fb){
-    EpdRect r=ui_nav_close_rect();int x=r.x+r.width/2,y=r.y+r.height/2;
+void ui_nav_close_in(uint8_t *fb, EpdRect r){
+    int x=r.x+r.width/2,y=r.y+r.height/2;
     header_stroke(fb,x-10,y-10,x+10,y+10,UI_GRAY_BLACK);
     header_stroke(fb,x-10,y+10,x+10,y-10,UI_GRAY_BLACK);
 }
+void ui_nav_close(uint8_t *fb){ ui_nav_close_in(fb,ui_nav_close_rect()); }
 void ui_nav_parent(uint8_t *fb,EpdRect r,bool enabled){
     int x=r.x+r.width/2,y=r.y+r.height/2;uint8_t gray=enabled?UI_GRAY_BLACK:0xb0;
     header_stroke(fb,x-13,y,x+13,y,gray);

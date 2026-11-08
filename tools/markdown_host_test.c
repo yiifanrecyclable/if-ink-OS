@@ -85,7 +85,18 @@ int main(void) {
     t = parse("# 一\n## 二\n### 三\n#### 四\n##### 五\n###### 六", "一\n二\n三\n四\n五\n六");
     assert(t.count == 6); for(size_t i=0;i<t.count;++i) assert(t.blocks[i].heading && t.blocks[i].heading_level==i+1); html_text_free(&t);
     t = parse("- outer\n  - inner\n\n> quote\n> next\n\n3. third\n4. fourth\n\n- [x] done\n- [ ] todo",
-              "- outer\n  - inner\n> quote next\n3. third\n4. fourth\n[x] done\n[ ] todo"); for(size_t i=0;i<t.count;++i) assert(t.blocks[i].literal); html_text_free(&t);
+              "- outer\n  - inner\n> quote\nnext\n3. third\n4. fourth\n[x] done\n[ ] todo"); for(size_t i=0;i<t.count;++i) assert(t.blocks[i].literal); html_text_free(&t);
+    t = parse("甲\r\n乙\r\n\r\n\r\n丙", "甲\n乙\n丙");
+    assert(t.count == 2 && t.blocks[0].len == 7 && t.blocks[1].offset == 8); html_text_free(&t);
+    t = parse("a\nb  \nc\\\nd\n\ne", "a\nb\nc\nd\ne");
+    assert(t.count == 2 && t.blocks[1].offset == 8); html_text_free(&t);
+    t = parse("**first\nsecond**\n\n- item\n  continuation\n- next", "first\nsecond\n- item\ncontinuation\n- next");
+    assert(t.count == 3 && t.blocks[1].literal && flags_at(&t, 6) == TEXT_STYLE_BOLD); html_text_free(&t);
+    t = parse("heading\ncontinuation\n======", "heading continuation");
+    assert(t.count == 1 && t.blocks[0].heading); html_text_free(&t);
+    t = parse("before\n![image\nalt](image.png)\nafter",
+              "before \n[图片: image alt]\n after");
+    assert(t.count == 3 && t.blocks[1].image == 0); html_text_free(&t);
     t = parse("before ![image alt](../image.png) after\n\n![second](https://example.org/a.png)",
               "before \n[图片: image alt]\n after\n[图片: second]"); assert(t.image_count==2);assert(!strcmp(t.images[0],"../image.png"));assert(t.blocks[1].image==0); html_text_free(&t);
     t = parse("```c\n\tcode &amp;\n\nlast\n```\n\n`literal &amp;`",

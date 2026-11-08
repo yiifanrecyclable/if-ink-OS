@@ -46,6 +46,7 @@ jobs:
           . $IDF_PATH/export.sh
           idf.py -DSDKCONFIG_DEFAULTS=sdkconfig.ci set-target esp32s3
           idf.py -DSDKCONFIG_DEFAULTS=sdkconfig.ci build
+          python3 tools/verify_inkbuddy_build.py build --expect public --out build/build-verification.json
 
       - name: size
         shell: bash

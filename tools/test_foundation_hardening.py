@@ -11,6 +11,7 @@ SOURCE=r'''
 #include <string.h>
 #include "settings.h"
 #include "file_references.h"
+#include "content_library.h"
 #include "book_index_cache.h"
 #include "beads_png.h"
 #include "read_pico_sd.h"
@@ -75,6 +76,25 @@ if(!strcmp(mode,"refs-delete")){
  assert(file_references_begin("/sdcard/fonts/renamed",NULL,&done)==ESP_OK);assert(!unlink("/sdcard/fonts/renamed/a.ttf"));assert(file_references_finish()==ESP_OK);eq(app_settings_system_font_path(),"");eq(app_settings_font_path(),"/sdcard/fonts/renamed/b.ttf");
  return 0;
 }
+if(!strcmp(mode,"refs-font-move")){
+ const char *source="/sdcard/fonts/reset.ttf",*target="/sdcard/fonts/moved.ttf";
+ put(source);fonts(source);
+ assert(content_markdown_font_set(source)==ESP_OK&&content_home_quote_font_set(source)==ESP_OK);
+ assert(file_references_font_in_use(source));
+ assert(file_references_begin_reset_fonts(source,target,&done)==ESP_OK&&!done);
+ assert(file_references_finish()==ESP_OK); // Cancelled physical move preserves all preferences.
+ eq(app_settings_system_font_path(),source);eq(content_markdown_font(),source);
+ assert(file_references_begin_reset_fonts(source,target,&done)==ESP_OK&&!done);assert(!rename(source,target));
+ setenv("PICO_TEST_NVS_SET_FAIL","md_font",1);assert(file_references_finish()!=ESP_OK);
+ eq(app_settings_system_font_path(),"");eq(app_settings_font_path(),"");eq(content_markdown_font(),source);eq(content_home_quote_font(),"");
+ return 0;
+}
+if(!strcmp(mode,"refs-font-retry")){
+ const char *source="/sdcard/fonts/reset.ttf",*target="/sdcard/fonts/moved.ttf";
+ assert(file_references_begin_reset_fonts(source,target,&done)==ESP_OK&&done);
+ eq(content_markdown_font(),"builtin");assert(!file_references_font_in_use(source));
+ struct stat st;assert(stat(source,&st)&&!stat(target,&st));return 0;
+}
 assert(!"unknown mode");return 1;}
 '''
 with tempfile.TemporaryDirectory(prefix='foundation-',dir=R/'build') as tmp:
@@ -83,7 +103,7 @@ with tempfile.TemporaryDirectory(prefix='foundation-',dir=R/'build') as tmp:
  (p/'test.c').write_text(SOURCE)
  flags=['cc','-std=gnu11','-Wall','-Wextra','-Werror','-Wno-unused-parameter','-Wno-unused-function','-ffunction-sections','-fdata-sections','-fsanitize=address,undefined','-DPICO_HOST_SIMULATOR','-DPICO_SIM_CARD_PATH="unused"','-include',str(R/'tools/simulator/fs.h')]
  for inc in ['tools/simulator/include','main','main/book','main/apps','main/ui','main/cloud','components/read_pico_transfer/include']:flags+=['-I'+str(R/inc)]
- sources=['main/file_references.c','main/book/book_index_cache.c','main/apps/beads_png.c','main/apps/cyber_beads.c','main/settings.c','main/wallpaper_preferences.c','main/ui/ui_i18n.c','tools/simulator/fs.c','tools/simulator/nvs.c']
+ sources=['main/file_references.c','main/book/content_library.c','main/book/record_store.c','main/book/book_index_cache.c','main/apps/beads_png.c','main/apps/cyber_beads.c','main/settings.c','main/wallpaper_preferences.c','main/ui/ui_i18n.c','tools/simulator/fs.c','tools/simulator/nvs.c']
  subprocess.run(flags+[str(p/'test.c')]+[str(R/s) for s in sources]+['-lz']+(['-Wl,-dead_strip'] if sys.platform=='darwin' else ['-Wl,--gc-sections'])+['-o',str(p/'test')],check=True)
  env={**os.environ,'PICO_SIM_CARD_ROOT':str(card),'PICO_TEST_FATFS_RENAME':'1','ASAN_OPTIONS':'detect_leaks=0'}
  def run(mode):subprocess.run([str(p/'test'),mode],cwd=p,env=env,check=True,timeout=30)
@@ -94,6 +114,6 @@ with tempfile.TemporaryDirectory(prefix='foundation-',dir=R/'build') as tmp:
  for f in (card/'pictures/pindou').iterdir():f.unlink()
  legacy=b'IFBEADS1'+struct.pack('>I',7)+bytes([0,17,27,0])+bytes([2]+[255]*458)
  (card/'pictures/pindou/.board-a').write_bytes(legacy+struct.pack('>I',zlib.crc32(legacy)));run('beads-legacy')
- for mode in ('refs-fail','refs-retry','refs-delete'):run(mode)
+ for mode in ('refs-fail','refs-retry','refs-delete','refs-font-move','refs-font-retry'):run(mode)
  (card/'.readpico/settings/file-refs.pending').write_bytes(b'broken intent');run('refs-corrupt')
 print('PASS F1/F2/F3: real modules, private card, fresh processes, legacy drafts, export baseline, partial setters, retry and failed fsync.')

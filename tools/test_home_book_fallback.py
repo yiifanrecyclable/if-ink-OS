@@ -30,19 +30,20 @@ with tempfile.TemporaryDirectory(prefix='home-book-fallback-',dir=ROOT/'build') 
     # An unread MD keeps the document column; hidden files, images and directories do not count.
     (card/'markdown/.hidden.md').write_text('hidden');(card/'markdown/image.png').write_text('image');(card/'markdown/folder.md').mkdir()
     assert not frame()['home_has_documents']
-    doc=card/'markdown/Unread.MD';doc.write_text('# 未读\n\n正文')
+    (card/'markdown/Archive').mkdir()
+    doc=card/'markdown/Archive/Unread.MD';doc.write_text('# 未读\n\n正文')
     unread=frame();assert unread['home_has_documents'] and unread['home_list_paths']==['']*4
-    frame('book-1','/sdcard/markdown/Unread.MD',0)
-    state=frame();assert state['home_has_documents'] and state['home_list_paths'][0]=='/sdcard/markdown/Unread.MD'
+    frame('book-1','/sdcard/markdown/Archive/Unread.MD',0)
+    state=frame();assert state['home_has_documents'] and state['home_list_paths'][0]=='/sdcard/markdown/Archive/Unread.MD'
     # 最近一篇是MD时，左列来自recent[0]，右列应再跳过它。/ When last-path is MD, skip recent[0] already shown on the left.
     doc.unlink();state=frame();assert not state['home_has_documents']
     assert state['home_featured_path']==names[-1] and state['home_list_paths']==list(reversed(names[:-1]))
-    # 特大字号沿用三行，其余行不挤占布局。/ XL retains the existing three-row layout.
+    # 特大字号沿用当前整高布局与排序。/ XL keeps the current full-height layout and ordering.
     prefs=work/'build/simulator/nvs/read_pico';prefs.mkdir(parents=True,exist_ok=True);(prefs/'sys_size').write_bytes(bytes([160]))
-    xl=frame();assert xl['home_geometry'][2]==3 and xl['home_list_paths'][:3]==list(reversed(names[:-1]))[:3]
+    xl=frame();assert 4<=xl['home_geometry'][2]<=rows and xl['home_list_paths']==list(reversed(names[:-1]))
     for path in (card/'books').glob('Book[0-3].txt'):path.unlink()
     single=frame();assert single['home_featured_path']==names[-1] and single['home_list_paths']==['']*4
     tapped=frame(events=f't,400,{y+step//2},400,{y+step//2}')
     assert tapped['route']==-1 and tapped['book_path']==''
     (card/'books/Book4.txt').unlink();empty=frame();assert not empty['home_featured_path'] and empty['home_list_paths']==['']*4
-print('PASS: native empty-MD fallback, recency order, featured deduplication, four/XL-three rows, unread-MD distinction, add/delete transition, row routes and empty/one-book safety')
+print('PASS: empty-MD fallback, featured deduplication, full-height XL layout, nested unread/recent documents, row routes and empty/one-book safety')

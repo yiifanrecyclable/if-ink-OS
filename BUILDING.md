@@ -1,6 +1,6 @@
-# if-ink OS v0.2.1-beta.1 构建与重新链接
+# if-ink OS v0.2.2-beta.1 构建与重新链接
 
-项目身份保留 `Read_Pico_IF`，用于兼容已安装的 IF 本地升级。源码包括应用、修改后的 epdiy、固定依赖和实际构建配置。应用 SHA256：`fd4cd1ff1a17e30a86c504a7e72ec4f34c744458d89a624f2247a0bc20dc8739`。
+项目身份保留 `Read_Pico_IF`，用于兼容已安装的 IF 本地升级。源码包括应用、修改后的 epdiy、固定依赖和实际构建配置。应用 SHA256：`1e596612c8a4fea013538c949ec5d6f96f645299839862e915a0613baea93646`。
 
 安装 Espressif ESP-IDF 与工具链，SDK 固定提交 [`fff9895c82d744c7237be8847347bdd1b07c6643`](https://github.com/espressif/esp-idf/tree/fff9895c82d744c7237be8847347bdd1b07c6643)（v6.1 开发树）。按 SDK 官方说明执行 install/export 脚本，然后在本仓库执行：
 

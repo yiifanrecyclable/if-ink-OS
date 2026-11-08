@@ -12,6 +12,12 @@ Three independent channels match literal substrings (ASCII case-insensitive), to
 
 All dictionary readings are considered per character, without segmentation or contextual disambiguation: 重庆 matches both `chongqing` and `zhongqing`. A 64-bit state set merges branches without generating a Cartesian product. Read-only tables use 283,381 bytes for 41,923 characters, 4,479 reading groups and 425 syllables.
 
+## 拼音候选 / Pinyin input candidates
+
+单字候选由构建工具按无声调音节分组，再按该读音的语料频次排序。同频时优先非仅繁体字；未收录频次的字仍可翻页。设备按音节二分查找，只读取当前页的候选。候选表与文件名匹配表独立。
+
+Single-character input candidates are grouped by toneless syllable and sorted by observed frequency for that reading. Characters without a frequency remain pageable, and traditional-only forms follow other forms on a frequency tie. The device binary-searches syllables and reads only the requested page. Candidate order is independent of filename matching.
+
 ## 数据来源与再生成 / Provenance and regeneration
 
 - 官方项目 / Official project: https://github.com/mozillazg/python-pinyin
@@ -20,13 +26,17 @@ All dictionary readings are considered per character, without segmentation or co
 - Wheel SHA-256: `d53b1e8ad2cdb815fb2cb604ed3123372f5a28c6f447571244aca36fc62a286f`.
 - 字典采用原项目MIT许可，原文保存在[LICENSE.pypinyin](LICENSE.pypinyin)。匹配器与生成脚本为Apache-2.0。
 - Dictionary data retains upstream MIT licensing in [LICENSE.pypinyin](LICENSE.pypinyin). Matcher and generator use Apache-2.0.
+- 字频与繁简平局顺序 / Frequency and variant tie-break: [Unicode Unihan 17.0.0](https://www.unicode.org/Public/17.0.0/ucd/Unihan.zip), `kHanyuPinlu` and `kSimplifiedVariant`. [Unicode License v3](../../licenses/UNICODE-3.0.txt).
+- Unihan ZIP SHA-256: `f7a48b2b545acfaa77b2d607ae28747404ce02baefee16396c5d2d7a8ef34b5e`.
+
 
 ```sh
 python -m pip download --no-deps pypinyin==0.55.0 -d build/search-deps
-python tools/generate_search_table.py build/search-deps/pypinyin-0.55.0-py2.py3-none-any.whl
+curl -fLo build/search-deps/Unihan.zip https://www.unicode.org/Public/17.0.0/ucd/Unihan.zip
+python tools/generate_search_table.py build/search-deps/pypinyin-0.55.0-py2.py3-none-any.whl build/search-deps/Unihan.zip
 python tools/test_search.py build/search-deps/pypinyin-0.55.0-py2.py3-none-any.whl
 ```
 
-生成只使用Python标准库并校验wheel摘要。无需安装或执行第三方包。固件编译直接使用已生成字表，不联网、不依赖Python。
+生成只使用Python标准库并校验两个输入档案的摘要。无需安装或执行第三方包。固件编译直接使用已生成字表，不联网、不依赖Python。
 
-Generation uses only the Python standard library and verifies the wheel digest; it neither installs nor executes third-party packages. Firmware builds use the checked-in table without Python or network access.
+Generation uses only the Python standard library and verifies both input archive digests; it neither installs nor executes third-party packages. Firmware builds use the checked-in table without Python or network access.

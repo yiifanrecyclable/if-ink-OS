@@ -10,4 +10,7 @@
 // 新操作前重试上一份intent。重复同一已完成文件操作时 done=true，禁止再次执行文件编辑。
 // Retry the previous intent first. done=true means a repeated edit is already physically complete.
 esp_err_t file_references_begin(const char *source,const char *target,bool *done);
+/// 设备文件页的移动和删除使受影响的字体回到默认。/ On-device moves and deletes reset affected fonts to their defaults.
+bool file_references_font_in_use(const char *source);
+esp_err_t file_references_begin_reset_fonts(const char *source,const char *target,bool *done);
 esp_err_t file_references_finish(void);

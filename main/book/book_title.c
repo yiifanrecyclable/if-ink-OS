@@ -85,20 +85,27 @@ static esp_err_t get_record(records_handle_t h, const char *key, const char *pat
         strnlen(data + p, *len - p) != *len - p - 1) return ESP_ERR_INVALID_STATE;
     return ESP_OK;
 }
-bool book_title_get(const char *path, char *out, size_t cap) {
-    if (!path_ok(path) || !out || !cap) return false;
+esp_err_t book_title_get_checked(const char *path,char *out,size_t cap) {
+    if (!path_ok(path) || !out || !cap) return ESP_ERR_INVALID_ARG;
     out[0] = 0;
     records_handle_t h;
-    if (records_open(NS, NVS_READONLY, &h) != ESP_OK) return false;
+    esp_err_t err=records_open(NS,NVS_READONLY,&h);
+    if(err!=ESP_OK)return err;
     char key[11], data[RECORD_MAX]; size_t len;
     key_for(path, key);
-    esp_err_t err = get_record(h, key, path, data, &len);
+    err = get_record(h, key, path, data, &len);
     records_close(h);
-    if (err != ESP_OK) return false;
+    if (err != ESP_OK) return err;
     const char *title = data + strlen(path) + 1;
-    if (strlen(title) >= cap) return false;
+    if (strlen(title) >= cap) return ESP_ERR_INVALID_SIZE;
     strcpy(out, title);
-    return true;
+    return ESP_OK;
+}
+bool book_title_get(const char *path,char *out,size_t cap){
+    return book_title_get_checked(path,out,cap)==ESP_OK;
+}
+bool book_title_display(const char *path, char *out, size_t cap) {
+    return book_title_get(path, out, cap) || book_title_from_path(path, out, cap);
 }
 esp_err_t book_title_set(const char *path, const char *title) {
     if (!path_ok(path) || !title || !valid_utf8(title, TITLE_MAX)) return ESP_ERR_INVALID_ARG;

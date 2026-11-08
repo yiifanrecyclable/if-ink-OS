@@ -136,3 +136,8 @@ set_source_files_properties(
     "book/document_store.c" "book/markdown_text.c" "book/book_markdown.c"
     PROPERTIES COMPILE_OPTIONS "-Os"
 )
+
+if(IFINK_INKBUDDY)
+    target_sources(${COMPONENT_LIB} PRIVATE "apps/app_inkbuddy.c" "apps/inkbuddy_wire.c")
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE IFINK_INKBUDDY=1)
+endif()

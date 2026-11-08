@@ -34,6 +34,9 @@
 
 #include "app_registry.h"
 #include "app_content_open.h"
+#ifdef IFINK_INKBUDDY
+#include "app_inkbuddy.h"
+#endif
 #include "continuous_du.h"
 #include "ui_nav.h"
 #include "ui_i18n.h"
@@ -468,7 +471,11 @@ void app_loop_run(const app_loop_config_t* config) {
         operation_log_sample(&touch,err,pressed,released,app_book_reader_body_visible());
         debounce_touch(&latest, &touch, released);
         ctx.now_ms = esp_timer_get_time() / 1000;
-        if(ui_nav_notice_tick(ctx.now_ms)){
+        if(ui_nav_notice_tick(ctx.now_ms)
+#ifdef IFINK_INKBUDDY
+           && !(current == &app_inkbuddy && inkbuddy_owns_frame())
+#endif
+        ){
             // 全屏阅读也恢复原内容，不凭空补出状态栏。/ Restore the original content even when fullscreen hides the status bar.
             if(current->render)current->render(&ctx,ctx.fb);else ui_nav_status(ctx.fb);
             guard_draw_result(ctx.hl,update_display_area_with(ctx.hl,&E0470_WAVEFORM,MODE_GL16,(EpdRect){0,0,UI_LOCK_WIDTH,UI_STATUS_HEIGHT}));
@@ -692,6 +699,12 @@ void app_loop_run(const app_loop_config_t* config) {
                         app_present(&ctx, current, APP_REDRAW_PAGE);
                     } else {
                         power_dialog_open = true;
+#ifdef IFINK_INKBUDDY
+                        if (current == &app_inkbuddy) {
+                            inkbuddy_suspend();
+                            current->render(&ctx, ctx.fb);
+                        }
+#endif
                         ui_power_dialog_set_unsaved(false,false);
                         ui_gesture_reset(&power_gesture);
                         ui_power_dialog_draw(ctx.fb);

@@ -1,10 +1,36 @@
 # SPDX-License-Identifier: Apache-2.0
 """真实内容页手势与批量操作，仅使用临时TF卡。 / Native gestures and batch actions over a temporary card."""
 from pathlib import Path
-import json,os,shutil,struct,subprocess,tempfile
+import json,os,shutil,struct,subprocess,tempfile,zlib
 ROOT=Path(__file__).resolve().parents[1]
 def tap(x,y):return f't,{x},{y},{x},{y}'
 def events(*parts):return ';'.join(parts)
+def letters(text):
+    keys="1234567890qwertyuiopasdfghjkl'zxcvbnm,./"
+    return events(*(tap(67+61*(keys.index(c)%10),803+84*(keys.index(c)//10)) for c in text))
+def tone(frame,x,y):
+    return (frame[y*342+x//2]>>(4 if x%2 else 0))&15
+def check_sheet(before,after,geometry):
+    top,nav=geometry[:2]
+    ax,ay,aw,ah=geometry[2:6]
+    assert (ax,aw)==(0,171)
+    assert before[:56*342]==after[:56*342] and before[nav*342:]==after[nav*342:]
+    gray=lambda v:9+(6*v+7)//15
+    lut=bytes(gray(i&15)+(gray(i>>4)<<4) for i in range(256))
+    faded=before[56*342:(top-7)*342].translate(lut)
+    assert after[56*342:(top-7)*342]==faded and faded!=before[56*342:(top-7)*342]
+    for i in range(7):
+        shade=(255-(i+1)*102//7)>>4
+        assert after[(top-7+i)*342:(top-6+i)*342]==bytes([shade*17])*342
+    for x in (171,342,513):
+        assert tone(after,x,ay+24)<15 and tone(after,x-1,ay+24)==15
+        assert tone(after,x,ay+22)==15 and tone(after,x,ay+ah-22)==15
+def path_hash(path):
+    h=2166136261
+    for c in path.encode():h=((h^c)*16777619)&0xffffffff
+    return h
+def fail_progress_write_once(path):
+    return {'PICO_TEST_FOPEN_WRITE_FAIL_ONCE':f'/sdcard/.readpico/progress/b_{path_hash(path):08x}.a'}
 with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-') as tmp:
     work=Path(tmp);card=work/'card';build=work/'build/simulator';build.mkdir(parents=True)
     for name in ('books','markdown/attachments','fonts'):(card/name).mkdir(parents=True,exist_ok=True)
@@ -43,26 +69,35 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     # Legacy favorites and filter bits never decorate/reorder/hide books; preserve their records.
     render(0);plain_book_frame=(build/'frame.bin').read_bytes()
     favorite_dir=build/'nvs/rp_favs';favorite_dir.mkdir(exist_ok=True)
-    h=2166136261
-    for c in b'/sdcard/books/Book20.txt':h=((h^c)*16777619)&0xffffffff
-    favorite_file=favorite_dir/f'f_{h:08x}';favorite_file.write_bytes(b'\1')
+    favorite_file=favorite_dir/f"f_{path_hash('/sdcard/books/Book20.txt'):08x}"
+    favorite_file.write_bytes(b'\1')
     (build/'nvs/if_content/books').write_bytes(bytes([28]))
     old=render(0);assert names(old,'book_items')==['Book2.txt','Book10.txt','Book20.txt']
     assert (build/'frame.bin').read_bytes()==plain_book_frame
     render(0,events(sort_open,name,done))
     assert (build/'nvs/if_content/books').read_bytes()==bytes([4])
     assert favorite_file.read_bytes()==b'\1'
-    # 原书架背景在卡片之外完全相同；长按详情不切成管理页面。
-    # Pixels outside the popup match the original shelf, including the header and bottom navigation.
+    # 与文件操作卡一致的边界、背景淡显、阴影和四等分短竖线。
+    # Match the Files card's bounds, fade, shadow and quarter dividers.
     render(0);shelf_frame=(build/'frame.bin').read_bytes()
     details='l,550,350,550,350'
     popup=render(0,details);assert popup['book_view']==3
-    popup_frame=(build/'frame.bin').read_bytes()
-    for y in range(60,1216):
-        a=shelf_frame[y*342:(y+1)*342];b=popup_frame[y*342:(y+1)*342]
-        if 362<=y<893:assert a[:10]==b[:10] and a[332:]==b[332:],y
-        else:assert a==b,y
-    close=tap(130,837);pin=tap(186,737)
+    geometry=popup['content_card_geometry']
+    check_sheet(shelf_frame,(build/'frame.bin').read_bytes(),geometry)
+    ax,ay,aw,ah=geometry[2:6]
+    cx,cy,cw,ch=geometry[6:10]
+    close=tap(cx+cw//2,cy+ch//2)
+    above=tap(20,300)
+    action_y=ay+ah//2
+    rename,pin,delete_item,clear_item=(tap((2*i+1)*aw//2,action_y) for i in range(4))
+    cancel_action=tap(180,action_y)
+    confirm_action=tap(500,action_y)
+    assert render(0,events(details,above))['book_view']==0
+    assert render(0,events(details,f't,630,{cy+ch//2},558,{cy+ch//2}'))['book_view']==3
+    assert render(0,events(details,delete_item,above))['book_view']==0
+    across=f't,500,{action_y},220,{action_y}'
+    assert render(0,events(details,delete_item,across))['book_view']==3
+    assert (card/'books/Book20.txt').exists()
     assert render(0,events(details,close))['book_view']==0
     assert render(0,events(details,tap(430,1176)))['route']!=2
     pinned=render(0,events(details,pin,close));assert names(pinned,'book_items')[0]=='Book20.txt'
@@ -76,7 +111,6 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     # 九宫格标题与无数字横条直接验证原生像素；不使用真实TF卡。
     # Check native grid captions and number-free bars using only the private test card.
     grid=(build/'frame.bin').read_bytes()
-    def tone(frame,x,y):return (frame[y*342+x//2]>>(4 if x%2 else 0))&15
     geometries=b['shelf_geometry']
     for index,progress_value in ((0,0),(2,33)):
         cell=geometries[index];x,y,w,h=cell[10:14]
@@ -88,13 +122,20 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     assert render(8)['document_sort_mode']==0
     d=render(8,events(sort_open,progress,direction,doc_done));assert names(d,'document_items')[0]=='B.md'
     assert render(0)['book_sort_mode']==1
-    added_records=list((build/'nvs/if_content').glob('a_*'));before={p.name:p.read_bytes() for p in added_records}
+    added_records=list((card/'.readpico/records/if_content').glob('a_*.[ab]'))
+    assert len(added_records)==3
+    before={p.name:p.read_bytes() for p in added_records}
     os.utime(card/'books/Book2.txt',(1,1));render(0)
     assert before=={p.name:p.read_bytes() for p in added_records}
     stamps={'Book2.txt':1704067400,'Book10.txt':1704067500,'Book20.txt':1704067600}
     for p in added_records:
-        raw=bytearray(p.read_bytes());filename=Path(raw[8:].split(b'\0')[0].decode()).name
-        if filename in stamps:raw[4:8]=struct.pack('<I',stamps[filename]);p.write_bytes(raw)
+        raw=bytearray(p.read_bytes())
+        assert raw[:4]==b'IFR1' and raw[40:44]==b'IFA1'
+        filename=Path(raw[48:].split(b'\0')[0].decode()).name
+        struct.pack_into('<I',raw,44,stamps[filename])
+        struct.pack_into('<I',raw,16,0)
+        struct.pack_into('<I',raw,16,zlib.crc32(raw))
+        p.write_bytes(raw)
     b=render(0,events(sort_open,dates,done));assert b['book_sort_mode']==2 and names(b,'book_items')==['Book20.txt','Book10.txt','Book2.txt']
     for filename,date in [('A.md','2026-01-01'),('B.md','2026-02-01'),('C.md','2026-03-01')]:
         meta=card/'markdown/.index'/f'{filename}.pico';lines=meta.read_text().splitlines();lines[1]=date;meta.write_text('\n'.join(lines)+'\n')
@@ -102,8 +143,10 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     command('progress-save','/sdcard/books/Book2.txt')
     b=render(0,events(sort_open,recent,done));assert names(b,'book_items')[0]=='Book2.txt'
     render(8,events(sort_open,name,doc_done))
-    assert render(0,events(tap(490,92)))['book_view']==4
-    assert render(8,events(tap(490,92)))['book_view']==9
+    assert render(0,tap(539,92))['book_view']==6
+    assert render(8,tap(539,92))['book_view']==6
+    assert render(0,'t,539,92,614,92')['book_view']==0
+    assert render(8,'t,539,92,614,92')['book_view']==8
     # 旧星标数据既不显示，也不影响排序或隐藏正文。/ Legacy stars neither render nor filter documents.
     render(8);plain_docs=(build/'frame.bin').read_bytes()
     old_stars=card/'markdown/.index/B.md.prefs';old_stars.write_text('pico-md-prefs-1\n2\n')
@@ -111,16 +154,14 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     migrated=render(8);assert migrated['document_count']==3 and not migrated['document_starred_only']
     assert (build/'frame.bin').read_bytes()[60*342:]==plain_docs[60*342:]
     assert old_stars.read_text()=='pico-md-prefs-1\n2\n'
-    # 文档与图书复用同样的详情卡；卡片之外保留原文档列表。
-    # Documents use the same detail card, leaving the surrounding list unchanged.
     render(8);doc_frame=(build/'frame.bin').read_bytes()
-    doc_details='l,340,350,340,350';doc_popup=render(8,doc_details);assert doc_popup['document_menu']
-    popup_frame=(build/'frame.bin').read_bytes()
-    for y in range(60,1216):
-        a=doc_frame[y*342:(y+1)*342];b=popup_frame[y*342:(y+1)*342]
-        if 362<=y<893:assert a[:10]==b[:10] and a[332:]==b[332:],y
-        else:assert a==b,y
-    doc_pin=tap(342,737)
+    doc_details='l,340,350,340,350'
+    doc_popup=render(8,doc_details);assert doc_popup['document_menu']
+    check_sheet(doc_frame,(build/'frame.bin').read_bytes(),doc_popup['content_card_geometry'])
+    assert not render(8,events(doc_details,above))['document_menu']
+    assert not render(8,events(doc_details,close))['document_menu']
+    assert not render(8,events(doc_details,delete_item,above))['document_menu']
+    doc_pin=pin
     d=render(8,events(doc_details,doc_pin,close));assert names(d,'document_items')==['C.md','A.md','B.md']
     assert not d['document_menu']
     assert render(8,events(doc_details,tap(430,1176)))['route']!=2
@@ -128,9 +169,9 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     # Sorting does not change the modal target; clearing progress needs confirmation and preserves content.
     render(8,events('l,340,190,340,190',doc_pin,doc_pin,close))
     assert (card/'markdown/.index/C.md.prefs').read_text()=='pico-md-prefs-1\n1\n'
-    single_clear=events('l,340,350,340,350',tap(342,837))
-    render(8,events(single_clear,tap(186,837),close));assert command('progress-load','/sdcard/markdown/B.md')['present']
-    render(8,events(single_clear,tap(490,837),close));assert not command('progress-load','/sdcard/markdown/B.md')['present']
+    single_clear=events('l,340,350,340,350',clear_item)
+    render(8,events(single_clear,cancel_action,close));assert command('progress-load','/sdcard/markdown/B.md')['present']
+    render(8,events(single_clear,confirm_action,above));assert not command('progress-load','/sdcard/markdown/B.md')['present']
     assert (card/'markdown/B.md').exists() and (card/'markdown/attachments/B-only.png').exists()
     command('progress-save','/sdcard/markdown/B.md')
     # 管理页同样提供来源、排序、独立搜索；筛选/重扫清除勾选。/ Shared source/sort/search controls clear selections on filtering or rescan.
@@ -165,12 +206,12 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     assert (card/'markdown/attachments/B-only.png').exists(), 'owned image disappeared before delete'
     checkpoint=work/'checkpoint';shutil.copytree(card,checkpoint/'card');shutil.copytree(build/'nvs',checkpoint/'nvs')
     delete=events(tap(340,542),tap(130,1051),tap(490,658))
-    d=render(9,delete,{'PICO_TEST_NVS_COMMIT_FAIL':'once'})
+    d=render(9,delete,fail_progress_write_once('/sdcard/markdown/B.md'))
     assert d['document_selected_count']==1 and d['document_count']==3
     assert not (card/'markdown/B.md').exists()
     shutil.rmtree(card);shutil.copytree(checkpoint/'card',card)
     shutil.rmtree(build/'nvs');shutil.copytree(checkpoint/'nvs',build/'nvs')
-    d=render(9,events(delete,tap(130,1051),tap(490,658)),{'PICO_TEST_NVS_COMMIT_FAIL':'once'})
+    d=render(9,events(delete,tap(130,1051),tap(490,658)),fail_progress_write_once('/sdcard/markdown/B.md'))
     assert d['document_count']==2 and not (card/'markdown/B.md').exists()
     assert not (card/'markdown/attachments/B-only.png').exists() and (card/'markdown/attachments/shared.png').exists()
     render(9,events(tap(340,446),tap(130,1051),tap(490,658)))
@@ -193,15 +234,52 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     shutil.copyfile(image,card/'markdown/attachments/single-only.png')
     single_path=card/'markdown/DeleteTest.md';single_path.write_text('# Delete test\n\n![own](attachments/single-only.png)\n')
     render(8,events(sort_open,name,doc_done))
-    single_open='l,340,866,340,866';single_delete=events(single_open,tap(550,837),tap(490,837))
-    cancelled=render(8,events(sort_open,name,doc_done,single_open,tap(550,837),tap(186,837),close))
+    single_open='l,340,866,340,866';single_delete=events(single_open,delete_item,confirm_action)
+    cancelled=render(8,events(sort_open,name,doc_done,single_open,delete_item,cancel_action,close))
     assert single_path.exists() and not cancelled['document_menu']
     single_checkpoint=work/'single-checkpoint';shutil.copytree(card,single_checkpoint/'card');shutil.copytree(build/'nvs',single_checkpoint/'nvs')
-    failed=render(8,single_delete,{'PICO_TEST_NVS_COMMIT_FAIL':'once'})
+    failed=render(8,single_delete,fail_progress_write_once('/sdcard/markdown/DeleteTest.md'))
     assert not single_path.exists() and failed['document_menu'] and failed['document_count']==9
     shutil.rmtree(card);shutil.copytree(single_checkpoint/'card',card)
     shutil.rmtree(build/'nvs');shutil.copytree(single_checkpoint/'nvs',build/'nvs')
-    retried=render(8,events(single_delete,tap(490,837)),{'PICO_TEST_NVS_COMMIT_FAIL':'once'})
+    retried=render(8,events(single_delete,confirm_action),fail_progress_write_once('/sdcard/markdown/DeleteTest.md'))
     assert retried['document_count']==8 and not retried['document_menu']
     assert not single_path.exists() and not (card/'markdown/attachments/single-only.png').exists() and (card/'markdown/C.md').exists()
-print('PASS independent persistent sorting, natural names, modal shelf background and persistent book pins, shared manage layouts, independent search, unified sort dialogs, inert legacy book favorites and document stars, shared document details, centered pagination selection, progress clearing and recoverable image deletion')
+    # 真实详情卡进入改名编辑器，写入显示名并保留原文件、进度和附件。
+    # Enter rename through each production card; persist the display name without replacing the source.
+    for view,opened,field in ((0,'l,130,350,130,350','book_items'),
+                              (8,'l,340,190,340,190','document_items')):
+        original_path=render(view)[field][0]
+        original=card/original_path.removeprefix('/sdcard/')
+        body=original.read_bytes()
+        progress_before=command('progress-load',original_path)
+        assert render(view,events(opened,rename))['book_view']==7
+        cleared=events(opened,rename,tap(573,400),tap(89,1152),letters('newname'))
+        cancelled=render(view,events(cleared,tap(60,110)))
+        assert cancelled['book_view']==(3 if view==0 else 8)
+        assert not any(render(view,events(tap(539,92),letters('newname'),apply))[field])
+        assert render(view,events(cleared,apply))['book_view']==view
+        result=render(view,events(tap(539,92),letters('newname'),apply))
+        assert [p for p in result[field] if p]==[original_path]
+        assert original.read_bytes()==body and command('progress-load',original_path)==progress_before
+    # 按字体档位和语言对比两种详情卡与文件操作卡的尺寸与触区。
+    # Compare both details cards with the Files card across text sizes and languages.
+    ns=build/'nvs/read_pico';ns.mkdir(exist_ok=True)
+    for size in (100,120,140,160):
+        for english in (0,1):
+            (ns/'sys_size').write_bytes(bytes([size]))
+            (ns/'language').write_bytes(bytes([english]))
+            p=subprocess.run([str(ROOT/'build/simulator/render'),'files-1','','0','48',
+                str(build/'frame.bin'),str(build/'titles.txt'),'0','0','builtin','','/sdcard/books'],
+                cwd=work,env=env,capture_output=True,text=True,timeout=30,check=True)
+            file_card=json.loads(p.stdout)['files_card_geometry']
+            expected=file_card[:2]+file_card[7:15]
+            for view,opened in ((0,'l,130,350,130,350'),(8,'l,340,190,340,190')):
+                render(view);background=(build/'frame.bin').read_bytes()
+                state=render(view,opened);geometry=state['content_card_geometry']
+                assert geometry==expected,(size,english,view,geometry,expected)
+                check_sheet(background,(build/'frame.bin').read_bytes(),geometry)
+                cx,cy,cw,ch=geometry[6:10]
+                state=render(view,events(opened,tap(cx+cw//2,cy+ch//2)))
+                assert state['book_view']==view and not state['document_menu']
+print('PASS content sorting, search, persistent pins, shared action card in four sizes and two languages, display-name edits, safe dismissal, progress clearing and recoverable deletion')

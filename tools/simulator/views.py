@@ -32,7 +32,8 @@ for key,name,view,folder in (
  ('files-books','书籍目录',0,0),('files-pictures','图片目录',0,1),
  ('files-fonts','字体目录',0,2),('files-card','TF 卡目录',0,3),
  ('files-actions','文件操作',1,0),('files-rename','重命名',2,0),
- ('files-move','移动文件',3,3)):
+ ('files-move','移动文件',3,3),('files-font-preview','字体预览',5,2),
+ ('files-batch','书籍批量操作',6,0)):
     add(key,name,'文件管理',f'files-{view}',aux=folder)
 for key,name,view,mode in (
  ('transfer-methods','选择传输方式',0,0),('transfer-wifi','WiFi 传书',1,1),

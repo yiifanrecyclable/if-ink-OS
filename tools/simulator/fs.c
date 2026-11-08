@@ -8,6 +8,7 @@
 #include <string.h>
 #include <limits.h>
 #include <stdarg.h>
+#include <stdbool.h>
 
 #undef open
 #undef fopen
@@ -47,6 +48,11 @@ FILE *sim_fopen(const char*p,const char*m){
  // 精确路径注入写失败，用于双槽落盘与重试测试。/ Exact-path write faults exercise durable slots and retries.
  const char *write_fault=getenv("PICO_TEST_FOPEN_WRITE_FAIL");
  if(write_fault&&!strcmp(p,write_fault)&&strpbrk(m,"wa+")){errno=EIO;return NULL;}
+ const char *once=getenv("PICO_TEST_FOPEN_WRITE_FAIL_ONCE");
+ static bool failed_once;
+ if(!failed_once&&once&&!strcmp(p,once)&&strpbrk(m,"wa+")){
+  failed_once=true;errno=EIO;return NULL;
+ }
 
  const char *fault=getenv("PICO_TEST_JOURNAL_WRITE_FAIL_AT");
  if(fault&&!strcmp(p,"/sdcard/.pico-sync/transaction.part")&&strchr(m,'w')){

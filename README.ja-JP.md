@@ -1,8 +1,8 @@
 # if-ink OS
 
-**稳定版 v0.1.7 · 测试版 v0.2.0-beta** — MindReset Read Pico RDP-G01-W 向けの独立ファームウェアです。
+**稳定版 v0.2.0 · 测试版 v0.2.2-beta.1** — MindReset Read Pico RDP-G01-W 向けの独立ファームウェアです。
 
-[インストールとダウンロード](https://yiifanrecyclable.github.io/if-ink-OS/) · [Release](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.1.7) · [English](README.md) · [简体中文](README.zh-CN.md)
+[インストールとダウンロード](https://yiifanrecyclable.github.io/if-ink-OS/) · [Release](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.0) · [Beta版](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.2-beta.1) · [English](README.md) · [简体中文](README.zh-CN.md)
 
 - EPUB・TXT・Markdown のオフライン読書。Markdown の表、見出し別サイズ、太字、斜体、ハイライトに対応。
 - Nutstore WebDAV の一覧から MD・TXT・EPUB を選択し、TFカードへ保存。

@@ -22,6 +22,11 @@ esp_err_t document_store_import_local(const char *staging_path, const char *dest
 esp_err_t document_store_scan(document_entry_t **entries, size_t *count);
 esp_err_t document_store_refresh(const char *path, bool *changed);
 esp_err_t document_store_delete(const char *path);
+/// 本机文档目录与移动，保留根目录同步契约。/ Local document paths and moves, preserving the flat sync contract.
+bool document_store_local_directory(const char *path);
+bool document_store_local_path(const char *path);
+bool document_store_has_local(void);
+esp_err_t document_store_move(const char *source, const char *target, bool *moved);
 // 置顶同名更新保持、删除清理；starred参数仅保留旧数据兼容，不再提供星标界面。
 // Pins survive replacement and clear on deletion; starred remains for legacy data compatibility only.
 esp_err_t document_store_set_flags(const char *path, bool pinned, bool starred);

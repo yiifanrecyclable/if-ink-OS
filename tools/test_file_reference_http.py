@@ -69,6 +69,6 @@ with tempfile.TemporaryDirectory(prefix='reference-http-',dir=R/'build') as tmp:
  (p/'test.c').write_text(HEAD+handler+TAIL)
  flags=['cc','-std=gnu11','-Wall','-Wextra','-Werror','-Wno-deprecated-declarations','-Wno-unused-parameter','-Wno-unused-function','-ffunction-sections','-fdata-sections','-fsanitize=address,undefined','-DPICO_HOST_SIMULATOR','-DPICO_SIM_CARD_PATH="unused"','-include',str(R/'tools/simulator/fs.h')]
  for inc in ['tools/simulator/include','main','main/book','main/ui','main/cloud','components/read_pico_transfer/include','tools/simulator/vendor/cjson']:flags+=['-I'+str(R/inc)]
- sources=['main/file_references.c','main/settings.c','main/wallpaper_preferences.c','main/ui/ui_i18n.c','tools/simulator/fs.c','tools/simulator/nvs.c','tools/simulator/vendor/cjson/cJSON.c']
+ sources=['main/file_references.c','main/book/content_library.c','main/book/record_store.c','main/settings.c','main/wallpaper_preferences.c','main/ui/ui_i18n.c','tools/simulator/fs.c','tools/simulator/nvs.c','tools/simulator/vendor/cjson/cJSON.c']
  subprocess.run(flags+[str(p/'test.c')]+[str(R/s) for s in sources]+['-lz']+(['-Wl,-dead_strip'] if sys.platform=='darwin' else ['-Wl,--gc-sections'])+['-o',str(p/'test')],check=True)
  subprocess.run([str(p/'test')],cwd=p,check=True,env={**os.environ,'PICO_SIM_CARD_ROOT':str(card),'PICO_TEST_FATFS_RENAME':'1','ASAN_OPTIONS':'detect_leaks=0'})

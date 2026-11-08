@@ -12,12 +12,50 @@
 #include "document_store.h"
 #include "document_image.h"
 #include "book_progress.h"
+#include "book_title.h"
 #include "record_store.h"
 static void write_text(const char *p,const char *s){FILE *f=fopen(p,"wb");assert(f);assert(fwrite(s,1,strlen(s),f)==strlen(s));assert(!fclose(f));}
 static void copy(const char *a,const char *b){FILE *f=fopen(a,"rb"),*g=fopen(b,"wb");assert(f&&g);char bytes[4096];size_t n;while((n=fread(bytes,1,sizeof(bytes),f)))assert(fwrite(bytes,1,n,g)==n);assert(!ferror(f));fclose(f);assert(!fclose(g));}
 static long size(const char *p){struct stat st;assert(!stat(p,&st));return st.st_size;}
 static void date(char out[80]){FILE *f=fopen(DOCUMENT_ROOT"/.index/unittest-owned.md.pico","rb");assert(f);assert(fgets(out,80,f));assert(fgets(out,80,f));fclose(f);}
 static document_entry_t entry(const char *path){document_entry_t *items=NULL,result={0};size_t n=0;assert(document_store_scan(&items,&n)==ESP_OK);for(size_t i=0;i<n;i++)if(!strcmp(items[i].path,path))result=items[i];free(items);assert(result.path[0]);return result;}
+static void mark_key(const char *path,char key[11]){
+    uint32_t hash=UINT32_C(2166136261);
+    for(const unsigned char *p=(const unsigned char *)path;*p;++p)hash=(hash^*p)*UINT32_C(16777619);
+    snprintf(key,11,"m_%08lx",(unsigned long)hash);
+}
+static void check_local_move(const char *source,const char *stage){
+    assert(!mkdir(DOCUMENT_ROOT "/archive",0700));
+    const char *target=DOCUMENT_ROOT "/archive/web.md";
+    document_entry_t first=entry(source);
+    book_progress_t progress={.file_size=first.size,.byte_off=8,.px=48,.pct=47};
+    assert(book_progress_save(source,&progress)==ESP_OK&&book_progress_set_last_path(source)==ESP_OK);
+    assert(book_progress_load(source,first.size,&progress));uint32_t order=progress.last_open_s;
+    assert(book_title_set(source,"Local display name")==ESP_OK);
+    char from[11],to[11];mark_key(source,from);mark_key(target,to);
+    uint8_t marks[12+288+24*12]={0};
+    uint32_t magic=UINT32_C(0x52504d32);memcpy(marks,&magic,sizeof(magic));memcpy(marks+4,&first.size,sizeof(first.size));
+    marks[8]=1;memcpy(marks+12,source,strlen(source)+1);marks[304]=8;
+    records_handle_t h;assert(records_open("rp_marks",NVS_READWRITE,&h)==ESP_OK);
+    assert(records_set_blob(h,from,marks,sizeof(marks))==ESP_OK&&records_commit(h)==ESP_OK);records_close(h);
+    bool moved=false;assert(document_store_move(source,target,&moved)==ESP_OK&&moved);
+    assert(book_progress_load(target,first.size,&progress)&&progress.pct==47&&progress.last_open_s==order);
+    char name[288];assert(book_title_get(target,name,sizeof(name))&&!strcmp(name,"Local display name"));
+    assert(book_progress_last_path(name,sizeof(name))&&!strcmp(name,target));
+    assert(records_open("rp_marks",NVS_READONLY,&h)==ESP_OK);
+    size_t len=sizeof(marks);assert(records_get_blob(h,to,marks,&len)==ESP_OK&&len==sizeof(marks));
+    assert(!strcmp((char *)marks+12,target)&&marks[304]==8);
+    assert(records_get_blob(h,from,marks,&len)==ESP_ERR_NVS_NOT_FOUND);records_close(h);
+    document_entry_t next=entry(target);assert(next.pinned&&!strcmp(first.date,next.date));
+    write_text(stage,"Reimported into the flat sync root.");
+    assert(document_store_import_local(stage,source)==ESP_OK);
+    assert(!entry(source).pinned&&entry(target).pinned);
+    assert(book_progress_load(target,first.size,&progress)&&progress.last_open_s==order);
+    assert(document_store_move(target,source,&moved)==ESP_ERR_INVALID_STATE&&!moved);
+    assert(document_store_delete(source)==ESP_OK);
+    assert(document_store_move(target,source,&moved)==ESP_OK&&moved);
+    assert(entry(source).pinned&&book_progress_load(source,first.size,&progress)&&progress.last_open_s==order);
+}
 int main(void){
     record_store_media(true);
     (void)mkdir(DOCUMENT_ROOT,0700);(void)mkdir(DOCUMENT_ROOT"/attachments",0700);
@@ -103,6 +141,7 @@ int main(void){
     assert(entry(dest).pinned && !access(prefs,F_OK));
     assert(!rename(meta,DOCUMENT_ROOT "/.index/web.md.pico.before"));
     assert(!strcmp(entry(dest).date,web_first.date) && !access(meta,F_OK));
+    check_local_move(dest,stage);
     assert(document_store_delete(dest)==ESP_OK);assert(!remove(stage));
-    puts("Document dates, pin/star preferences, sorting, revisions, cleanup, collapsed outline, PNG filters/CRC and long viewport passed");return 0;
+    puts("Document revisions, moves, metadata and shared assets, PNG filters/CRC and long viewport passed");return 0;
 }

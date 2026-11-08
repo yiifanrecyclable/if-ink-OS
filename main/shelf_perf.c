@@ -43,8 +43,12 @@ static const char *const names[]={"unknown","boot","enter","reuse","scan","roots
     "wake_page_enter","wake_media_poll","wake_home_recents","wake_home_history",
     "wake_home_scan","wake_home_cover_cache",
     "banner_layer_key","banner_layer_read","banner_layer_render",
-    "banner_layer_write","banner_layer_compose","wake_notice"};
-_Static_assert(sizeof(names)/sizeof(names[0])==SP_WAKE_NOTICE+1,"Timing stage names must match the exported stage IDs");
+    "banner_layer_write","banner_layer_compose","wake_notice"
+#ifdef IFINK_INKBUDDY
+    , "inkbuddy_memory", "inkbuddy_crc", "inkbuddy_present", "inkbuddy_unchanged"
+#endif
+};
+_Static_assert(sizeof(names)/sizeof(names[0])==SP_STAGE_COUNT,"Timing stage names must match the exported stage IDs");
 static bool enabled(void){return owner()&&s_active;}
 static void record(int kind,int stage,int64_t start,int64_t end,uint32_t request,int a,int b,int c,int d){
     if(s_count==PERF_COUNT){++s_dropped;return;}
@@ -55,7 +59,11 @@ void shelf_perf_init(void){
     const char *v=esp_app_get_description()->version;
     if(strncmp(v,"0.2.0-r9t",9) && strcmp(v,"0.2.1-beta-r1t2") &&
        strcmp(v,"0.2.1-beta-r1t3") && strcmp(v,"0.2.1-beta-r1t4") &&
-       strcmp(v,"0.2.1-beta-r1t5") && strcmp(v,"0.2.1-beta-r1t6"))return;
+       strcmp(v,"0.2.1-beta-r1t5") && strcmp(v,"0.2.1-beta-r1t6")
+#ifdef IFINK_INKBUDDY
+       && strcmp(v,"0.2.1-beta-r2t2")
+#endif
+    )return;
 #ifdef ESP_PLATFORM
     s_owner=xTaskGetCurrentTaskHandle();
 #else

@@ -145,14 +145,18 @@ class CloudHostTests(unittest.TestCase):
         self.command('commit',TARGET,plan,3)
         self.assertNotEqual(self.command('recover',faults={'PICO_TEST_LSTAT_EIO':'/sdcard/.pico-sync/current/previous'})['error'],0)
         self.assertTrue((CARD/'.pico-sync/current/previous').exists());self.assertEqual(self.command('recover')['error'],0)
-    def test_nvs_failure_gates_reads_until_recovery_and_one_shot_error_recovers(self):
+    def test_tf_progress_failure_gates_reads_until_recovery_and_one_shot_error_recovers(self):
+        hashed=2166136261
+        for byte in TARGET.encode():
+            hashed=((hashed^byte)*16777619)&0xffffffff
+        slot=f'/sdcard/.readpico/progress/b_{hashed:08x}.b'
         self.baseline();plan=self.plan(b'# new\n')
-        result=self.command('commit',TARGET,plan,faults={'PICO_TEST_NVS_COMMIT_FAIL':'always'})
+        result=self.command('commit',TARGET,plan,faults={'PICO_TEST_FOPEN_WRITE_FAIL':slot})
         self.assertNotEqual(result['error'],0);self.assertTrue((CARD/'.pico-sync/transaction').exists());self.assertTrue((CARD/'.pico-sync/current/previous').exists())
-        self.assertNotEqual(self.command('refresh',TARGET,faults={'PICO_TEST_NVS_COMMIT_FAIL':'always'})['error'],0)
+        self.assertNotEqual(self.command('refresh',TARGET,faults={'PICO_TEST_FOPEN_WRITE_FAIL':slot})['error'],0)
         self.assertEqual(self.command('recover')['error'],0);self.assertFalse(self.command('progress-load',TARGET)['present'])
         self.restore();self.baseline();plan=self.plan(b'# new\n')
-        self.assertEqual(self.command('commit',TARGET,plan,faults={'PICO_TEST_NVS_COMMIT_FAIL':'once'})['error'],0)
+        self.assertEqual(self.command('commit',TARGET,plan,faults={'PICO_TEST_FOPEN_WRITE_FAIL_ONCE':slot})['error'],0)
     def test_installed_corrupt_asset_preserves_backup_and_gate(self):
         self.baseline();data=(ROOT/'plugins/obsidian-pico/tests/fixtures/sample-image.png').read_bytes();name='unittest-picture-0123456789abcdef.png'
         plan=self.plan(f'# new\n![](attachments/{name})\n'.encode(),[(name,data)]);self.command('commit',TARGET,plan,5)

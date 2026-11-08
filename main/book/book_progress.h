@@ -57,6 +57,8 @@ esp_err_t book_progress_list(book_progress_visit_fn visit, void* ctx);
 /// 保存 v2 进度，忽略输入 last_open_s 并预留持久单调序号；路径最长 287 字节，碰撞拒绝覆盖。
 /// Save v2 progress, replacing input last_open_s with a reserved persistent sequence; paths up to 287 bytes, reject collision overwrites.
 esp_err_t book_progress_save(const char* path, const book_progress_t* progress);
+/// 复制进度并更新匹配的续读入口；调用方随后清理旧路径。/ Copy progress and retarget matching resume before the caller retires the source.
+esp_err_t book_progress_copy_for_move(const char *source,const char *target,uint32_t size);
 /// 清除此路径的进度，不删除碰撞记录。/ Clear this path without deleting colliding records.
 esp_err_t book_progress_clear(const char* path);
 /// 清除此路径进度及匹配的 last；任一步失败返回错误，允许幂等重试，保留碰撞记录。

@@ -1956,6 +1956,22 @@ void ttf_font_unload(void){
     for(unsigned i=0;i<2;++i){s_font_context=&s_font_contexts[i];unload_active_font();heap_caps_free(io_data);io_data=NULL;heap_caps_free(io_run_buf);io_run_buf=NULL;font_path[0]=0;}
     s_font_context=previous;
 }
+bool ttf_font_release_path(const char *root) {
+    ttf_context_t *previous = s_font_context;
+    size_t n = strlen(root);
+    bool active = false;
+    for (unsigned i = 0; i < 2; ++i) {
+        ttf_context_t *slot = &s_font_contexts[i];
+        const char *path = slot->state_font_path;
+        if (strncasecmp(path, root, n) || (path[n] && path[n] != '/')) continue;
+        s_font_context = slot;
+        unload_active_font();
+        font_path[0] = 0;
+        active |= slot == previous;
+    }
+    s_font_context = previous;
+    return active;
+}
 static esp_err_t load_opened_font(void) {
 #ifdef PICO_HOST_SIMULATOR
     ++ttf_sim_font_loads;
@@ -2080,6 +2096,31 @@ esp_err_t ttf_font_select_context(bool system,const char *path){
     esp_err_t err=ttf_font_open(resolved);
     if(!font_ready)s_font_context=previous;
     return err;
+}
+static ttf_context_t *preview_face(const char *path) {
+    for (unsigned i = 0; i < 2; ++i) {
+        ttf_context_t *slot = &s_font_contexts[i];
+        if (slot->state_font_ready && !strcmp(slot->state_font_path, path)) return slot;
+    }
+    return NULL;
+}
+bool ttf_font_prepare_preview(const char *path) {
+    if (!path || !*path || strlen(path) >= TTF_FONT_PATH_MAX) return false;
+    if (preview_face(path)) return true;
+    ttf_context_t *previous = s_font_context;
+    s_font_context = previous == &s_font_contexts[0] ? &s_font_contexts[1] : &s_font_contexts[0];
+    bool loaded = ttf_font_open(path) == ESP_OK && !strcmp(font_path, path);
+    s_font_context = previous;
+    return loaded;
+}
+bool ttf_font_with_preview(const char *path, void (*draw)(void *), void *ctx) {
+    ttf_context_t *face = preview_face(path);
+    if (!face) return false;
+    ttf_context_t *previous = s_font_context;
+    s_font_context = face;
+    draw(ctx);
+    s_font_context = previous;
+    return true;
 }
 esp_err_t ttf_font_init(void) {
     if (font_ready) return ESP_OK;

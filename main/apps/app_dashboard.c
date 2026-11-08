@@ -135,7 +135,7 @@ static void copy_title(char *dst, size_t cap, const char *src) {
 }
 
 static void title_for(home_book_t *item) {
-    if (!book_title_from_path(item->path, item->title, sizeof(item->title)))
+    if (!book_title_display(item->path, item->title, sizeof(item->title)))
         copy_title(item->title, sizeof(item->title), UI_MSG("未命名"));
 }
 
@@ -211,11 +211,8 @@ static void scan_books(void) {
 // Select four documents by persistent reading order, independent of sync dates/pins or a full import scan.
 static bool consider_document(const char *path, const book_progress_t *progress, void *unused) {
     (void)unused;
-    const size_t prefix = strlen(DOCUMENT_ROOT "/");
-    if (strncmp(path, DOCUMENT_ROOT "/", prefix)) return true;
-    const char *name = path + prefix;
-    const char *ext = strrchr(name, '.');
-    if (!name[0] || name[0] == '.' || strchr(name, '/') || !ext || strcasecmp(ext, ".md")) return true;
+    if(!document_store_local_path(path))return true;
+    const char *name=strrchr(path,'/')+1;
     struct stat st;
     if (lstat(path, &st) || !S_ISREG(st.st_mode) || st.st_size < 0 ||
         (uint64_t)st.st_size != progress->file_size) return true;
@@ -230,27 +227,14 @@ static bool consider_document(const char *path, const book_progress_t *progress,
         s_recent_documents[i] = s_recent_documents[i - 1];
     document_entry_t *entry = &s_recent_documents[slot];
     memset(entry, 0, sizeof(*entry));
-    copy_title(entry->name, sizeof(entry->name), name);
+    if (!book_title_display(path, entry->name, sizeof(entry->name)))
+        copy_title(entry->name, sizeof(entry->name), name);
     copy_title(entry->path, sizeof(entry->path), path);
     entry->size = progress->file_size;
     entry->recent = progress->last_open_s;
     entry->pct = progress->pct;
     entry->has_progress = true;
     return true;
-}
-
-// 只检查可见文档是否存在，不因未读或没有进度而误切换。/ Detect library presence, not whether a document has reading progress.
-static bool has_markdown_documents(void) {
-    DIR *dir=opendir(DOCUMENT_ROOT);if(!dir)return false;
-    bool found=false;struct dirent *entry;
-    while((entry=readdir(dir))){
-        const char *name=entry->d_name,*ext=strrchr(name,'.');
-        if(name[0]=='.'||!ext||strcasecmp(ext,".md"))continue;
-        char path[BOOK_STORE_PATH_MAX];struct stat st;
-        if(ui_snprintf(path,sizeof(path),DOCUMENT_ROOT "/%s",name)>=(int)sizeof(path))continue;
-        if(!lstat(path,&st)&&S_ISREG(st.st_mode)&&st.st_size>=0&&(uint64_t)st.st_size<=UINT32_MAX){found=true;break;}
-    }
-    closedir(dir);return found;
 }
 
 // s_recent排除了s_current；没有s_current时，s_recent[0]已被左列使用。
@@ -268,7 +252,8 @@ static void refresh_recent_documents(void) {
 #ifdef IFINK_WAKE_TONE_TEST
     SHELF_PERF_SCOPE(home_recents, SP_WAKE_HOME_RECENTS, 0, 0);
 #endif
-    s_has_documents=has_markdown_documents();
+    // 文档存在就保留文档列，包括尚未阅读的文档。/ Keep the document column even if every document is unread.
+    s_has_documents=document_store_has_local();
     s_recent_document_count = 0;
     memset(s_recent_documents, 0, sizeof(s_recent_documents));
     if (book_progress_list(consider_document, NULL) != ESP_OK) {
@@ -628,7 +613,6 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         unsigned pct=s_has_documents?s_recent_documents[i].pct:book->progress.pct;
         int y=g.list_y+(int)i*g.row_height;char name[256];
         copy_title(name,sizeof(name),s_has_documents?s_recent_documents[i].name:book->title);
-        if(s_has_documents){size_t n=strlen(name);if(n>=3)name[n-3]=0;}
         recent_title_layout_t layout=recent_title_layout_role(name,HOME_DOCUMENT_WIDTH-36,UI_TEXT_BODY,1);
         int title_h=layout.count*layout.line_height;
         int top=y+(g.row_height-title_h-10)/2;

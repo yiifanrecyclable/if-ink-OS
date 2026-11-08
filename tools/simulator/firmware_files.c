@@ -23,10 +23,17 @@ int simulator_files_row_height(void){return file_row_height();}
 const char *simulator_files_message(void){return s_message;}
 const char *simulator_files_notice(void){return ui_nav_notice_text();}
 unsigned simulator_files_notice_serial(void){return s_notice_serial;}
+int simulator_files_font_preview_px(void){return s_view==FILE_VIEW_FONT_PREVIEW?s_font_preview_px:0;}
+int simulator_files_font_warning(void){return s_view==FILE_VIEW_ACTIONS&&s_confirm_font?s_confirm:0;}
+unsigned simulator_files_batch_count(void){return s_batch_count;}
+uint64_t simulator_files_batch_bytes(void){return batch_total_bytes();}
+int simulator_files_batch_state(void){return s_batch_delete?2:s_batch_move?1:0;}
+int simulator_files_batch_top(void){return s_view==FILE_VIEW_BATCH?batch_card().top:0;}
 int simulator_files_card_geometry(int part){
  if(s_view!=FILE_VIEW_ACTIONS)return 0;
- EpdRect w=wallpaper_action_rect(),a=file_regular_action_rect(0),c=file_card_close_rect();
- const int values[]={file_card_top(),UI_NAV_TOP,selected_wallpaper_image()&&!s_delete_confirm,w.x,w.y,w.width,w.height,a.x,a.y,a.width,a.height,c.x,c.y,c.width,c.height,s_delete_confirm};
+ ui_action_card_t card=file_card();
+ EpdRect w=wallpaper_action_rect(),a=ui_nav_action_button(0,4),c=card.close;
+ const int values[]={card.top,UI_NAV_TOP,selected_wallpaper_image()&&!s_confirm,w.x,w.y,w.width,w.height,a.x,a.y,a.width,a.height,c.x,c.y,c.width,c.height,s_confirm==FILE_CONFIRM_DELETE};
  return part<16?values[part]:0;
 }
 const char *simulator_files_item(int row){return row>=0&&row<s_count?s_files[row].path:"";}
@@ -48,6 +55,11 @@ void simulator_files(uint8_t *fb,int view,int folder,const char *dir,const char 
  const char *restore_page=getenv("PICO_SIM_FILES_PAGE");if(restore_page){int page=atoi(restore_page),last=s_count?(s_count-1)/visible_rows():0;s_page=page<0?0:page>last?last:page;}
  if(s_count){s_selected=s_files[0];probe_wallpaper_action();snprintf(s_editor,sizeof(s_editor),"%s",s_selected.name);}
  if(view==FILE_VIEW_RENAME)editor_start();
+ if(view==FILE_VIEW_FONT_PREVIEW){s_view=FILE_VIEW_LIST;if(s_count)open_selected(&ctx);}
+ if(view==FILE_VIEW_BATCH){
+  for(int i=0;i<s_count&&s_batch_count<2;++i)if(batch_eligible(&s_files[i],batch_kind()))batch_toggle(&s_files[i]);
+  if(s_batch_count<2)s_view=FILE_VIEW_LIST;
+ }
  simulator_replay(&ctx,on_gesture,on_key,events);
  if(getenv("PICO_TEST_IMAGE_FILE_RETURN")){
   extern const app_desc_t simulator_descriptor_image;

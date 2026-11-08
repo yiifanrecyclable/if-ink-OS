@@ -84,7 +84,7 @@ bool content_book_pin_valid(const char *key, const char *path);
 void content_markdown_sizes(uint8_t sizes[4]);
 bool content_markdown_sizes_valid(const uint8_t sizes[4]);
 esp_err_t content_markdown_sizes_set(const uint8_t sizes[4]);
-/// 空值表示继承旧阅读字体；选择后独立持久化。/ Empty inherits the legacy reader face until a document face is saved.
+/// 未选择时使用默认文档字体。/ Use the default document face until a choice is saved.
 const char *content_markdown_font(void);
 bool content_markdown_font_valid(const char *path);
 esp_err_t content_markdown_font_set(const char *path);

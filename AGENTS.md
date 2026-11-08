@@ -194,3 +194,15 @@ Every comment is bilingual. Comments only; no logic changes.
 ### Online installer release gate
 
 修改刷机页版本时，必须同时更新 installer.js 中 expectedRelease 的 version、size、sha256，并运行 `node --experimental-vm-modules tools/test_webflash_loader.mjs docs`。测试执行实际加载逻辑并校验四段快照，不打开串口；仅能下载 manifest 不能证明按钮可加载。开发工作区若使用 build/release-prep/publish-repo/docs，应将测试命令的 docs 参数替换为该路径。
+
+### Public firmware feature gate
+
+终端模式仅可在版本号带 `t` 的本地测试包中通过 `IFINK_INKBUDDY` 显式启用。用户明确许可公开前，所有公开正式版和 Beta 版都必须保持 `IFINK_INKBUDDY=OFF`，从构建中排除入口及实现。
+Terminal mode may be enabled through `IFINK_INKBUDDY` only for local test packages with a `t` version suffix. Until the user explicitly authorizes public availability, all public stable and beta builds must keep `IFINK_INKBUDDY=OFF` to exclude the entry and implementation.
+
+公开固件出包前，使用同一次构建的 ELF、map、bin 和编译清单执行
+`python3 tools/verify_inkbuddy_build.py <idf-build> --expect public`。
+发行回执记录实际核验的 `features.inkbuddy=false`；本地测试镜像不能复用公开发布入口。
+Before packaging a public firmware build, verify its ELF, map, binary and compilation manifest with
+`python3 tools/verify_inkbuddy_build.py <idf-build> --expect public` and record the verified
+`features.inkbuddy=false` in its release receipt.

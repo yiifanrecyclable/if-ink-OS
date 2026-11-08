@@ -5,7 +5,18 @@ cmake_minimum_required(VERSION 3.22)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # "Trim" the build. Include the minimal set of components, main, and anything it depends on.
 idf_build_set_property(MINIMAL_BUILD ON)
-set(PROJECT_VER "0.2.1-beta.1")
+option(IFINK_INKBUDDY "Build the local inkbuddy r2t2 test firmware" OFF)
+set(PROJECT_VER "0.2.2-beta.1")
+# 由同一开关派生版本和功能。/ Derive both the version and the feature from the same option.
+if(IFINK_INKBUDDY)
+    set(PROJECT_VER "0.2.1-beta-r2t2")
+endif()
+if(DEFINED CACHE{PROJECT_VER} AND
+   (IFINK_INKBUDDY OR "$CACHE{PROJECT_VER}" MATCHES "-r2t"))
+    if(NOT "$CACHE{PROJECT_VER}" STREQUAL PROJECT_VER)
+        message(FATAL_ERROR "Use IFINK_INKBUDDY to select the local r2t2 version")
+    endif()
+endif()
 project(Read_Pico_IF)
 
 # 一分钟的深睡诊断仅用于本地唤醒测试。/ Keep the one-minute interval local to wake diagnostics.

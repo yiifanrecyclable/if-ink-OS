@@ -27,7 +27,7 @@ typedef struct {
     size_t cell_capacity, row_cell;
     bool table_header, in_cell, table_image;
     unsigned ordered[MARKDOWN_DEPTH_MAX], counters[MARKDOWN_DEPTH_MAX];
-    bool open, heading, code, in_image;
+    bool open, heading, code, in_image, pending_soft_break;
     uint8_t heading_level;
     int image_index;
     esp_err_t error;
@@ -76,11 +76,16 @@ static int append(writer_t *w, const char *s, size_t len) {
         w->style_bytes = styles;
         w->capacity = cap;
     }
-    if (len)
+    if (len) {
+        if (w->pending_soft_break) {
+            w->text.utf8[w->text.len - 1] = '\n';
+            w->pending_soft_break = false;
+        }
         memcpy(w->text.utf8 + w->text.len, s, len);
-    if (len) memset(w->style_bytes + w->text.len,
-                    (w->strong ? TEXT_STYLE_BOLD : 0) | (w->emphasis ? TEXT_STYLE_ITALIC : 0) |
-                    ((w->protected_text || w->code || w->in_image) ? 0x80 : 0), len);
+        memset(w->style_bytes + w->text.len,
+               (w->strong ? TEXT_STYLE_BOLD : 0) | (w->emphasis ? TEXT_STYLE_ITALIC : 0) |
+               ((w->protected_text || w->code || w->in_image) ? 0x80 : 0), len);
+    }
     w->text.len += len;
     w->text.utf8[w->text.len] = 0;
     return 0;
@@ -93,6 +98,7 @@ static int flush(writer_t *w) {
     if (w->code && w->text.len > w->start && w->text.utf8[w->text.len - 1] == '\n')
         w->text.utf8[--w->text.len] = 0;
     w->open = false;
+    w->pending_soft_break = false;
     if (w->text.len == w->start) {
         if (w->start && w->text.utf8[w->start - 1] == '\n')
             w->text.utf8[--w->text.len] = 0;
@@ -340,8 +346,14 @@ static int on_text(MD_TEXTTYPE type, const MD_CHAR *s, MD_SIZE len, void *ctx) {
         return 1;
     if (type == MD_TEXT_BR)
         return append(w, "\n", 1);
-    if (type == MD_TEXT_SOFTBR)
-        return append(w, " ", 1);
+    if (type == MD_TEXT_SOFTBR) {
+        // 同一文字块有后续内容时才换行，避免在独立图片块旁多留空行。
+        // Break only when more text follows in the same block, avoiding extra rows beside images.
+        bool within_prose = w->text.len > w->start && !w->heading && !w->in_image && !w->in_cell;
+        int result = append(w, " ", 1);
+        w->pending_soft_break = within_prose && !result;
+        return result;
+    }
     if (type == MD_TEXT_NULLCHAR) {
         w->error = ESP_ERR_INVALID_ARG;
         return 1;

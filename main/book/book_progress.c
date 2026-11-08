@@ -145,6 +145,45 @@ static esp_err_t check_owner(progress_kv_handle_t h, const char* key, const char
         ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
+esp_err_t book_progress_copy_for_move(const char *source,const char *target,uint32_t size){
+    if(!path_valid(source)||!path_valid(target))return ESP_ERR_INVALID_ARG;
+    char from[11],to[11];make_key(source,from);make_key(target,to);
+    progress_kv_handle_t h;
+    esp_err_t err=progress_kv_open(NVS_READWRITE,&h);
+    if(err!=ESP_OK)return warn_error(err);
+    uint8_t record[RECORD_CAP];size_t len=sizeof(record);
+    err=progress_kv_get_blob(h,from,record,&len);
+    if(err==ESP_ERR_NVS_NOT_FOUND)err=ESP_OK;
+    else if(err==ESP_OK){
+        if(!record_valid(record,len)||strcmp((const char *)record+HEADER_SIZE,source)||!strcmp(from,to))
+            err=ESP_ERR_INVALID_STATE;
+        else if(get32(record+4)==size&&record[14]>=36&&record[14]<=72&&record[15]<=100){
+            size_t path_len=strlen(target)+1;
+            if(record[3]==1){record[3]=2;put32(record+16,0);}
+            record[22]=(uint8_t)path_len;record[23]=(uint8_t)(path_len>>8);
+            memcpy(record+HEADER_SIZE,target,path_len);
+            uint8_t existing[RECORD_CAP];size_t existing_len=sizeof(existing);
+            err=progress_kv_get_blob(h,to,existing,&existing_len);
+            if(err==ESP_ERR_NVS_NOT_FOUND){
+                err=progress_kv_set_blob(h,to,record,HEADER_SIZE+path_len);
+                if(err==ESP_OK)err=progress_kv_commit(h);
+            }else if(err==ESP_OK&&(existing_len!=HEADER_SIZE+path_len||memcmp(existing,record,existing_len)))
+                err=ESP_ERR_INVALID_STATE;
+        }
+    }
+    if(err==ESP_OK){
+        char last[PATH_CAP];size_t last_len=sizeof(last);
+        err=progress_kv_get_str(h,"last",last,&last_len);
+        if(err==ESP_ERR_NVS_NOT_FOUND)err=ESP_OK;
+        else if(err==ESP_OK&&!strcmp(last,source)){
+            err=progress_kv_set_str(h,"last",target);
+            if(err==ESP_OK)err=progress_kv_commit(h);
+        }
+    }
+    progress_kv_close(h);
+    return warn_error(err);
+}
+
 esp_err_t book_progress_save(const char* path, const book_progress_t* progress) {
     if (!path_valid(path) || progress == NULL || progress->px < 36 || progress->px > 72 ||
         progress->pct > 100) return ESP_ERR_INVALID_ARG;

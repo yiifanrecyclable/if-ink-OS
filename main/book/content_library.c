@@ -104,13 +104,15 @@ esp_err_t content_home_quote_set(const char *text) {
     if(loaded!=ESP_ERR_NVS_NOT_FOUND)return loaded;
     return settings_storage_put_str("if_content","home_quote",text);
 }
-bool content_home_quote_font_valid(const char *path) {
+static bool content_font_path_valid(const char *path, bool allow_otf) {
     if(!path||strnlen(path,CONTENT_HOME_QUOTE_FONT_BYTES)==CONTENT_HOME_QUOTE_FONT_BYTES||!content_home_quote_valid(path)||strchr(path,'\n'))return false;
     if(!path[0])return true;
     size_t n=strlen(path);
-    return (!strncmp(path,"/sdcard/",8)||!strncmp(path,"/flash/",7))&&n>4&&!strcasecmp(path+n-4,".ttf")&&
+    return (!strncmp(path,"/sdcard/",8)||!strncmp(path,"/flash/",7))&&n>4&&
+        (!strcasecmp(path+n-4,".ttf")||(allow_otf&&!strcasecmp(path+n-4,".otf")))&&
         !strstr(path,"/../")&&!strstr(path,"/./")&&!strstr(path,"//")&&!strchr(path,'\\');
 }
+bool content_home_quote_font_valid(const char *path) { return content_font_path_valid(path, false); }
 const char *content_home_quote_font(void) {
     static char path[CONTENT_HOME_QUOTE_FONT_BYTES];content_banner_config_t cfg;
     if(banner_read(&cfg)){memcpy(path,cfg.font,sizeof(path));return path;}
@@ -326,7 +328,7 @@ const char *content_markdown_font(void){
         if(e==ESP_OK&&content_markdown_font_valid(path))return path;}
     return "";
 }
-bool content_markdown_font_valid(const char *path){return path&&path[0]&&strlen(path)<CONTENT_MARKDOWN_FONT_BYTES&&(!strcmp(path,"builtin")||content_home_quote_font_valid(path));}
+bool content_markdown_font_valid(const char *path){return path&&path[0]&&strlen(path)<CONTENT_MARKDOWN_FONT_BYTES&&(!strcmp(path,"builtin")||content_font_path_valid(path,true));}
 esp_err_t content_markdown_font_set(const char *path){
     if(!content_markdown_font_valid(path))return ESP_ERR_INVALID_ARG;
     return settings_storage_put_str("if_content","md_font",path);

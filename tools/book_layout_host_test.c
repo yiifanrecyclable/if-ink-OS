@@ -454,6 +454,27 @@ int main(void) {
     assert(book_layout_build_blocks(md,strlen(md),md_blocks,4,r,48));drawn[0]=0;
     book_layout_draw_page(&fb,0,r,48);assert(first_draw_px==56);
     book_layout_free();
+    // 段内换行使用行距，段间空行使用段距，两种边界共用分页与绘制规则。
+    // Line breaks take line spacing and paragraph boundaries add paragraph spacing in both pagination and drawing.
+    const char *line_breaks = "甲乙丙\n次行\n新段";
+    blk_t paragraphs[] = {{.offset=0,.len=16,.image=-1},{.offset=17,.len=6,.image=-1}};
+    book_layout_set_markdown(true,NULL,NULL,0);
+    r = (EpdRect){0,0,50,80};
+    assert(book_layout_build_blocks(line_breaks,strlen(line_breaks),paragraphs,2,r,10));
+    book_layout_cursor_t cursor = {0};
+    drawn[0] = 0;
+    assert(book_layout_draw_slice(&fb,0,r,10,&cursor) == 0);
+    assert(cursor.offset == 10 && cursor.used == 15 && last_draw_x == 20);
+    assert(book_layout_draw_slice(&fb,0,r,10,&cursor) == 0);
+    assert(cursor.offset == 17 && cursor.used == 37);
+    assert(book_layout_draw_slice(&fb,0,r,10,&cursor) == 1);
+    assert(!strcmp(drawn,"甲乙丙次行新段"));
+    r.height = 44;
+    assert(book_layout_build_blocks(line_breaks,strlen(line_breaks),paragraphs,2,r,10));
+    assert(book_layout_page_count() == 2 && book_layout_page_start_offset(1) == 17);
+    assert(book_layout_page_for_offset(10) == 0 && book_layout_page_for_offset(17) == 1);
+    assert_slice_text(&fb,0,r,10);
+    book_layout_free();
     // 重排后旧游标不能恢复；空白、文字和样式使用同一续画实现。
     // A cursor cannot resume across reflow; text and styles share one implementation.
     book_layout_set_markdown(false,NULL,NULL,0);r=(EpdRect){0,0,300,300};
