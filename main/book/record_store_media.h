@@ -3,6 +3,9 @@
  */
 #pragma once
 #include <stdbool.h>
+#include <stdint.h>
 /// 切卡或USB独占使旧句柄失效。/ Card changes or exclusive USB access invalidate existing handles.
 void record_store_media(bool ready);
 bool record_store_ready(void);
+/// 挂载生命周期标识。/ Identity of the current mount lifetime.
+uint32_t record_store_media_epoch(void);

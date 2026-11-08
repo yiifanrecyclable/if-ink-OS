@@ -109,25 +109,47 @@ static void prepare_for(const char *channel,const char *version){
 static void prepare(void){prepare_for("stable","0.1.0");}
 static void run_worker(void){assert(pending_worker);void(*fn)(void*)=pending_worker;pending_worker=NULL;fn(pending_arg);if_update_poll();assert(!s_status.busy&&!s_task);}
 static void policy(void){
- assert(if_update_newer("0.1.6","0.1.6-beta3-r2"));
- assert(if_update_newer("0.1.7","0.1.7-beta-r2"));
- assert(!if_update_newer("0.1.7-beta-r2","0.1.6"));
- assert(!if_update_newer("0.1.7","0.1.7-beta-r0"));
- assert(!if_update_newer("0.1.7","0.1.7-beta-r2junk"));
- assert(!if_update_newer("0.1.6-beta3-r2","0.1.5"));
- assert(!if_update_newer("0.1.6","0.1.6-beta3-r0"));
- assert(!if_update_newer("0.1.6","0.1.6-beta3-r2junk"));
- assert(if_update_newer("0.1.6","0.1.6-beta2"));
- assert(if_update_newer("0.1.7","0.1.6-beta2"));
- assert(!if_update_newer("0.1.6-beta2","0.1.5"));
- assert(!if_update_newer("0.1.6","0.1.6-beta2-junk"));
- assert(!if_update_newer("0.1.6","0.1.6-beta0"));
- assert(if_update_newer("0.1.6","0.1.6-beta"));assert(if_update_newer("0.1.7","0.1.6-beta"));
- assert(!if_update_newer("0.1.5","0.1.6-beta"));assert(!if_update_newer("0.1.6-beta","0.1.5"));
- assert(!if_update_newer("0.1.6","0.1.6-beta-junk"));
- assert(if_update_newer("0.1.0","0.1.0-test.2"));assert(if_update_newer("0.1.0","0.3.3-rc83-if.8"));
- assert(!if_update_newer("0.1.0","0.1.0"));assert(!if_update_newer("0.1.0","0.1.1"));assert(!if_update_newer("0.2.0-test.1","0.1.0"));
- assert(!if_update_newer("01.2.0","0.1.0"));assert(!if_update_newer("0.1.0","unknown"));
+ const struct {
+  const char *candidate,*current;
+  if_update_channel_t channel;
+  if_update_install_kind_t expected;
+ } cases[]={
+  {"0.1.6","0.1.6-beta3-r2",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_UPGRADE},
+  {"0.1.6","0.1.6-beta2",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_UPGRADE},
+  {"0.1.6","0.1.6-beta",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_UPGRADE},
+  {"0.1.0","0.1.0-test.2",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_UPGRADE},
+  {"0.2.2-beta.1","0.1.8-test.2",IF_UPDATE_BETA,IF_UPDATE_INSTALL_UPGRADE},
+  {"0.1.0","0.3.3-rc83-if.8",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_UPGRADE},
+  {"0.1.8-beta.10","0.1.8-beta.2",IF_UPDATE_BETA,IF_UPDATE_INSTALL_UPGRADE},
+  {"0.1.8-beta.1","0.1.8-beta-r2",IF_UPDATE_BETA,IF_UPDATE_INSTALL_UPGRADE},
+  {"0.1.8-beta3-r2","0.1.8-beta3",IF_UPDATE_BETA,IF_UPDATE_INSTALL_UPGRADE},
+  {"0.2.2-beta.1","0.2.1-beta-r2t2",IF_UPDATE_BETA,IF_UPDATE_INSTALL_UPGRADE},
+  {"0.2.1-beta.1","0.2.0-r9t7",IF_UPDATE_BETA,IF_UPDATE_INSTALL_UPGRADE},
+  {"0.1.7","0.1.8-beta.1",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_DOWNGRADE},
+  {"0.1.7","0.1.8",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_DOWNGRADE},
+  {"0.1.8-beta.2","0.1.8-beta.10",IF_UPDATE_BETA,IF_UPDATE_INSTALL_DOWNGRADE},
+  {"0.1.8-beta.1","0.1.8",IF_UPDATE_BETA,IF_UPDATE_INSTALL_DOWNGRADE},
+  {"0.1.8-beta.2","0.1.8-beta.2",IF_UPDATE_BETA,IF_UPDATE_INSTALL_NONE},
+  {"0.1.8-beta.2","0.1.8-beta2",IF_UPDATE_BETA,IF_UPDATE_INSTALL_NONE},
+  {"0.1.7","0.1.7",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_NONE},
+  {"0.1.7","0.1.8-beta.1",IF_UPDATE_BETA,IF_UPDATE_INSTALL_NONE},
+  {"0.1.8-beta.1","0.1.7",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_NONE},
+  {"0.2.1-beta-r2t2","0.2.0",IF_UPDATE_BETA,IF_UPDATE_INSTALL_NONE},
+  {"0.2.2-beta.1","0.2.1-beta-r2t0",IF_UPDATE_BETA,IF_UPDATE_INSTALL_NONE},
+  {"0.2.2-beta.1","0.2.1-beta-r0t2",IF_UPDATE_BETA,IF_UPDATE_INSTALL_NONE},
+  {"0.2.2-beta.1","0.2.1-beta-r2t2junk",IF_UPDATE_BETA,IF_UPDATE_INSTALL_NONE},
+  {"01.2.0","0.1.0",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_NONE},
+  {"0.1.0","unknown",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_NONE},
+ };
+ for(unsigned i=0;i<sizeof(cases)/sizeof(*cases);++i)
+  assert(if_update_install_kind(cases[i].candidate,cases[i].current,cases[i].channel)==cases[i].expected);
+ assert(if_update_install_kind("0.1.8-test.2","0.1.7",IF_UPDATE_BETA)==IF_UPDATE_INSTALL_NONE);
+ const char *invalid_versions[]={"0.1.8-beta.0","0.1.8-beta.01","0.1.8-beta.1junk","0.1.8-beta.100000",
+  "0.1.8-alpha.1","0.1.8-beta-r0","0.1.8-beta3-r2junk","0.1.8-beta0"};
+ for(unsigned i=0;i<sizeof(invalid_versions)/sizeof(*invalid_versions);++i){
+  assert(if_update_install_kind(invalid_versions[i],"0.1.7",IF_UPDATE_BETA)==IF_UPDATE_INSTALL_NONE);
+  assert(if_update_install_kind("0.2.2-beta.1",invalid_versions[i],IF_UPDATE_BETA)==IF_UPDATE_INSTALL_NONE);
+ }
  assert(if_update_redirect_allowed("https://release-assets.githubusercontent.com/path?sig=x"));
  const char *bad[]={"http://release-assets.githubusercontent.com/x","https://release-assets.githubusercontent.com.evil/x","https://release-assets.githubusercontent.com@evil/x","https://evil/x","https://release-assets.githubusercontent.com/\r\n"};
  for(unsigned i=0;i<sizeof(bad)/sizeof(*bad);++i)assert(!if_update_redirect_allowed(bad[i]));
@@ -145,27 +167,14 @@ static void policy(void){
 
 }
 static void channels(void){
- assert(if_update_candidate_allowed("0.1.8-beta.1","0.1.7",IF_UPDATE_BETA));
- assert(if_update_candidate_allowed("0.1.8-beta.10","0.1.8-beta.2",IF_UPDATE_BETA));
- assert(!if_update_candidate_allowed("0.1.8-beta.2","0.1.8-beta.10",IF_UPDATE_BETA));
- assert(!if_update_candidate_allowed("0.1.8-beta.2","0.1.8-beta.2",IF_UPDATE_BETA));
- assert(!if_update_candidate_allowed("0.1.8-beta.1","0.1.8",IF_UPDATE_BETA));
- assert(if_update_candidate_allowed("0.1.8-beta.1","0.1.8-beta-r2",IF_UPDATE_BETA));
- assert(if_update_candidate_allowed("0.1.8-beta3-r2","0.1.8-beta3",IF_UPDATE_BETA));
- assert(if_update_candidate_allowed("0.1.7","0.1.8-beta.1",IF_UPDATE_STABLE));
- assert(!if_update_newer("0.1.7","0.1.8-beta.1"));
- assert(!if_update_candidate_allowed("0.1.7","0.1.8",IF_UPDATE_STABLE));
- assert(!if_update_candidate_allowed("0.1.7","0.1.7",IF_UPDATE_STABLE));
- assert(!if_update_candidate_allowed("0.1.7","0.1.8-beta.1",IF_UPDATE_BETA));
- assert(!if_update_candidate_allowed("0.1.8-beta.1","0.1.7",IF_UPDATE_STABLE));
- const char *invalid[]={"0.1.8-beta.0","0.1.8-beta.01","0.1.8-beta.1junk","0.1.8-beta.100000","0.1.8-test.2","0.1.8-alpha.1"};
- for(unsigned i=0;i<sizeof(invalid)/sizeof(*invalid);++i)assert(!if_update_candidate_allowed(invalid[i],"0.1.7",IF_UPDATE_BETA));
  if_update_candidate_t candidate;
  prepare_for("beta","0.1.8-beta.1");
  assert(if_update_parse_manifest_channel(manifest,strlen(manifest),IF_UPDATE_BETA,&candidate)&&candidate.channel==IF_UPDATE_BETA);
  assert(!if_update_parse_manifest(manifest,strlen(manifest),&candidate));
  prepare_for("stable","0.1.8-beta.1");assert(!if_update_parse_manifest_channel(manifest,strlen(manifest),IF_UPDATE_STABLE,&candidate));
  prepare_for("beta","0.1.8");assert(!if_update_parse_manifest_channel(manifest,strlen(manifest),IF_UPDATE_BETA,&candidate));
+ prepare_for("beta","0.2.1-beta-r2t2");
+ assert(!if_update_parse_manifest_channel(manifest,strlen(manifest),IF_UPDATE_BETA,&candidate));
  const char *disabled="{\"schema\":1,\"product\":\"if-ink-os\",\"project\":\"Read_Pico_IF\",\"layout\":\"if-16m-ota-v1\",\"channel\":\"beta\",\"available\":false}";
  assert(if_update_parse_manifest_channel(disabled,strlen(disabled),IF_UPDATE_BETA,&candidate)&&!candidate.available);
  prepare_for("beta","0.1.8-beta.1");
@@ -179,8 +188,21 @@ static void channels(void){
  assert(s_status.state==IF_UPDATE_FAILED&&!s_candidate.available&&if_update_install()==ESP_ERR_INVALID_STATE);
  strcpy(current.version,"0.1.8-beta.1");prepare_for("stable","0.1.7");
  assert(if_update_check()==ESP_OK);run_worker();
- assert(requested_channel==IF_UPDATE_STABLE&&s_status.state==IF_UPDATE_AVAILABLE&&s_status.return_to_stable);
+ assert(requested_channel==IF_UPDATE_STABLE&&s_status.state==IF_UPDATE_AVAILABLE&&s_status.downgrade);
  assert(if_update_install()==ESP_OK);run_worker();assert(s_status.state==IF_UPDATE_READY);
+ strcpy(current.version,"0.2.1-beta-r2t2");prepare_for("beta","0.2.2-beta.1");
+ assert(if_update_check_channel(IF_UPDATE_BETA)==ESP_OK);run_worker();
+ assert(s_status.state==IF_UPDATE_AVAILABLE&&!s_status.downgrade);
+ assert(if_update_install()==ESP_OK);run_worker();assert(s_status.state==IF_UPDATE_READY);
+
+ strcpy(current.version,"0.2.2-beta.2");prepare_for("beta","0.2.2-beta.1");
+ assert(if_update_check_channel(IF_UPDATE_BETA)==ESP_OK);run_worker();
+ assert(s_status.state==IF_UPDATE_AVAILABLE&&s_status.downgrade);
+ assert(if_update_install()==ESP_OK);run_worker();assert(s_status.state==IF_UPDATE_READY);
+
+ strcpy(current.version,"0.2.2-beta.1");
+ assert(if_update_check_channel(IF_UPDATE_BETA)==ESP_OK);run_worker();
+ assert(s_status.state==IF_UPDATE_CURRENT&&!s_status.downgrade&&if_update_install()==ESP_ERR_INVALID_STATE);
  assert(if_update_check_channel((if_update_channel_t)99)==ESP_ERR_INVALID_ARG);
  strcpy(current.version,"0.1.0-test.2");prepare();
 }

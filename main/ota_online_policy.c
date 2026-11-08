@@ -8,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 typedef struct {
-    unsigned parts[3], number, revision;
+    unsigned parts[3], number, revision, trial;
     bool test, beta;
 } version_t;
 static bool version_number(const char **cursor,unsigned *value){
@@ -16,6 +16,14 @@ static bool version_number(const char **cursor,unsigned *value){
     while(*s>='0'&&*s<='9'){if(n>9999)return false;n=n*10+(*s++-'0');}
     if(s==start||(s-start>1&&*start=='0')||n>99999)return false;
     *value=n;*cursor=s;return true;
+}
+static bool version_revision(const char *s,version_t *v){
+    if(!version_number(&s,&v->revision)||!v->revision)return false;
+    if(*s=='t'){
+        ++s;
+        if(!version_number(&s,&v->trial)||!v->trial)return false;
+    }
+    return !*s;
 }
 static bool version_parts(const char *s, version_t *v) {
     if(!s || strlen(s)>32)return false;
@@ -36,10 +44,13 @@ static bool version_parts(const char *s, version_t *v) {
         }
         if(*s>='1'&&*s<='9'){if(!version_number(&s,&v->number))return false;}
         else if(strncmp(s,"-r",2))return false;
-        if(!strncmp(s,"-r",2)){
-            s+=2;if(!version_number(&s,&v->revision)||!v->revision)return false;
-        }
+        if(!strncmp(s,"-r",2))return version_revision(s+2,v);
         return !*s;
+    }
+    // 早期本地测试包使用 -rNtM，仍可作为在线更新的起点。/ Older local -rNtM builds can still start an online update.
+    if(!strncmp(s,"-r",2)){
+        v->test=true;
+        return version_revision(s+2,v)&&v->trial;
     }
     if(strncmp(s,"-test.",6))return false;
     s+=6;v->test=true;
@@ -63,21 +74,22 @@ static int compare_versions(const version_t *a,const version_t *b){
     if(a->beta!=b->beta)return a->beta?1:-1;
     if(a->number!=b->number)return a->number>b->number?1:-1;
     if(a->revision!=b->revision)return a->revision>b->revision?1:-1;
+    if(a->trial!=b->trial)return a->trial>b->trial?1:-1;
     return 0;
 }
-bool if_update_newer(const char *candidate,const char *current){
-    version_t a,b;
-    if(!version_parts(candidate,&a)||a.test)return false;
-    if(legacy_current(current))return true;
-    return version_parts(current,&b)&&compare_versions(&a,&b)>0;
+static bool version_in_channel(const version_t *v,if_update_channel_t channel){
+    if(v->trial)return false;
+    return channel==IF_UPDATE_BETA?v->beta:channel==IF_UPDATE_STABLE&&!v->test;
 }
-bool if_update_candidate_allowed(const char *candidate,const char *current,if_update_channel_t channel){
-    if(channel!=IF_UPDATE_STABLE&&channel!=IF_UPDATE_BETA)return false;
+if_update_install_kind_t if_update_install_kind(const char *candidate,const char *current,if_update_channel_t channel){
     version_t a,b;
-    if(!version_parts(candidate,&a)||(channel==IF_UPDATE_BETA?!a.beta:a.test))return false;
-    if(legacy_current(current))return true;
-    if(!version_parts(current,&b))return false;
-    return compare_versions(&a,&b)>0||(channel==IF_UPDATE_STABLE&&b.beta);
+    if(!version_parts(candidate,&a)||!version_in_channel(&a,channel))return IF_UPDATE_INSTALL_NONE;
+    if(legacy_current(current))return IF_UPDATE_INSTALL_UPGRADE;
+    if(!version_parts(current,&b))return IF_UPDATE_INSTALL_NONE;
+    int order=compare_versions(&a,&b);
+    if(order>0)return IF_UPDATE_INSTALL_UPGRADE;
+    if(order<0)return IF_UPDATE_INSTALL_DOWNGRADE;
+    return IF_UPDATE_INSTALL_NONE;
 }
 static bool is_text(const cJSON *o,const char *key,const char *value){
     const cJSON *v=cJSON_GetObjectItemCaseSensitive(o,key);
@@ -104,7 +116,7 @@ bool if_update_parse_manifest_channel(const char *json,size_t length,if_update_c
     const cJSON *v=cJSON_GetObjectItemCaseSensitive(o,"version"),*n=cJSON_GetObjectItemCaseSensitive(o,"size"),
                 *sha=cJSON_GetObjectItemCaseSensitive(o,"sha256"),*id=cJSON_GetObjectItemCaseSensitive(o,"asset_id"),*blob=cJSON_GetObjectItemCaseSensitive(o,"blob_sha");
     version_t version;
-    if(!cJSON_IsString(v)||!version_parts(v->valuestring,&version)||(channel==IF_UPDATE_BETA?!version.beta:version.test)||
+    if(!cJSON_IsString(v)||!version_parts(v->valuestring,&version)||!version_in_channel(&version,channel)||
        !cJSON_IsNumber(n)||n->valuedouble<288||n->valuedouble>IF_OTA_MAX_BYTES||n->valuedouble!=(uint32_t)n->valuedouble||
        !cJSON_IsString(blob)||strlen(blob->valuestring)!=40||!cJSON_IsString(sha)||strlen(sha->valuestring)!=64||!cJSON_IsString(id)||!id->valuestring[0]||strlen(id->valuestring)>20)goto done;
     for(const char *p=id->valuestring;*p;++p)if(*p<'0'||*p>'9')goto done;

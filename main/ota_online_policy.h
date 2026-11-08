@@ -16,9 +16,10 @@ typedef struct {
 bool if_update_parse_manifest(const char *json, size_t length, if_update_candidate_t *out);
 /// 只接收所选通道及本产品的固定分区、仓库清单。/ Accept only the selected channel, product, partition layout and repository.
 bool if_update_parse_manifest_channel(const char *json, size_t length, if_update_channel_t channel, if_update_candidate_t *out);
-/// 稳定版必须严格更新；兼容旧IF编号及本地test版本。/ Require a strictly newer stable release; accept legacy IF/test current versions.
-bool if_update_newer(const char *candidate, const char *current);
-/// 所选通道的新版本；测试版允许用户明确切回较早稳定版。/ Accept newer channel releases, or an explicitly requested return from beta to an older stable release.
-bool if_update_candidate_allowed(const char *candidate, const char *current, if_update_channel_t channel);
+typedef enum {
+    IF_UPDATE_INSTALL_NONE, IF_UPDATE_INSTALL_UPGRADE, IF_UPDATE_INSTALL_DOWNGRADE,
+} if_update_install_kind_t;
+/// 所选通道可手动安装不同版本；本地测试包只能作为当前版本。/ Allow a different release on the selected channel; local test versions are valid only as the current version.
+if_update_install_kind_t if_update_install_kind(const char *candidate, const char *current, if_update_channel_t channel);
 /// 仅允许GitHub已知HTTPS资源重定向，不携带账号。/ Permit known GitHub HTTPS asset redirects without credentials.
 bool if_update_redirect_allowed(const char *url);

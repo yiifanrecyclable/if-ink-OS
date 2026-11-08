@@ -94,6 +94,9 @@ void record_store_media(bool r){
 bool record_store_ready(void){
     return ready;
 }
+uint32_t record_store_media_epoch(void){
+    return atomic_load(&epoch);
+}
 static int space_id(const char *s){
     for(unsigned i=0;i<sizeof(spaces)/sizeof(spaces[0]);++i)if(!strcmp(s,spaces[i]))return (int)i;
     return -1;

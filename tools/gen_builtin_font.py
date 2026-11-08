@@ -85,6 +85,7 @@ def scan_sources() -> str:
         elif item.is_dir():
             files.extend(item.rglob("*.c"))
             files.extend(item.rglob("*.h"))
+            files.extend(item.rglob("*.inc"))
             files.extend(item.rglob("*.md"))
             files.extend(item.rglob("*.txt"))
     for path in files:

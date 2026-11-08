@@ -20,6 +20,8 @@ unit='''#include "ota_online.h"
 #include <string.h>
 #define UI_PAGE_Y(y) ((y)-24)
 #define ui_snprintf snprintf
+#define UI_MSG(text) (text)
+#define SETTINGS_ROW_H 64
 typedef struct {int x,y,width,height;} EpdRect;
 typedef enum {APP_REDRAW_NONE,APP_REDRAW_AREA} app_redraw_t;
 static uint32_t s_online_seen;
@@ -27,14 +29,30 @@ static if_update_status_t s_online_drawn;
 static bool s_online_drawn_valid,s_online_progress_only;
 static int64_t s_online_drawn_at;
 static unsigned fills,texts;static char shown[64];
+static bool s_online_confirm;
+static if_update_status_t drawn_status;
+static char prompt[96];
+static const char *buttons[2];
+static unsigned button_count;
 static uint8_t pixels[684*1216];
 static void epd_fill_rect(EpdRect a,int gray,uint8_t *fb){
  assert(a.x>=36&&a.y>=596&&a.x+a.width<=648&&a.y+a.height<=760);++fills;
  for(int y=a.y;y<a.y+a.height;++y)memset(fb+y*684+a.x,gray,a.width);
 }
-static void online_text(uint8_t *fb,int y,const char *text){(void)fb;assert(y==716);++texts;snprintf(shown,sizeof(shown),"%s",text);}
+static void online_text(uint8_t *fb,int y,const char *text){
+ (void)fb;
+ if(y==530)snprintf(prompt,sizeof(prompt),"%s",text);
+ if(y==716){++texts;snprintf(shown,sizeof(shown),"%s",text);}
+}
+void if_update_get_status(if_update_status_t *out){*out=drawn_status;}
+static void back_header(uint8_t *fb,const char *title){(void)fb;(void)title;}
+static void row(uint8_t *fb,int y,const char *title,const char *value){(void)fb;(void)y;(void)title;(void)value;}
+static void ui_nav_draw(uint8_t *fb,int tab){(void)fb;(void)tab;}
+static void ui_draw_button(uint8_t *fb,EpdRect r,const char *label,bool disabled){
+ (void)fb;(void)r;(void)disabled;assert(button_count<2);buttons[button_count++]=label;
+}
 '''
-unit+='\n'.join(extract(n) for n in ['online_progress_rect','online_progress_draw','online_remember','online_stage_changed','online_update_rect','online_status_redraw'])
+unit+='\n'.join(extract(n) for n in ['online_action_rect','online_channel_rect','online_progress_rect','online_progress_draw','online_remember','online_stage_changed','online_update_rect','online_status_redraw','online_draw'])
 unit+='''
 int main(void){
  if_update_status_t status={.state=IF_UPDATE_DOWNLOADING,.busy=true,.revision=1,.total=100000};
@@ -63,7 +81,13 @@ int main(void){
  EpdRect area=online_progress_rect();
  for(int y=0;y<1216;++y)for(int x=0;x<684;++x)
   if(x<area.x||x>=area.x+area.width||y<area.y||y>=area.y+area.height)assert(pixels[y*684+x]==0x5a);
- puts("PASS: 5-second/changed-percent throttle, immediate stages, stable no-op and progress-only framebuffer bounds");
+ drawn_status=(if_update_status_t){.state=IF_UPDATE_AVAILABLE,.channel=IF_UPDATE_BETA,.downgrade=true};
+ online_draw(pixels);assert(button_count==1&&!strcmp(buttons[0],"安装较早版本"));
+ button_count=0;s_online_confirm=true;
+ online_draw(pixels);
+ assert(!strcmp(prompt,"确认安装较早版本？")&&button_count==2);
+ assert(!strcmp(buttons[0],"取消")&&!strcmp(buttons[1],"确认安装"));
+ puts("PASS: progress throttling, stage redraw bounds, and explicit confirmation for an earlier version");
 }
 '''
 with tempfile.TemporaryDirectory() as tmp:

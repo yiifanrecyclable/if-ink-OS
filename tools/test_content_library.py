@@ -52,19 +52,29 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
         p=subprocess.run([str(ROOT/'build/simulator/cloud-host'),*args],cwd=work,env=env,capture_output=True,text=True,timeout=30)
         assert p.returncode==0,p.stderr;result=json.loads(p.stdout);assert not result.get('error');return result
     def names(result,field):return [Path(p).name for p in result[field] if p]
-    sort_open=tap(600,92);done=tap(490,774);doc_done=tap(490,774);name=tap(200,364);progress=tap(490,364)
-    dates=tap(200,458);recent=tap(490,458);direction=tap(342,563);marked=tap(342,649);only=tap(342,735) # Retired control positions / 已取消控件的旧坐标
+    sort_open=tap(600,92);dismiss_sort=tap(630,902);name=tap(85,989);progress=tap(256,989)
+    dates=tap(427,989);recent=tap(598,989);direction=tap(342,1090)
     assert render(0,sort_open)['content_sort_open']
     assert render(0)['book_view']==0
-    # 两个排序弹窗共用外框/方向/提示/按钮几何，标题与名称语义不同。
-    # Shared popup/card/footer geometry; only semantic text and stored preferences differ.
-    render(0,sort_open);book_sort=(build/'frame.bin').read_bytes()
-    render(8,sort_open);doc_sort=(build/'frame.bin').read_bytes()
-    for y in range(220,868):
-        assert book_sort[y*342+20]==doc_sort[y*342+20]
-        assert book_sort[y*342+320]==doc_sort[y*342+320]
-    assert book_sort[736*342:812*342]==doc_sort[736*342:812*342]
-    b=render(0,events(sort_open,name,done));assert names(b,'book_items')==['Book2.txt','Book10.txt','Book20.txt']
+    # 底部卡片共用布局，保留背景、阴影和底栏。/ Both sort cards preserve and fade their own content.
+    for view,selected in ((0,85),(8,598)):
+        render(view);background=(build/'frame.bin').read_bytes()
+        render(view,sort_open);card_frame=(build/'frame.bin').read_bytes()
+        top,nav=852,1136
+        assert card_frame[nav*342:]==background[nav*342:]
+        gray=lambda v:9+(6*v+7)//15
+        lut=bytes(gray(i&15)+(gray(i>>4)<<4) for i in range(256))
+        assert card_frame[56*342:(top-7)*342]==background[56*342:(top-7)*342].translate(lut)
+        assert card_frame[(top-1)*342:top*342]!=background[(top-1)*342:top*342]
+        assert tone(card_frame,selected,1044)==0
+        assert all(tone(card_frame,x,980)<15 and tone(card_frame,x,951)==15 for x in (171,342,513))
+        assert all(tone(background,x,66)==15 for x in (538,613))
+        for outside in (tap(25,300),tap(85,1180),dismiss_sort):
+            closed=render(view,events(sort_open,outside))
+            assert not closed['content_sort_open'] and closed['route']==-1
+    b=render(0,events(sort_open,name,dismiss_sort));assert names(b,'book_items')==['Book2.txt','Book10.txt','Book20.txt']
+    rejected=render(0,events(sort_open,progress),{'PICO_TEST_NVS_SET_FAIL':'books'})
+    assert rejected['content_sort_open'] and rejected['book_sort_mode']==0
     # 旧收藏与仅看收藏位不能改标记、排序或隐藏任何图书；原记录保留。
     # Legacy favorites and filter bits never decorate/reorder/hide books; preserve their records.
     render(0);plain_book_frame=(build/'frame.bin').read_bytes()
@@ -74,7 +84,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     (build/'nvs/if_content/books').write_bytes(bytes([28]))
     old=render(0);assert names(old,'book_items')==['Book2.txt','Book10.txt','Book20.txt']
     assert (build/'frame.bin').read_bytes()==plain_book_frame
-    render(0,events(sort_open,name,done))
+    render(0,events(sort_open,progress,name,dismiss_sort))
     assert (build/'nvs/if_content/books').read_bytes()==bytes([4])
     assert favorite_file.read_bytes()==b'\1'
     # 与文件操作卡一致的边界、背景淡显、阴影和四等分短竖线。
@@ -104,12 +114,13 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     assert names(render(0),'book_items')[0]=='Book20.txt'
     unpinned=render(0,events('l,130,350,130,350',pin,close))
     assert names(unpinned,'book_items')==['Book2.txt','Book10.txt','Book20.txt']
-    assert render(8,events(sort_open,name,doc_done))['document_sort_mode']==0
+    assert render(8,events(sort_open,name,dismiss_sort))['document_sort_mode']==0
     command('progress-save','/sdcard/books/Book10.txt');command('progress-save','/sdcard/markdown/B.md')
-    b=render(0,events(sort_open,progress,done));assert b['book_sort_mode']==1
+    b=render(0,events(sort_open,progress));assert b['book_sort_mode']==1 and b['content_sort_open']
     assert names(b,'book_items')==['Book2.txt','Book20.txt','Book10.txt'], (b['book_sort_mode'],names(b,'book_items'),command('progress-load','/sdcard/books/Book10.txt'))
     # 九宫格标题与无数字横条直接验证原生像素；不使用真实TF卡。
     # Check native grid captions and number-free bars using only the private test card.
+    b=render(0)
     grid=(build/'frame.bin').read_bytes()
     geometries=b['shelf_geometry']
     for index,progress_value in ((0,0),(2,33)):
@@ -120,7 +131,8 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     cell=geometries[0];x,y,w,h=cell[10:14]
     assert any(tone(grid,xx,yy)==0 for yy in range(y+h+8,min(y+h+72,1048)) for xx in range(cell[0],cell[0]+cell[2]))
     assert render(8)['document_sort_mode']==0
-    d=render(8,events(sort_open,progress,direction,doc_done));assert names(d,'document_items')[0]=='B.md'
+    d=render(8,events(sort_open,progress,direction,dismiss_sort));assert names(d,'document_items')[0]=='B.md'
+    d=render(8,events(sort_open,progress));assert names(d,'document_items')[0]=='B.md' and d['content_sort_open']
     assert render(0)['book_sort_mode']==1
     added_records=list((card/'.readpico/records/if_content').glob('a_*.[ab]'))
     assert len(added_records)==3
@@ -136,13 +148,13 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
         struct.pack_into('<I',raw,16,0)
         struct.pack_into('<I',raw,16,zlib.crc32(raw))
         p.write_bytes(raw)
-    b=render(0,events(sort_open,dates,done));assert b['book_sort_mode']==2 and names(b,'book_items')==['Book20.txt','Book10.txt','Book2.txt']
+    b=render(0,events(sort_open,dates,dismiss_sort));assert b['book_sort_mode']==2 and names(b,'book_items')==['Book20.txt','Book10.txt','Book2.txt']
     for filename,date in [('A.md','2026-01-01'),('B.md','2026-02-01'),('C.md','2026-03-01')]:
         meta=card/'markdown/.index'/f'{filename}.pico';lines=meta.read_text().splitlines();lines[1]=date;meta.write_text('\n'.join(lines)+'\n')
-    assert names(render(8,events(sort_open,dates,doc_done)),'document_items')[0]=='C.md'
+    assert names(render(8,events(sort_open,dates,dismiss_sort)),'document_items')[0]=='C.md'
     command('progress-save','/sdcard/books/Book2.txt')
-    b=render(0,events(sort_open,recent,done));assert names(b,'book_items')[0]=='Book2.txt'
-    render(8,events(sort_open,name,doc_done))
+    b=render(0,events(sort_open,recent,dismiss_sort));assert names(b,'book_items')[0]=='Book2.txt'
+    render(8,events(sort_open,name,dismiss_sort))
     assert render(0,tap(539,92))['book_view']==6
     assert render(8,tap(539,92))['book_view']==6
     assert render(0,'t,539,92,614,92')['book_view']==0
@@ -192,8 +204,8 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     assert b['book_view']==0 and len(names(b,'book_items'))==3
     assert render(9,tap(342,1144))['book_view']==8
     assert render(4,tap(342,1144))['book_view']==0
-    d=render(8,events(sort_open,marked,only,doc_done));assert names(d,'document_items')==['C.md','A.md','B.md']
-    assert d['document_count']==3 and not d['document_starred_only']
+    d=render(8,events(sort_open,tap(342,649),tap(342,735)));assert names(d,'document_items')==['C.md','A.md','B.md']
+    assert d['document_count']==3 and not d['document_starred_only'] and not d['content_sort_open']
     clear=events(tap(340,542),tap(342,1051))
     assert render(9,clear)['document_batch_confirm']
     assert command('progress-load','/sdcard/markdown/B.md')['present']
@@ -218,7 +230,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     assert not (card/'markdown/A.md').exists() and not (card/'markdown/attachments/shared.png').exists()
     assert (card/'markdown/C.md').exists() and all((card/'books'/n).exists() for n in ('Book2.txt','Book10.txt','Book20.txt'))
     for i in range(7):(card/'markdown'/f'D{i}.md').write_text(f'# D{i}\n\nText\n')
-    d=render(9,events(tap(340,350),'u,340,900,340,350',tap(340,350),tap(342,251),name,direction,doc_done))
+    d=render(9,events(tap(340,350),'u,340,900,340,350',tap(340,350),tap(342,251),name,direction,dismiss_sort))
     assert d['document_selected_count']==2 and d['book_view']==9
     assert render(8)['document_sort_mode']==0 and render(0)['book_sort_mode']==3
     assert render(9,tap(550,1144))['reader_page']==1
@@ -233,9 +245,9 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     # 单篇删除取消、失败和重试仍保护其他正文及插图。/ Single-item delete cancellation and retry preserve unrelated content.
     shutil.copyfile(image,card/'markdown/attachments/single-only.png')
     single_path=card/'markdown/DeleteTest.md';single_path.write_text('# Delete test\n\n![own](attachments/single-only.png)\n')
-    render(8,events(sort_open,name,doc_done))
+    render(8,events(sort_open,dates,name,dismiss_sort))
     single_open='l,340,866,340,866';single_delete=events(single_open,delete_item,confirm_action)
-    cancelled=render(8,events(sort_open,name,doc_done,single_open,delete_item,cancel_action,close))
+    cancelled=render(8,events(sort_open,name,dismiss_sort,single_open,delete_item,cancel_action,close))
     assert single_path.exists() and not cancelled['document_menu']
     single_checkpoint=work/'single-checkpoint';shutil.copytree(card,single_checkpoint/'card');shutil.copytree(build/'nvs',single_checkpoint/'nvs')
     failed=render(8,single_delete,fail_progress_write_once('/sdcard/markdown/DeleteTest.md'))

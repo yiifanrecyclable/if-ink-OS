@@ -1,8 +1,8 @@
 # if-ink OS
 
-**稳定版 v0.2.0 · 测试版 v0.2.2-beta.1** · 支持 Markdown 文档的 Pico 固件。仅适用 MindReset Read Pico RDP-G01-W。
+**稳定版 v0.2.0 · 测试版 v0.2.2-beta.2** · 支持 Markdown 文档的 Pico 固件。仅适用 MindReset Read Pico RDP-G01-W。
 
-[在线刷机与下载](https://yiifanrecyclable.github.io/if-ink-OS/) · [版本与离线包](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.0) · [测试版下载](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.2-beta.1) · [安装说明](docs/安装说明.md) · [构建与重新链接](BUILDING.md)
+[在线刷机与下载](https://yiifanrecyclable.github.io/if-ink-OS/) · [版本与离线包](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.0) · [测试版下载](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.2-beta.2) · [安装说明](docs/安装说明.md) · [构建与重新链接](BUILDING.md)
 
 - EPUB、TXT、Markdown 离线阅读，支持图片与文字混排、表格、标题字号、粗体、斜体与高亮。
 - 坚果云 WebDAV 获取文件列表，按需下载 MD/TXT/EPUB，保存到 TF 卡。

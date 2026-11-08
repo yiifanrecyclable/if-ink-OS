@@ -58,16 +58,22 @@ with tempfile.TemporaryDirectory(prefix='books-batch-', dir=ROOT/'build') as tmp
     state,original=render()
     ay,by=(row_y(state,f'/sdcard/books/{name}') for name in ('A.txt','B.epub'))
     a,b=tap(150,ay),tap(625,by)
-    footer=tap(342,1105)
+    footer=tap(405,1086)
+    assert tone(original,405,1062)==9
+    assert render(footer)[0]['files_view']==0
     one,checked=render(a)
     assert one['route']==-1 and one['files_batch_count']==1 and one['files_view']==0
     assert tone(original,625,ay)==15 and tone(checked,625,ay)<15
-    assert render(events(a,footer))[0]['files_view']==0
+    assert tone(checked,405,1062)==0
+    one_sheet,_=render(events(a,footer))
+    assert one_sheet['files_view']==1 and one_sheet['files_batch_count']==1
+    cross_page,_=render(events(a,tap(626,1086),footer))
+    assert cross_page['files_view']==1 and cross_page['files_page']==1 and cross_page['files_batch_count']==1
     selected=events(a,b)
     selection,background=render(selected)
     assert selection['files_batch_count']==2 and selection['files_batch_bytes']==6144
-    assert tone(background,342,1082)==0
-    assert render(events(selected,b,footer))[0]['files_view']==0
+    assert tone(background,405,1062)==0
+    assert render(events(selected,b,footer))[0]['files_view']==1
     modal=events(selected,footer)
     sheet,foreground=render(modal)
     top=sheet['files_batch_top']
@@ -126,4 +132,6 @@ with tempfile.TemporaryDirectory(prefix='books-batch-', dir=ROOT/'build') as tmp
     rows=[row_y(nested,f'/sdcard/books/Sub/{name}') for name in ('One.txt','Two.txt')]
     result,_=render(events(*(tap(150,y) for y in rows),footer,delete,delete),'/sdcard/books/Sub')
     assert result['files_notice']=='成功 2 个，失败 0 个' and not list((card/'books/Sub').iterdir())
+    empty,empty_frame=render(footer,'/sdcard/books/Sub')
+    assert empty['files_view']==0 and tone(empty_frame,405,1062)==9
 print('PASS books-only checkboxes, cross-page selection, batch sheet, guarded move/delete, progress, and collision safety')

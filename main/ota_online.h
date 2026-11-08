@@ -26,7 +26,7 @@ typedef struct {
     if_update_state_t state; ///< 当前阶段 / Current phase
     bool busy; ///< 包含任务及联网收尾 / Includes worker and network teardown
     if_update_channel_t channel; ///< 本次检查绑定的通道，默认稳定版 / Channel bound to this check; stable by default
-    bool return_to_stable; ///< 需明确确认的测试版回退 / Explicitly confirmed return from a newer beta
+    bool downgrade; ///< 可手动安装的较早版本 / Earlier version available for manual installation
     uint32_t revision, received, total;
     char current[33], version[33], message[128];
 } if_update_status_t;

@@ -20,6 +20,8 @@ esp_err_t document_store_validate(const char *staging_path);
 /// Import a staged WiFi MD through the same transaction; grayscale PNGs must already exist in attachments.
 esp_err_t document_store_import_local(const char *staging_path, const char *destination);
 esp_err_t document_store_scan(document_entry_t **entries, size_t *count);
+/// 文档入库变更代号，独立于图书清单。/ Document import revision, independent of the book catalog.
+unsigned document_store_revision(void);
 esp_err_t document_store_refresh(const char *path, bool *changed);
 esp_err_t document_store_delete(const char *path);
 /// 本机文档目录与移动，保留根目录同步契约。/ Local document paths and moves, preserving the flat sync contract.

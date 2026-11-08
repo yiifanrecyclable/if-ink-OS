@@ -647,20 +647,24 @@ static void file_detail(char *dst, size_t cap, const file_item_t *item) {
     else if (item->size >= 1024) ui_snprintf(dst, cap, "%.1f KB", item->size / 1024.0);
     else ui_snprintf(dst, cap, "%lld B", (long long)item->size);
 }
-static EpdRect batch_button_rect(void){return(EpdRect){222,UI_NAV_PAGER_TOP+34,240,48};}
+enum { FILE_PAGER_LABEL_WIDTH=106, FILE_PAGER_GAP=20, FILE_ACTION_WIDTH=206 };
+static EpdRect batch_button_rect(void){
+    int left=(UI_LOCK_WIDTH-FILE_PAGER_LABEL_WIDTH-FILE_PAGER_GAP-FILE_ACTION_WIDTH)/2;
+    return(EpdRect){left+FILE_PAGER_LABEL_WIDTH+FILE_PAGER_GAP,UI_NAV_PAGER_TOP+14,FILE_ACTION_WIDTH,48};
+}
 static void draw_batch_footer(uint8_t *fb,int pages){
-    if(pages>1){
-        char position[24];ui_snprintf(position,sizeof(position),"%02d/%02d",s_page+1,pages);
-        ui_text_fixed_vc(fb,342,UI_NAV_PAGER_TOP+12,22,position,EPD_DRAW_ALIGN_CENTER,false);
-        int y=UI_NAV_PAGER_TOP+38;
-        ui_draw_icon(fb,58,y,28,UI_ICON_CHEVRON_LEFT,s_page?0:0x90);
-        ui_draw_icon(fb,626,y,28,UI_ICON_CHEVRON_RIGHT,s_page+1<pages?0:0x90);
-    }
     EpdRect r=batch_button_rect();
-    const char *label=UI_MSG("批量操作");
-    ui_draw_round_rect(fb,r,18,UI_GRAY_BLACK);
-    int px=ui_text_fit_px(UI_TEXT_BODY,label,r.width-20,r.height-14);
-    ui_text_fixed_vc(fb,342,r.y+r.height/2,px,label,EPD_DRAW_ALIGN_CENTER,false);
+    int y=r.y+r.height/2;
+    char position[24];
+    ui_snprintf(position,sizeof(position),"%02d/%02d",s_page+1,pages);
+    int page_px=ui_text_fit_px(UI_TEXT_CAPTION,position,FILE_PAGER_LABEL_WIDTH,36);
+    ui_text_fixed_vc(fb,r.x-FILE_PAGER_GAP-FILE_PAGER_LABEL_WIDTH/2,y,page_px,position,EPD_DRAW_ALIGN_CENTER,false);
+    ui_draw_icon(fb,58,y,28,UI_ICON_CHEVRON_LEFT,s_page?UI_GRAY_BLACK:UI_GRAY_LIGHT);
+    ui_draw_icon(fb,626,y,28,UI_ICON_CHEVRON_RIGHT,s_page+1<pages?UI_GRAY_BLACK:UI_GRAY_LIGHT);
+    const char *label=s_batch_count>1?UI_MSG("批量操作"):UI_MSG("操作");
+    ui_draw_round_rect(fb,r,18,s_batch_count?UI_GRAY_BLACK:UI_GRAY_LIGHT);
+    int px=ui_text_fit_px(UI_TEXT_BODY,UI_MSG("批量操作"),r.width-20,r.height-14);
+    ui_text_fixed_vc_gray(fb,r.x+r.width/2,y,px,label,EPD_DRAW_ALIGN_CENTER,s_batch_count?UI_INK_BLACK:9,UI_INK_WHITE);
 }
 static void draw_file_checkbox(uint8_t *fb,int y,bool checked){
     if(checked){
@@ -818,7 +822,7 @@ static void font_preview_sample(void *ctx){
         while(px>FONT_PREVIEW_MIN&&ttf_text_width_px(px,lines[i])>612)--px;
         ttf_measure_line_px(px,lines[i],&above,&below);
         ttf_draw_text_px(fb,342,310+drawn*116+(above-below)/2,px,lines[i],
-                         EPD_DRAW_ALIGN_CENTER,UI_GRAY_BLACK,UI_GRAY_WHITE);
+                         EPD_DRAW_ALIGN_CENTER,UI_INK_BLACK,UI_INK_WHITE);
         ++drawn;
     }
 }
@@ -918,7 +922,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             ui_text(fb, 182,UI_PAGE_Y(897), 24, UI_MSG("取消移动"), EPD_DRAW_ALIGN_CENTER, false);
             ui_text(fb, 501,UI_PAGE_Y(897), 24, UI_MSG("移动到此处"), EPD_DRAW_ALIGN_CENTER, false);
         }
-        if(kind&&s_batch_count>=2)draw_batch_footer(fb,(s_count+visible_rows()-1)/visible_rows());
+        if(kind)draw_batch_footer(fb,s_count?(s_count-1)/visible_rows()+1:1);
         else if(s_count>visible_rows()){
             int pages=(s_count+visible_rows()-1)/visible_rows();
             if(!s_picker)ui_nav_draw_pager(fb,s_count,UI_MSG("项"),s_page,pages);
@@ -1348,6 +1352,15 @@ static app_redraw_t picker_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev){
     return APP_REDRAW_NONE;
 }
 
+static app_redraw_t open_file_actions(const file_item_t *item){
+    s_selected=*item;
+    probe_wallpaper_action();
+    s_view=FILE_VIEW_ACTIONS;
+    s_confirm=FILE_CONFIRM_NONE;
+    s_message[0]=0;
+    return APP_REDRAW_PAGE;
+}
+
 static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     s_now_ms=ctx->now_ms;
     if (s_view == FILE_VIEW_ACTIONS) return action_gesture(ctx, ev);
@@ -1407,7 +1420,9 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
             } else s_folder = -1;
             return APP_REDRAW_PAGE;
         }
-        if(!long_press&&batch_kind()&&s_batch_count>=2&&file_tapped(batch_button_rect(),ev)){
+        if(!long_press&&batch_kind()&&file_tapped(batch_button_rect(),ev)){
+            if(!s_batch_count)return APP_REDRAW_NONE;
+            if(s_batch_count==1)return open_file_actions(&s_batch_items[0]);
             s_batch_delete=false;s_view=FILE_VIEW_BATCH;return APP_REDRAW_PAGE;
         }
         int row = (int)(ev->y0 - UI_PAGE_Y(214)) / file_row_height();
@@ -1418,11 +1433,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         }
         int index = s_page * visible_rows() + row;
         if (inside && row >= 0 && row < visible_rows() && index < s_count) {
-            if (long_press) {
-                s_selected = s_files[index];probe_wallpaper_action(); s_view = FILE_VIEW_ACTIONS;
-                s_confirm = FILE_CONFIRM_NONE; s_message[0] = 0;
-                return APP_REDRAW_PAGE;
-            }
+            if (long_press) return open_file_actions(&s_files[index]);
             if (s_folder == 3 && s_files[index].is_dir) {
                 if (strlen(s_files[index].path) >= sizeof(s_dir)) {
                     file_notice(UI_MSG("目录路径过长")); return APP_REDRAW_PAGE;

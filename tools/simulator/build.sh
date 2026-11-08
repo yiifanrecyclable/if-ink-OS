@@ -36,8 +36,13 @@ _binary_loading_4bpp_bin_start:
 .incbin "$PWD/main/assets/loading_4bpp.bin"
 EOF
 flags=(-DPICO_HOST_SIMULATOR=1 -DCJSON_NESTING_LIMIT=16)
+timing_sources=()
 if [[ "${SANITIZE:-0}" == 1 ]]; then flags=(-DPICO_HOST_SIMULATOR=1 -DCJSON_NESTING_LIMIT=16 -fsanitize=address,undefined -fno-omit-frame-pointer -g); fi
 if [[ "${BANNER_LAYER_TEST:-0}" == 1 ]]; then flags+=(-DIFINK_BANNER_LAYER_TEST=1); fi
+if [[ "${DOCUMENT_TIMING_TEST:-0}" == 1 ]]; then
+    flags+=(-DSHELF_PERF_HOST_TEST=1)
+    timing_sources=(main/shelf_perf.c)
+fi
 cc "${flags[@]}" -std=gnu11 -Wall -Wextra -Werror -Wno-deprecated-declarations -c tools/simulator/vendor/cjson/cJSON.c -o build/simulator/cJSON-render.o
 cc "${flags[@]}" "-DPICO_SIM_CARD_PATH=\"$card\"" -std=gnu11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-parameter \
     -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -ffunction-sections -fdata-sections \
@@ -55,5 +60,5 @@ cc "${flags[@]}" "-DPICO_SIM_CARD_PATH=\"$card\"" -std=gnu11 -D_DEFAULT_SOURCE -
     main/settings.c main/file_references.c main/wallpaper_preferences.c main/sleep_resume.c main/power/battery_history.c main/font/app_font_context.c main/font/ui_font.c main/ui/ui_kit.c main/ui/ui_i18n.c main/ui/ui_text_input.c main/ui/ui_pinyin.c main/ui/ui_nav.c main/ui/ui_lunar.c main/ui/ui_banner.c main/ui/ui_nav_icons.c main/ui/datamatrix.c \
     main/ui/ui_image_dither.c main/ui/ui_wallpaper.c main/ui/ui_wallpaper_rotation.c \
     main/book/book_layout.c main/book/reader_input.c main/book/markdown_table.c main/book/html_text.c main/book/markdown_text.c components/md4c/md4c.c main/cloud/cloud_protocol.c \
-    build/simulator/font.S -lm -lz -lexpat -framework CoreFoundation -framework CoreGraphics -framework ImageIO -Wl,-dead_strip -o "$output"
-mv "$output" build/simulator/render
+    ${timing_sources[@]+"${timing_sources[@]}"} build/simulator/font.S -lm -lz -lexpat -framework CoreFoundation -framework CoreGraphics -framework ImageIO -Wl,-dead_strip -o "$output"
+mv "$output" "${PICO_SIM_OUTPUT:-build/simulator/render}"

@@ -11,6 +11,7 @@ static const struct {const char *zh,*en;} catalog[]={
 int main(void){
  char key[512],out[512];
  for(unsigned i=0;i<sizeof(catalog)/sizeof(catalog[0]);++i){
+  if(i)assert(strcmp(catalog[i-1].zh,catalog[i].zh)<0);
   snprintf(key,sizeof(key),"\036%s\037",catalog[i].zh);
   ui_i18n_set_english(false);assert(!strcmp(ui_message(key),catalog[i].zh));
   ui_i18n_set_english(true);assert(!strcmp(ui_message(key),catalog[i].en));

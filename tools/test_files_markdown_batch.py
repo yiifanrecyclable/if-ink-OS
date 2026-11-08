@@ -56,10 +56,12 @@ with tempfile.TemporaryDirectory(prefix='markdown-batch-',dir=ROOT/'build') as t
     initial=render()
     a_row,b_row=(row(initial,f'{root}/{name}.md') for name in ('A','B'))
     pick_a,pick_b=tap(150,a_row),tap(625,b_row)
-    footer,move,delete=tap(342,1105),tap(182,1080),tap(500,1080)
+    footer,move,delete=tap(405,1086),tap(182,1080),tap(500,1080)
+    assert render(footer)['files_view']==0
     single=render(f'l,150,{a_row},150,{a_row}')
     assert single['files_view']==1
     assert render(pick_a)['files_view']==0 and render(pick_a)['route']==-1
+    assert render(events(pick_a,footer))['files_view']==1
     second_page=events(pick_a,tap(626,1086),tap(625,190+initial['files_row_height']//2),footer)
     assert render(second_page)['files_view']==6 and render(second_page)['files_batch_count']==2
     modal=events(pick_a,pick_b,footer)

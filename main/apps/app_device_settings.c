@@ -66,8 +66,10 @@
 
 #ifdef IFINK_INKBUDDY
 #define SETTINGS_FIRMWARE_LABEL "v0.2.1 beta r2t2"
+#elif defined(IFINK_DOCUMENT_TIMING)
+#define SETTINGS_FIRMWARE_LABEL "v0.2.2 beta r1t1"
 #else
-#define SETTINGS_FIRMWARE_LABEL "v0.2.2 beta"
+#define SETTINGS_FIRMWARE_LABEL "v0.2.2 beta 2"
 #endif
 
 static void fit_value(char *value, int width);
@@ -584,7 +586,7 @@ static void online_remember(const if_update_status_t *status){
 }
 static bool online_stage_changed(const if_update_status_t *status){
     return !s_online_drawn_valid||status->state!=s_online_drawn.state||status->busy!=s_online_drawn.busy||
-        status->channel!=s_online_drawn.channel||status->return_to_stable!=s_online_drawn.return_to_stable||
+        status->channel!=s_online_drawn.channel||status->downgrade!=s_online_drawn.downgrade||
         status->total!=s_online_drawn.total||strcmp(status->message,s_online_drawn.message)||
         strcmp(status->current,s_online_drawn.current)||strcmp(status->version,s_online_drawn.version);
 }
@@ -609,7 +611,7 @@ static void online_draw(uint8_t *fb){
     row(fb,UI_PAGE_Y(210),UI_MSG("当前版本"),status.current);
     row(fb,UI_PAGE_Y(330),UI_MSG("可用版本"),status.version[0]?status.version:"—");
     row(fb,online_channel_rect().y,UI_MSG("更新通道"),status.channel==IF_UPDATE_BETA?UI_MSG("测试版 ›"):UI_MSG("稳定版 ›"));
-    online_text(fb,530,s_online_confirm?(status.return_to_stable?UI_MSG("确认切回稳定版？"):UI_MSG("确认安装这个版本？")):status.message);
+    online_text(fb,530,s_online_confirm?(status.downgrade?UI_MSG("确认安装较早版本？"):UI_MSG("确认安装这个版本？")):status.message);
     online_progress_draw(fb,&status);
     online_remember(&status);
     online_text(fb,846,UI_MSG("安装期间请保持供电"));
@@ -617,7 +619,7 @@ static void online_draw(uint8_t *fb){
         ui_draw_button(fb,(EpdRect){36,UI_PAGE_Y(990),294,88},UI_MSG("取消"),false);
         ui_draw_button(fb,(EpdRect){354,UI_PAGE_Y(990),294,88},UI_MSG("确认安装"),false);
     }else ui_draw_button(fb,online_action_rect(),status.state==IF_UPDATE_READY?UI_MSG("立即重启"):
-        status.busy?UI_MSG("取消"):status.state==IF_UPDATE_AVAILABLE?(status.return_to_stable?UI_MSG("切回稳定版"):UI_MSG("安装新版本")):UI_MSG("检查更新"),false);
+        status.busy?UI_MSG("取消"):status.state==IF_UPDATE_AVAILABLE?(status.downgrade?UI_MSG("安装较早版本"):UI_MSG("安装新版本")):UI_MSG("检查更新"),false);
     ui_nav_draw(fb,3);
 }
 

@@ -106,7 +106,9 @@ static void simulator_settle_covers(app_ctx_t *ctx){
 size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char *path,const char *events){
  if(panel==6||panel==8)panel=READER_PANEL_TOOLS;
  if(panel==10)panel=READER_PANEL_SHORTCUTS;
- app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);scan_shelf(&ctx);scan_documents(&ctx);s_scan_pending=false;
+ shelf_perf_init();
+ app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);scan_shelf(&ctx);s_scan_pending=false;
+ if(view==DOCUMENTS||view==DOCUMENT_BULK)ensure_documents(&ctx);
  // -1只表示阅读续读；列表页必须从非负页码开始。/ -1 requests reader resume; list pages must start at a nonnegative index.
  ctx.leaf=(view!=READING&&view!=TOC)?(page<0?0:page):0;
  if(view==READING||view==TOC){
@@ -136,6 +138,8 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  // Each host frame is a separate process; persist its current position to model the hardware leave-page save boundary.
  if(s_text&&(s_view==READING||s_view==TOC))save_progress();
  simulator_settle_covers(&ctx);render(&ctx,fb);
+ shelf_perf_finish();
+ shelf_perf_poll(true);
  if(ctx.request_app)simulator_route=app_index_of(ctx.request_app);
  simulator_toc_jump=s_toc_jump_open;simulator_book_view=s_view;simulator_reader_panel=s_reader_panel;simulator_reader_fullscreen=s_reader_fullscreen;simulator_reader_page=s_view==READING?s_page:ctx.leaf;simulator_reader_px=s_px;
  size_t pages=s_view==READING?book_layout_page_count():(size_t)leaves();

@@ -11,9 +11,9 @@ Stable feed: `ota/stable.json`; beta feed: `ota/beta.json`. Entering the updater
 
 Repository ID survives renames. The retained `Read_Pico_IF` image identity and two-slot layout preserve compatibility. Application-only OTA does not alter the bootloader, partition table or user data. HTTPS, image identity, size, SHA256 and ESP-IDF image validation precede activation. Repository content-addressed downloads are preferred over the Release CDN, with bounded transfer recovery using the release asset as a fallback. SHA256 detects corruption; the release account and HTTPS feed remain the trust boundary. No separate signing key is introduced. The simulator never installs firmware.
 
-稳定版使用严格递增版本。测试版使用 `0.1.8-beta.1`、`0.1.8-beta.2` 等编号；同一基础版本的正式版高于测试版。已安装测试版的用户可以手动选择稳定通道返回较早稳定版，界面明确提示版本号降低并再次确认；已安装正式版时不提供旧稳定版或旧测试版。此功能不会自动降级或清除用户数据；测试版新增的数据结构需保持与当前稳定版兼容，不能承诺任意未来测试版的数据都可无损回退。
+测试版使用 `0.1.8-beta.1`、`0.1.8-beta.2` 等编号，同一基础版本的正式版高于测试版。用户可以手动安装所选通道当前提供的版本。同版显示无需升级，较早版本会显示「安装较早版本」并要求确认。本地测试后缀（如 `-beta-r2t2`）可作为设备当前版本识别。更新不会自动降级或清除用户数据，测试版新增的数据结构需保持与当前稳定版兼容。
 
-Stable versions advance strictly. Betas use `0.1.8-beta.1`, `0.1.8-beta.2`, etc.; the final release supersedes its betas. An installed beta may return to an earlier stable release only through an explicitly confirmed stable-channel installation. Installed final releases cannot move to older stable or beta versions. Updates never auto-downgrade or erase data. Beta data formats must remain compatible with the current stable release; arbitrary future format rollback is not guaranteed.
+Betas use versions such as `0.1.8-beta.1` and `0.1.8-beta.2`. A final release sorts above its own betas. The user may manually install the version offered by the selected channel. An equal version is already current, and an earlier version has a separate install prompt and requires confirmation. The updater recognizes local test suffixes such as `-beta-r2t2` on the running image. Updates never auto-downgrade or erase data. Beta data formats must remain compatible with the current stable release.
 
 ## 发布稳定版 / Publishing stable releases
 

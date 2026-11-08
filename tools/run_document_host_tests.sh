@@ -7,7 +7,7 @@ mkdir -p build/document-tests
 cc -DPICO_HOST_SIMULATOR=1 "-DPICO_SIM_CARD_PATH=\"$(dirname "$PWD")/TF卡\"" \
  -std=gnu11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-function -Wno-unused-parameter \
  -g -fsanitize=address,undefined -fno-omit-frame-pointer -include tools/simulator/fs.h \
- -Itools/simulator/include -Imain/book -Icomponents/md4c \
+ -Itools/simulator/include -Imain -Imain/book -Icomponents/md4c \
  tools/document_host_test.c tools/simulator/fs.c tools/simulator/nvs.c \
  main/book/document_store.c main/book/document_image.c main/book/book_markdown.c main/book/book_title.c \
  main/book/book_progress.c main/book/book_progress_kv.c main/book/record_store.c main/book/markdown_text.c main/book/html_text.c components/md4c/md4c.c \

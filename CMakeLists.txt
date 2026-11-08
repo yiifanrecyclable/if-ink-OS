@@ -6,10 +6,16 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 # "Trim" the build. Include the minimal set of components, main, and anything it depends on.
 idf_build_set_property(MINIMAL_BUILD ON)
 option(IFINK_INKBUDDY "Build the local inkbuddy r2t2 test firmware" OFF)
-set(PROJECT_VER "0.2.2-beta.1")
+option(IFINK_DOCUMENT_TIMING "Build the local document timing test firmware" OFF)
+set(PROJECT_VER "0.2.2-beta.2")
 # 由同一开关派生版本和功能。/ Derive both the version and the feature from the same option.
+if(IFINK_DOCUMENT_TIMING AND IFINK_INKBUDDY)
+    message(FATAL_ERROR "Choose one local firmware test")
+endif()
 if(IFINK_INKBUDDY)
     set(PROJECT_VER "0.2.1-beta-r2t2")
+elseif(IFINK_DOCUMENT_TIMING)
+    set(PROJECT_VER "0.2.2-beta-r1t1")
 endif()
 if(DEFINED CACHE{PROJECT_VER} AND
    (IFINK_INKBUDDY OR "$CACHE{PROJECT_VER}" MATCHES "-r2t"))

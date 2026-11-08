@@ -4,7 +4,15 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
-## 0.2.2 beta / 2026-11-08
+## 0.2.2 beta 2 / 2026-11-08
+
+- 图书与文档之间切换时复用同一张 TF 卡上未变化的文档清单。阅读返回时更新刚读文档的进度和排序。/ Reuse the unchanged document list when switching tabs, and refresh only the document just read on return.
+- 内容页搜索和排序使用无框图标。排序改用底部卡片，选择后立即保存并生效。/ Use borderless Content icons and a bottom sort card that applies choices immediately.
+- 存储卡管理的书籍与文档目录常驻操作按钮，与页码并排，按勾选数量打开单项或批量操作。/ Keep a fixed-width action button beside the page number in book and document folders.
+- 修复部分按钮两侧的叉框，以及字体预览笔画边缘发虚。/ Fix stray boxes beside some labels and incorrect antialiasing in font previews.
+- 在线升级识别本地测试版本号，允许用户确认安装所选通道提供的较早版本。/ Recognize local test versions and allow confirmed installation of an earlier version offered by the selected channel.
+
+## 0.2.2 beta 1 / 2026-11-08
 
 - 存储卡管理的 books 与 markdown 目录及其子目录共用跨页勾选和批量移动、删除。长按仍打开单文件操作。Markdown 在本机目录树内移动时保留共享插图与阅读记录，云端仍按根目录文件名入库。/ Select books or Markdown files across pages in Storage for batch moves and deletes. Long-press for single-file actions. Local Markdown moves retain shared images and reading records, and cloud imports still use root filenames.
 - 存储卡管理中点按字体先预览，滑块只改变预览字号，系统、书籍和文档字体可独立设置。移动或删除在用字体前会提示，完成后相关字体恢复默认。文件页左上统一使用 ×。/ Preview fonts in Storage and set the system, book and document faces independently. The slider changes only the sample. Moving or deleting a font in use prompts for confirmation and resets the affected choices. Storage pages use a common close icon.

@@ -8,7 +8,14 @@
 #include "esp_app_desc.h"
 #include "settings.h"
 #include "read_pico_transfer.h"
-const esp_app_desc_t *esp_app_get_description(void){static const esp_app_desc_t desc={.version="0.1.7",.project_name="Read_Pico_IF"};return &desc;}
+const esp_app_desc_t *esp_app_get_description(void){
+#ifdef SHELF_PERF_HOST_TEST
+    static const esp_app_desc_t desc={.version="0.2.2-beta-r1t1",.project_name="Read_Pico_IF"};
+#else
+    static const esp_app_desc_t desc={.version="0.1.7",.project_name="Read_Pico_IF"};
+#endif
+    return &desc;
+}
 esp_err_t pico_ota_inspect(const char *path,pico_ota_info_t *info){memset(info,0,sizeof(*info));snprintf(info->current_version,sizeof(info->current_version),"%s",esp_app_get_description()->version);snprintf(info->message,sizeof(info->message),"模拟器不安装固件，请在 Pico 上检查升级包");return ESP_ERR_NOT_SUPPORTED;}
 esp_err_t pico_ota_install(const char *path,char *message,size_t size){snprintf(message,size,"请在 Pico 上安装 IF Edition 升级包");return ESP_ERR_NOT_SUPPORTED;}
 void pico_ota_confirm_running(void){}

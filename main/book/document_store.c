@@ -17,6 +17,8 @@
 #include "sync_file_policy.h"
 #include "nvs.h"
 #include "record_store.h"
+#include "shelf_perf.h"
+#include "esp_timer.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -392,7 +394,9 @@ esp_err_t document_store_validate(const char *path) {
     html_text_free(&text);
     return e;
 }
-static esp_err_t refresh_at(const char *path, bool *changed, const char *first_date) {
+typedef struct { int64_t body_us, assets_us; } document_verify_time_t;
+static esp_err_t refresh_at(const char *path, bool *changed, const char *first_date,
+                            document_verify_time_t *timing) {
     if (changed)
         *changed = false;
     if (!allowed(path)&&!document_store_local_path(path))
@@ -403,7 +407,13 @@ static esp_err_t refresh_at(const char *path, bool *changed, const char *first_d
     digest_t hash;
     digest_init(&hash);
     html_text_t t = {0};
+    int64_t start=timing?esp_timer_get_time():0;
     esp_err_t e = parse_file(path, &t, &hash);
+    if(timing){
+        int64_t now=esp_timer_get_time();
+        timing->body_us+=now-start;
+        start=now;
+    }
     for (size_t i = 0; e == ESP_OK && i < t.image_count; i++) {
         char p[512];
         if (!markdown_attachment_path(path, t.images[i], p, sizeof(p)) || !hash_asset(&hash, p))
@@ -412,6 +422,7 @@ static esp_err_t refresh_at(const char *path, bool *changed, const char *first_d
             digest_update(&hash, t.images[i], strlen(t.images[i]) + 1);
         }
     }
+    if(timing)timing->assets_us+=esp_timer_get_time()-start;
     uint8_t digest[32];
     if (!digest_finish(&hash, digest))
         e = ESP_FAIL;
@@ -486,7 +497,7 @@ static esp_err_t refresh_at(const char *path, bool *changed, const char *first_d
 }
 esp_err_t document_store_refresh(const char *path, bool *changed) {
     esp_err_t e = document_store_sync_recover();
-    return e == ESP_OK ? refresh_at(path, changed, NULL) : e;
+    return e == ESP_OK ? refresh_at(path, changed, NULL, NULL) : e;
 }
 static bool remove_index(const char *path){
     char sibling[520];
@@ -526,11 +537,11 @@ static int by_name(const void *a, const void *b) {
         return x->pinned ? -1 : 1;
     return strcmp(x->name, y->name);
 }
-typedef struct {document_entry_t **entries;size_t *count,capacity;} document_scan_t;
+typedef struct {document_entry_t **entries;size_t *count,capacity;document_verify_time_t *timing;} document_scan_t;
 static esp_err_t scan_document(const char *path,const struct stat *st,void *context){
     document_scan_t *scan=context;
     if(st->st_size<0||(uint64_t)st->st_size>UINT32_MAX)return ESP_OK;
-    (void)refresh_at(path,NULL,NULL);
+    (void)refresh_at(path,NULL,NULL,scan->timing);
     if(*scan->count==scan->capacity){
         size_t next=scan->capacity?scan->capacity*2:16;
         document_entry_t *entries=realloc(*scan->entries,next*sizeof(*entries));
@@ -589,17 +600,25 @@ esp_err_t document_store_scan(document_entry_t **entries, size_t *count) {
         return ESP_ERR_INVALID_ARG;
     *entries = NULL;
     *count = 0;
+    SHELF_PERF_SCOPE(store,SP_DOC_STORE,0,0);
     esp_err_t recovery = document_store_sync_recover();
-    if (recovery != ESP_OK)
+    if (recovery != ESP_OK) {
+        store.b=recovery;
         return recovery;
+    }
     (void)mkdir(DOCUMENT_ROOT, 0700);
     (void)mkdir(DOCUMENT_ROOT "/attachments", 0700);
     (void)mkdir(DOCUMENT_ROOT "/.index", 0700);
     char root[LOCAL_PATH_MAX]=DOCUMENT_ROOT;
-    document_scan_t scan={entries,count,0};
+    document_verify_time_t timing={0};
+    document_scan_t scan={entries,count,0,store.stage?&timing:NULL};
     esp_err_t result=walk_documents(root,0,false,scan_document,&scan,cleanup_orphan_indexes);
     if (*count > 1)
         qsort(*entries, *count, sizeof(**entries), by_name);
+    store.a=(int)*count;
+    store.b=result;
+    // a/b 是 doc_store 内累计的正文及附件微秒数。/ a/b are accumulated body and attachment microseconds within doc_store.
+    if(store.stage)shelf_perf_event(SP_DOC_VERIFY,(int)timing.body_us,(int)timing.assets_us,(int)*count,0);
     return result;
 }
 
@@ -623,6 +642,8 @@ typedef struct {
     document_sync_asset_t assets[DOCUMENT_SYNC_ASSETS_MAX];
 } sync_journal_t;
 static atomic_flag s_sync_lock = ATOMIC_FLAG_INIT;
+static atomic_uint s_import_revision;
+unsigned document_store_revision(void) { return atomic_load(&s_import_revision); }
 static esp_err_t sync_recover_locked(void);
 #ifdef PICO_HOST_SIMULATOR
 int document_store_test_crash;
@@ -908,7 +929,7 @@ static esp_err_t sync_finish_metadata(sync_journal_t *j) {
     }
     if (allowed(j->destination)) {
         bool changed;
-        esp_err_t e = refresh_at(j->destination, &changed, j->first_date[0] ? j->first_date : NULL);
+        esp_err_t e = refresh_at(j->destination, &changed, j->first_date[0] ? j->first_date : NULL,NULL);
         if (e != ESP_OK)
             return e;
     }
@@ -1283,6 +1304,8 @@ static esp_err_t sync_commit_locked(const char *destination, const char *body_sh
         free(j);
         return e;
     }
+    // 文档事务已开始，失败也可能需要恢复；不使书架封面失效。/ Invalidate the document list at the journal boundary without retiring book covers.
+    if(kind==SYNC_FILE_MARKDOWN)atomic_fetch_add(&s_import_revision,1);
     if (sync_crash(1)) {
         free(j);
         return ESP_FAIL;

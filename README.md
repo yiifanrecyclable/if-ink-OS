@@ -2,7 +2,7 @@
 
 为 Obsidian 用户打造的 Pico 系统，搭配 Send to E-ink Reader 与坚果云，支持 EPUB、TXT、Markdown 图文阅读、可定制 Banner、阅读打卡与数字拼豆。
 
-[在线刷机与使用说明](https://yiifanrecyclable.github.io/if-ink-OS/) · [下载正式版](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.0) · [下载 0.2.2 beta](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.2-beta.1)
+[在线刷机与使用说明](https://yiifanrecyclable.github.io/if-ink-OS/) · [下载正式版](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.0) · [下载 0.2.2 beta 2](https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.2-beta.2)
 
 本版本基于已实测的 r9t7，保留持久封面、Banner 复用与文档按需扫描；r9t8 仅留本地。首次使用需要生成缓存，封面重启后按实际内容校验再复用。设备固定目录 books / fonts / markdown / pictures / banner pic，请保留TF隐藏数据。
 

@@ -58,6 +58,9 @@ with tempfile.TemporaryDirectory(prefix='files-font-preview-', dir=ROOT/'build')
     assert preview['files_view']==5 and preview['files_font_preview_px']==48
     assert fonts(preview)==fonts(initial) and preview['font_path']==initial['font_path']
     assert frame[230*342:520*342] != b'\xff'*(290*342)
+    # 固定样张的深色抗锯齿像素多于浅色像素。/ The fixed sample has more dark than light antialiasing pixels.
+    shades=[tone(frame,x,y) for y in range(270,350) for x in range(100,580)]
+    assert sum(1<=shade<=4 for shade in shades)>sum(8<=shade<=14 for shade in shades)
     assert all(tone(frame,cx,1080)==0 for cx in (134,342,550))
     assert all(tone(frame,cx,1125)==15 for cx in (238,446))
     smaller, small_frame = render(sequence(open_font,tap(64,802)))

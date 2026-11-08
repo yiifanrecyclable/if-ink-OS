@@ -25,7 +25,8 @@ typedef enum {
 #ifdef IFINK_INKBUDDY
     , SP_INKBUDDY_MEMORY, SP_INKBUDDY_CRC, SP_INKBUDDY_PRESENT, SP_INKBUDDY_UNCHANGED
 #endif
-    , SP_STAGE_COUNT
+    , SP_DOC_STORE, SP_DOC_VERIFY, SP_DOC_TITLES, SP_DOC_PROGRESS, SP_DOC_ORDER, SP_DOC_REUSE,
+    SP_STAGE_COUNT
 } shelf_perf_stage_t;
 typedef struct {int64_t start;uint32_t request;int stage,a,b;} shelf_perf_span_t;
 #if defined(ESP_PLATFORM) || defined(SHELF_PERF_HOST_TEST)

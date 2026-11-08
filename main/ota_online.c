@@ -146,12 +146,13 @@ static esp_err_t check_manifest(void){
         json[total]=0;
         if(!if_update_parse_manifest_channel(json,total,channel,&s_candidate))err=ESP_ERR_INVALID_RESPONSE;
         else{
-            bool allowed=s_candidate.available&&if_update_candidate_allowed(s_candidate.version,esp_app_get_description()->version,channel);
-            bool returning=allowed&&channel==IF_UPDATE_STABLE&&!if_update_newer(s_candidate.version,esp_app_get_description()->version);
+            if_update_install_kind_t kind=s_candidate.available?
+                if_update_install_kind(s_candidate.version,esp_app_get_description()->version,channel):IF_UPDATE_INSTALL_NONE;
+            bool downgrade=kind==IF_UPDATE_INSTALL_DOWNGRADE;
             xSemaphoreTake(s_lock,portMAX_DELAY);ui_snprintf(s_status.version,sizeof(s_status.version),"%s",s_candidate.version);
-            s_status.total=s_candidate.size;s_status.return_to_stable=returning;xSemaphoreGive(s_lock);
-            phase(allowed?IF_UPDATE_AVAILABLE:IF_UPDATE_CURRENT,
-                  !s_candidate.available?ui_message(UI_MSG("此通道暂未发布版本")):returning?ui_message(UI_MSG("可切回稳定版，版本号将降低")):allowed?ui_message(UI_MSG("发现新版本，请确认后安装")):ui_message(UI_MSG("当前无需升级")));
+            s_status.total=s_candidate.size;s_status.downgrade=downgrade;xSemaphoreGive(s_lock);
+            phase(kind!=IF_UPDATE_INSTALL_NONE?IF_UPDATE_AVAILABLE:IF_UPDATE_CURRENT,
+                  !s_candidate.available?ui_message(UI_MSG("此通道暂未发布版本")):downgrade?ui_message(UI_MSG("可安装较早版本")):kind==IF_UPDATE_INSTALL_UPGRADE?ui_message(UI_MSG("发现新版本，请确认后安装")):ui_message(UI_MSG("当前无需升级")));
         }
     }
     free(json);return err;
@@ -307,14 +308,14 @@ static esp_err_t start(bool install,if_update_channel_t channel){
         // 每次选择都解绑旧清单；失败不能保留另一通道的可安装版本。
         // Unbind the old manifest on every selection; failures cannot retain another channel's install candidate.
         xSemaphoreTake(s_lock,portMAX_DELAY);memset(&s_candidate,0,sizeof(s_candidate));
-        s_status.channel=channel;s_status.return_to_stable=false;s_status.version[0]=0;s_status.received=s_status.total=0;
+        s_status.channel=channel;s_status.downgrade=false;s_status.version[0]=0;s_status.received=s_status.total=0;
         xSemaphoreGive(s_lock);
     }
     cloud_status_t cloud;cloud_get_status(&cloud);
     if(cloud.busy||usb_storage_active()){phase(IF_UPDATE_FAILED,ui_message(UI_MSG("请先结束同步或USB连接")));return ESP_ERR_INVALID_STATE;}
     if(strcmp(esp_app_get_description()->project_name,IF_OTA_PROJECT)){phase(IF_UPDATE_FAILED,ui_message(UI_MSG("当前系统不支持此更新源")));return ESP_ERR_INVALID_STATE;}
     if(install&&(s_status.state!=IF_UPDATE_AVAILABLE||!s_candidate.available||s_candidate.channel!=channel||
-        !if_update_candidate_allowed(s_candidate.version,esp_app_get_description()->version,channel)))return ESP_ERR_INVALID_STATE;
+        if_update_install_kind(s_candidate.version,esp_app_get_description()->version,channel)==IF_UPDATE_INSTALL_NONE))return ESP_ERR_INVALID_STATE;
     read_pico_transfer_status_t network;read_pico_transfer_get_status(&network);
     if(network.state==READ_PICO_TRANSFER_STOPPED||(network.state==READ_PICO_TRANSFER_ERROR&&!network.network_ready)){
         if(network.state==READ_PICO_TRANSFER_ERROR&&!read_pico_transfer_try_stop_if_idle()){phase(IF_UPDATE_FAILED,ui_message(UI_MSG("请先结束传输后重试")));return ESP_ERR_INVALID_STATE;}
