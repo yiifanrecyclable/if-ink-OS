@@ -150,6 +150,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
         p.write_bytes(raw)
     b=render(0,events(sort_open,dates,dismiss_sort));assert b['book_sort_mode']==2 and names(b,'book_items')==['Book20.txt','Book10.txt','Book2.txt']
     for filename,date in [('A.md','2026-01-01'),('B.md','2026-02-01'),('C.md','2026-03-01')]:
+        command('refresh',f'/sdcard/markdown/{filename}')
         meta=card/'markdown/.index'/f'{filename}.pico';lines=meta.read_text().splitlines();lines[1]=date;meta.write_text('\n'.join(lines)+'\n')
     assert names(render(8,events(sort_open,dates,dismiss_sort)),'document_items')[0]=='C.md'
     command('progress-save','/sdcard/books/Book2.txt')

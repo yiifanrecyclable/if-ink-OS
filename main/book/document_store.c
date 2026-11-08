@@ -21,6 +21,7 @@
 #include "esp_timer.h"
 #include <dirent.h>
 #include <errno.h>
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -293,22 +294,22 @@ static esp_err_t copy_marks(const char *source,const char *target){
     return err;
 }
 typedef esp_err_t (*local_doc_visit_t)(const char *,const struct stat *,void *);
-static esp_err_t walk_documents(char path[LOCAL_PATH_MAX],unsigned depth,bool strict,local_doc_visit_t visit,void *ctx,void (*leave)(const char *)){
+static esp_err_t walk_documents(char path[LOCAL_PATH_MAX],unsigned depth,bool strict,local_doc_visit_t visit,void *ctx){
     DIR *dir=opendir(path);
-    if(!dir)return strict||!depth?ESP_FAIL:ESP_OK;
+    if(!dir)return !strict&&errno==ENOENT?ESP_OK:ESP_FAIL;
     size_t len=strlen(path);
     esp_err_t err=ESP_OK;
     while(err==ESP_OK){
         errno=0;
         struct dirent *de=readdir(dir);
-        if(!de){if(errno&&strict)err=ESP_FAIL;break;}
+        if(!de){if(errno)err=ESP_FAIL;break;}
         if(de->d_name[0]=='.'||(!depth&&!strcasecmp(de->d_name,"attachments")))continue;
         int n=snprintf(path+len,LOCAL_PATH_MAX-len,"/%s",de->d_name);
         if(n<0||(size_t)n>=LOCAL_PATH_MAX-len){if(strict)err=ESP_ERR_INVALID_SIZE;continue;}
         struct stat st;
-        if(lstat(path,&st)){if(strict)err=ESP_FAIL;continue;}
+        if(lstat(path,&st)){if(strict||errno!=ENOENT)err=ESP_FAIL;continue;}
         if(S_ISDIR(st.st_mode)){
-            if(document_store_local_directory(path))err=walk_documents(path,depth+1,strict,visit,ctx,leave);
+            if(document_store_local_directory(path))err=walk_documents(path,depth+1,strict,visit,ctx);
             else if(strict)err=ESP_ERR_INVALID_SIZE;
         }else if(S_ISREG(st.st_mode)&&(allowed(path)||document_store_local_path(path))){
             err=visit(path,&st,ctx);
@@ -316,7 +317,6 @@ static esp_err_t walk_documents(char path[LOCAL_PATH_MAX],unsigned depth,bool st
     }
     path[len]=0;
     closedir(dir);
-    if(err==ESP_OK&&leave)leave(path);
     return err;
 }
 
@@ -340,7 +340,7 @@ static esp_err_t check_reference(const char *path,const struct stat *st,void *co
 static bool referenced(const char *asset,const char *except){
     char path[LOCAL_PATH_MAX]=DOCUMENT_ROOT;
     reference_search_t search={asset,except};
-    return walk_documents(path,0,true,check_reference,&search,NULL)!=ESP_OK;
+    return walk_documents(path,0,true,check_reference,&search)!=ESP_OK;
 }
 static bool clean_old(const char *meta, const char *document, const html_text_t *current) {
     FILE *f = fopen(meta, "rb");
@@ -497,7 +497,13 @@ static esp_err_t refresh_at(const char *path, bool *changed, const char *first_d
 }
 esp_err_t document_store_refresh(const char *path, bool *changed) {
     esp_err_t e = document_store_sync_recover();
-    return e == ESP_OK ? refresh_at(path, changed, NULL, NULL) : e;
+    if (e != ESP_OK) return e;
+    document_verify_time_t timing = {0};
+    SHELF_PERF_SCOPE(verify, SP_DOC_STORE, 1, 0);
+    e = refresh_at(path, changed, NULL, verify.stage ? &timing : NULL);
+    verify.b = e;
+    if (verify.stage) shelf_perf_event(SP_DOC_VERIFY, (int)timing.body_us, (int)timing.assets_us, 1, 0);
+    return e;
 }
 static bool remove_index(const char *path){
     char sibling[520];
@@ -513,15 +519,20 @@ esp_err_t document_store_delete(const char *path) {
         return recovery;
     if (!allowed(path)&&!document_store_local_path(path))
         return ESP_ERR_INVALID_ARG;
+    char meta[512];
+    metadata(path, meta, sizeof(meta));
     struct stat st;
     if (!lstat(path,&st)) {
-        if(!S_ISREG(st.st_mode)||unlink(path))return ESP_FAIL;
+        if(!S_ISREG(st.st_mode))return ESP_FAIL;
+        // 未打开的本地文档没有附件清单；显式删除前只为该篇补建。
+        // A local document may be unopened; build only its own attachment manifest before deletion.
+        if(restore_metadata(meta)&&lstat(meta,&st)&&errno==ENOENT)
+            (void)refresh_at(path,NULL,NULL,NULL);
+        if(unlink(path))return ESP_FAIL;
     } else if(errno!=ENOENT)return ESP_FAIL;
     esp_err_t e = clear_reader(path);
     if (e != ESP_OK)
         return e;
-    char meta[512];
-    metadata(path, meta, sizeof(meta));
     if (!restore_metadata(meta)||!clean_old(meta, path, NULL))
         return ESP_FAIL;
     if(!remove_index(meta))return ESP_FAIL;
@@ -537,25 +548,14 @@ static int by_name(const void *a, const void *b) {
         return x->pinned ? -1 : 1;
     return strcmp(x->name, y->name);
 }
-typedef struct {document_entry_t **entries;size_t *count,capacity;document_verify_time_t *timing;} document_scan_t;
-static esp_err_t scan_document(const char *path,const struct stat *st,void *context){
-    document_scan_t *scan=context;
-    if(st->st_size<0||(uint64_t)st->st_size>UINT32_MAX)return ESP_OK;
-    (void)refresh_at(path,NULL,NULL,scan->timing);
-    if(*scan->count==scan->capacity){
-        size_t next=scan->capacity?scan->capacity*2:16;
-        document_entry_t *entries=realloc(*scan->entries,next*sizeof(*entries));
-        if(!entries)return ESP_ERR_NO_MEM;
-        *scan->entries=entries;scan->capacity=next;
-    }
-    document_entry_t *entry=&(*scan->entries)[(*scan->count)++];
+static void read_entry(const char *path, const struct stat *st, document_entry_t *entry) {
     memset(entry,0,sizeof(*entry));
     snprintf(entry->path,sizeof(entry->path),"%s",path);
     snprintf(entry->name,sizeof(entry->name),"%s",strrchr(path,'/')+1);
     entry->size=(uint32_t)st->st_size;
     char meta[512],line[80];
     metadata(path,meta,sizeof(meta));
-    FILE *f=fopen(meta,"rb");
+    FILE *f=restore_metadata(meta)?fopen(meta,"rb"):NULL;
     if(f){
         if(fgets(line,sizeof(line),f)&&fgets(line,sizeof(line),f)){
             line[strcspn(line,"\r\n")]=0;
@@ -564,24 +564,29 @@ static esp_err_t scan_document(const char *path,const struct stat *st,void *cont
         fclose(f);
     }
     read_flags(path,&entry->pinned,&entry->starred);
+}
+esp_err_t document_store_read_entry(const char *path, document_entry_t *entry) {
+    if (!entry || (!allowed(path) && !document_store_local_path(path))) return ESP_ERR_INVALID_ARG;
+    struct stat st;
+    if (lstat(path, &st)) return errno == ENOENT ? ESP_ERR_NOT_FOUND : ESP_FAIL;
+    if (!S_ISREG(st.st_mode) || st.st_size < 0 || (uint64_t)st.st_size > UINT32_MAX)
+        return ESP_ERR_INVALID_SIZE;
+    read_entry(path, &st, entry);
     return ESP_OK;
 }
-static void cleanup_orphan_indexes(const char *dir){
-    char index[512];
-    snprintf(index,sizeof(index),"%s/%s",dir,!strcmp(dir,DOCUMENT_ROOT)?".index":".pico-index");
-    DIR *d=opendir(index);
-    if(!d)return;
-    struct dirent *de;
-    while((de=readdir(d))){
-        const char *dot=strrchr(de->d_name,'.');
-        if(!dot||(strcmp(dot,".pico")&&strcmp(dot,".prefs")&&strcmp(dot,".sync")))continue;
-        char path[LOCAL_PATH_MAX];
-        int n=snprintf(path,sizeof(path),"%s/%.*s",dir,(int)(dot-de->d_name),de->d_name);
-        if(n<0||(size_t)n>=sizeof(path))continue;
-        struct stat st;
-        if(lstat(path,&st)&&errno==ENOENT)(void)document_store_delete(path);
+typedef struct {document_entry_t **entries;size_t *count,capacity;} document_scan_t;
+static esp_err_t scan_document(const char *path,const struct stat *st,void *context){
+    document_scan_t *scan=context;
+    if(st->st_size<0||(uint64_t)st->st_size>UINT32_MAX)return ESP_OK;
+    if(*scan->count==scan->capacity){
+        if (scan->capacity > SIZE_MAX / sizeof(document_entry_t) / 2) return ESP_ERR_NO_MEM;
+        size_t next=scan->capacity?scan->capacity*2:16;
+        document_entry_t *entries=realloc(*scan->entries,next*sizeof(*entries));
+        if(!entries)return ESP_ERR_NO_MEM;
+        *scan->entries=entries;scan->capacity=next;
     }
-    closedir(d);
+    read_entry(path, st, &(*scan->entries)[(*scan->count)++]);
+    return ESP_OK;
 }
 static esp_err_t any_local_document(const char *path,const struct stat *st,void *context){
     (void)path;
@@ -592,7 +597,7 @@ static esp_err_t any_local_document(const char *path,const struct stat *st,void 
 bool document_store_has_local(void){
     char root[LOCAL_PATH_MAX]=DOCUMENT_ROOT;
     bool found=false;
-    (void)walk_documents(root,0,false,any_local_document,&found,NULL);
+    (void)walk_documents(root,0,false,any_local_document,&found);
     return found;
 }
 esp_err_t document_store_scan(document_entry_t **entries, size_t *count) {
@@ -606,19 +611,13 @@ esp_err_t document_store_scan(document_entry_t **entries, size_t *count) {
         store.b=recovery;
         return recovery;
     }
-    (void)mkdir(DOCUMENT_ROOT, 0700);
-    (void)mkdir(DOCUMENT_ROOT "/attachments", 0700);
-    (void)mkdir(DOCUMENT_ROOT "/.index", 0700);
     char root[LOCAL_PATH_MAX]=DOCUMENT_ROOT;
-    document_verify_time_t timing={0};
-    document_scan_t scan={entries,count,0,store.stage?&timing:NULL};
-    esp_err_t result=walk_documents(root,0,false,scan_document,&scan,cleanup_orphan_indexes);
+    document_scan_t scan={entries,count,0};
+    esp_err_t result=walk_documents(root,0,false,scan_document,&scan);
     if (*count > 1)
         qsort(*entries, *count, sizeof(**entries), by_name);
     store.a=(int)*count;
     store.b=result;
-    // a/b 是 doc_store 内累计的正文及附件微秒数。/ a/b are accumulated body and attachment microseconds within doc_store.
-    if(store.stage)shelf_perf_event(SP_DOC_VERIFY,(int)timing.body_us,(int)timing.assets_us,(int)*count,0);
     return result;
 }
 
@@ -626,8 +625,6 @@ esp_err_t document_store_scan(document_entry_t **entries, size_t *count) {
  * Sync transactions: PREPARED rolls back;
  once body installation is durable,
  * recovery completes metadata before readers can reopen the document. */
-#include <errno.h>
-#include <stdatomic.h>
 #include <zlib.h>
 #define SYNC_ROOT "/sdcard/.pico-sync"
 #define SYNC_JOURNAL SYNC_ROOT "/transaction"
@@ -643,7 +640,29 @@ typedef struct {
 } sync_journal_t;
 static atomic_flag s_sync_lock = ATOMIC_FLAG_INIT;
 static atomic_uint s_import_revision;
+static struct {
+    unsigned revision;
+    char path[LOCAL_PATH_MAX];
+} s_import_changes[DOCUMENT_STORE_CHANGE_LIMIT];
 unsigned document_store_revision(void) { return atomic_load(&s_import_revision); }
+esp_err_t document_store_read_changes(unsigned after, unsigned through,
+                                     document_entry_t *entries, size_t capacity) {
+    unsigned count = through - after;
+    if (!entries || !count || count > capacity || count > DOCUMENT_STORE_CHANGE_LIMIT)
+        return ESP_ERR_INVALID_ARG;
+    if (atomic_flag_test_and_set(&s_sync_lock)) return ESP_ERR_INVALID_STATE;
+    esp_err_t err = through == document_store_revision() ? ESP_OK : ESP_ERR_INVALID_STATE;
+    for (unsigned i = 0; err == ESP_OK && i < count; ++i) {
+        unsigned revision = after + i + 1;
+        unsigned slot = revision % DOCUMENT_STORE_CHANGE_LIMIT;
+        if (s_import_changes[slot].revision != revision || !s_import_changes[slot].path[0])
+            err = ESP_ERR_NOT_FOUND;
+        else
+            err = document_store_read_entry(s_import_changes[slot].path, &entries[i]);
+    }
+    atomic_flag_clear(&s_sync_lock);
+    return err;
+}
 static esp_err_t sync_recover_locked(void);
 #ifdef PICO_HOST_SIMULATOR
 int document_store_test_crash;
@@ -1305,7 +1324,11 @@ static esp_err_t sync_commit_locked(const char *destination, const char *body_sh
         return e;
     }
     // 文档事务已开始，失败也可能需要恢复；不使书架封面失效。/ Invalidate the document list at the journal boundary without retiring book covers.
-    if(kind==SYNC_FILE_MARKDOWN)atomic_fetch_add(&s_import_revision,1);
+    unsigned revision = 0;
+    if (kind == SYNC_FILE_MARKDOWN) {
+        revision = atomic_fetch_add(&s_import_revision, 1) + 1;
+        s_import_changes[revision % DOCUMENT_STORE_CHANGE_LIMIT].path[0] = 0;
+    }
     if (sync_crash(1)) {
         free(j);
         return ESP_FAIL;
@@ -1366,6 +1389,11 @@ static esp_err_t sync_commit_locked(const char *destination, const char *body_sh
         char path[512];
         snprintf(path, sizeof(path), DOCUMENT_ROOT "/attachments/%s", assets[i].name);
         if (!sync_matches(path, assets[i].sha256, assets[i].bytes)) return ESP_ERR_INVALID_RESPONSE;
+    }
+    if (kind == SYNC_FILE_MARKDOWN) {
+        unsigned slot = revision % DOCUMENT_STORE_CHANGE_LIMIT;
+        s_import_changes[slot].revision = revision;
+        snprintf(s_import_changes[slot].path, sizeof(s_import_changes[slot].path), "%s", destination);
     }
     return ESP_OK;
 }

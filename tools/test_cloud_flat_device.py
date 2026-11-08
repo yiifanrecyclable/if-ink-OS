@@ -71,6 +71,9 @@ int main(void){
  unsigned docs_before=document_store_revision();
  assert(download_one(&md)==ESP_OK&&fetched==2);check_body("/sdcard/markdown/周记1.md","# old\n",6);
  assert(document_store_revision()==docs_before+1);
+ document_entry_t changes[2];
+ assert(document_store_read_changes(docs_before,docs_before+1,changes,2)==ESP_OK);
+ assert(!strcmp(changes[0].path,"/sdcard/markdown/周记1.md")&&changes[0].size==6&&changes[0].date[0]);
  assert(document_store_set_flags("/sdcard/markdown/周记1.md",true,false)==ESP_OK);
  book_progress_t progress={.file_size=6,.px=48,.pct=33,.byte_off=1};
  assert(book_progress_save("/sdcard/markdown/周记1.md",&progress)==ESP_OK);
@@ -87,6 +90,18 @@ int main(void){
  assert(!book_progress_load("/sdcard/markdown/周记1.md",6,&progress));
  assert(document_store_scan(&docs,&count)==ESP_OK&&count==1&&docs[0].pinned&&!strcmp(date,docs[0].date));free(docs);
  assert(!listing_changes && !broad_changes);
+ cloud_entry_t other=entry("周记2.md","\"strong\"");
+ document_store_test_crash=1;
+ assert(download_one(&other)!=ESP_OK&&document_store_revision()==docs_before+3);
+ assert(document_store_read_changes(docs_before+2,docs_before+3,changes,2)==ESP_ERR_NOT_FOUND);
+ document_store_test_crash=0;
+ assert(download_one(&other)==ESP_OK&&document_store_revision()==docs_before+4);
+ assert(document_store_read_changes(docs_before+3,docs_before+4,changes,2)==ESP_OK);
+ assert(!strcmp(changes[0].path,"/sdcard/markdown/周记2.md"));
+ other=entry("周记3.md","\"strong\"");
+ assert(download_one(&other)==ESP_OK&&document_store_revision()==docs_before+5);
+ assert(document_store_read_changes(docs_before+3,docs_before+5,changes,2)==ESP_OK);
+ assert(!strcmp(changes[0].path,"/sdcard/markdown/周记2.md")&&!strcmp(changes[1].path,"/sdcard/markdown/周记3.md"));
  cloud_entry_t txt=entry("随笔.txt","\"strong\"");fetched=0;book_folder="/sdcard/library";
  assert(download_one(&txt)==ESP_OK&&fetched==1);check_body("/sdcard/library/随笔.txt","# new\n",6);
  assert(listing_changes==1 && !broad_changes);

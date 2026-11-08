@@ -76,6 +76,7 @@ int main(void){
     assert(document_store_refresh(path,&changed)==ESP_OK&&!changed);assert(book_progress_load(path,progress.file_size,&progress));
     // Equal-sized replacement is a revision even though the old progress size still matches.
     write_text(path,"## C\n\nbody\n\n### duplicate\n\nsub\n\n#### nested\n\nleaf\n\n## B\n\n### duplicate\n\nend\n");assert(size(path)==progress.file_size);
+    assert(entry(path).size==progress.file_size&&book_progress_load(path,progress.file_size,&progress));
     assert(document_store_refresh(path,&changed)==ESP_OK&&changed);assert(!book_progress_load(path,progress.file_size,&progress));date(after);assert(!strcmp(before,after));
     flags=entry(path);assert(flags.pinned&&flags.starred);assert(document_store_set_flags(path,false,true)==ESP_OK);flags=entry(path);assert(!flags.pinned&&flags.starred);
     assert(document_store_set_flags(DOCUMENT_ROOT"/missing.md",true,true)==ESP_ERR_NOT_FOUND);
@@ -92,7 +93,17 @@ int main(void){
     assert(document_store_delete(path)==ESP_OK);assert(access(DOCUMENT_ROOT"/.index/unittest-owned.md.prefs",F_OK));assert(!access(next,F_OK));assert(document_store_delete(DOCUMENT_ROOT"/unittest-shared.md")==ESP_OK);assert(access(next,F_OK));
     const char *a_path=DOCUMENT_ROOT"/unittest-A.md",*z_path=DOCUMENT_ROOT"/unittest-Z.md";write_text(a_path,"# A");write_text(z_path,"# Z");assert(document_store_set_flags(z_path,true,false)==ESP_OK);
     document_entry_t *items=NULL;size_t n=0,ai=SIZE_MAX,zi=SIZE_MAX;assert(document_store_scan(&items,&n)==ESP_OK);for(size_t i=0;i<n;i++){if(!strcmp(items[i].path,a_path))ai=i;if(!strcmp(items[i].path,z_path))zi=i;}assert(zi<ai);free(items);
-    assert(!unlink(z_path));assert(document_store_scan(&items,&n)==ESP_OK);free(items);assert(access(DOCUMENT_ROOT"/.index/unittest-Z.md.prefs",F_OK));assert(document_store_delete(a_path)==ESP_OK);
+    assert(access(DOCUMENT_ROOT"/.index/unittest-A.md.pico",F_OK));
+    assert(!unlink(z_path));assert(document_store_scan(&items,&n)==ESP_OK);
+    for(size_t i=0;i<n;++i)assert(strcmp(items[i].path,z_path));
+    free(items);
+    // 列表不替代删除操作或正文校验。/ Listing does not run deletion or body validation.
+    assert(!access(DOCUMENT_ROOT"/.index/unittest-Z.md.prefs",F_OK));
+    assert(document_store_delete(z_path)==ESP_OK&&access(DOCUMENT_ROOT"/.index/unittest-Z.md.prefs",F_OK));
+    write_text(a_path,"![missing](attachments/unittest-missing.png)");
+    assert(!entry(a_path).date[0]&&access(DOCUMENT_ROOT"/.index/unittest-A.md.pico",F_OK));
+    assert(document_store_refresh(a_path,&changed)!=ESP_OK);
+    assert(document_store_delete(a_path)==ESP_OK);
     uint32_t probe_w=0,probe_h=0;unsigned probe_decodes=document_image_decode_count();
     assert(document_image_dimensions(DOCUMENT_ROOT"/attachments/长图示例-test.png",&probe_w,&probe_h));
     assert(probe_w==684&&probe_h==5000&&document_image_decode_count()==probe_decodes);

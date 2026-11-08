@@ -209,7 +209,7 @@ static app_redraw_t reader_controls_gesture(app_ctx_t *ctx,const ui_gesture_even
         return APP_REDRAW_NONE;
     }
     if(ev->type==UI_GESTURE_TAP){
-        if(!s_reader_fullscreen&&ui_rect_hit((EpdRect){32,UI_PAGE_Y(75),64,64},ev->x0,ev->y0))return reader_return(ctx,false);
+        if(!s_reader_fullscreen&&ui_rect_hit(reader_close_rect(),ev->x0,ev->y0))return reader_return(ctx,false);
         if(!ui_rect_hit(reader_area(),ev->x0,ev->y0))return APP_REDRAW_NONE;
         for(unsigned zone=0;zone<3;++zone)if(ui_rect_hit(reader_tap_rect(reader_area(),reader_input_tap_layout(),zone),ev->x0,ev->y0))
             return zone==1?reader_show_panel(READER_PANEL_TOOLS):turn_page(ctx,zone==0?-1:1);

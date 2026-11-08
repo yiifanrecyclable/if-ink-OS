@@ -7,7 +7,7 @@ include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 idf_build_set_property(MINIMAL_BUILD ON)
 option(IFINK_INKBUDDY "Build the local inkbuddy r2t2 test firmware" OFF)
 option(IFINK_DOCUMENT_TIMING "Build the local document timing test firmware" OFF)
-set(PROJECT_VER "0.2.2-beta.2")
+set(PROJECT_VER "0.2.2-beta.3")
 # 由同一开关派生版本和功能。/ Derive both the version and the feature from the same option.
 if(IFINK_DOCUMENT_TIMING AND IFINK_INKBUDDY)
     message(FATAL_ERROR "Choose one local firmware test")

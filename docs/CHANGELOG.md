@@ -4,6 +4,12 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.2 beta 3 / 2026-11-09
+
+- 文档列表按摘要加载，需要重查时先切到文档页显示「加载中」。点开单篇时校验正文和插图，坚果云同步单篇后按变更路径更新缓存。/ Load document summaries first and show “Loading” on the Documents tab before a directory scan. Opening a document validates its text and images. A single Nutstore import updates its cached entry.
+- 常规阅读进度条下移，两端说明文字和状态栏签名同字号。普通全屏和沉浸全屏进度条上移。/ Lower the progress bar in regular layout and match the footer text to the status signature size. Raise the bar in both fullscreen layouts.
+- 常规阅读标题使用对应的书籍或文档阅读字体，标题栏下方加深分界线并贯穿屏宽，左上返回键改为 ×。/ Use the active book or document reading font for the title, darken the edge-to-edge separator, and use × to return from regular layout.
+
 ## 0.2.2 beta 2 / 2026-11-08
 
 - 图书与文档之间切换时复用同一张 TF 卡上未变化的文档清单。阅读返回时更新刚读文档的进度和排序。/ Reuse the unchanged document list when switching tabs, and refresh only the document just read on return.

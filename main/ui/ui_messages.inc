@@ -228,6 +228,7 @@
     {"加入\n日期", "Date added"},
     {"加入日期", "Date added"},
     {"加密网络密码至少 8 个字符", "Encrypted networks need at least 8 password characters."},
+    {"加载中", "Loading"},
     {"加载失败，请检查存储卡后重试", "Load failed. Check the card and retry."},
     {"勾选下载并离线阅读", "Select files for offline reading."},
     {"包含所选文件夹中的子文件夹", "Includes subfolders"},

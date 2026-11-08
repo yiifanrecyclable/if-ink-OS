@@ -19,6 +19,10 @@ static void simulator_reader_present(app_ctx_t *ctx,app_redraw_t redraw){
         ui_gesture_reset(&s_sim_reader_gesture);render(ctx,ctx->fb);s_presented_view=s_view;
     }
 }
+static void simulator_settle_documents(app_ctx_t *ctx){
+    if(s_document_scan_pending&&!getenv("PICO_SIM_PAUSE_DOCUMENT_LOADING"))
+        simulator_reader_present(ctx,on_tick(ctx));
+}
 static app_redraw_t simulator_reader_event(app_ctx_t *ctx,const ui_gesture_event_t *event){
     // 可选宿主检查：AREA不得改动声明区域之外的像素。/ Optional host check: AREA may not modify pixels outside its hint.
     uint8_t *before=getenv("PICO_SIM_VERIFY_AREAS")?malloc(684*1216/2):NULL;
@@ -31,7 +35,9 @@ static app_redraw_t simulator_reader_event(app_ctx_t *ctx,const ui_gesture_event
             if(!inside&&epd_get_pixel(x,y,684,1216,before)!=epd_get_pixel(x,y,684,1216,ctx->fb))++s_sim_area_violations;
         }
     }
-    free(before);simulator_reader_present(ctx,redraw);return redraw;
+    free(before);simulator_reader_present(ctx,redraw);
+    if(!ctx->touch)simulator_settle_documents(ctx);
+    return redraw;
 }
 static void simulator_reader_raw(app_ctx_t *ctx,char type,unsigned x,unsigned y){
     cst836u_touch_t touch={.touched=type!='e',.count=type=='e'?0:type=='n'?2:1,.x=x,.y=y};
@@ -39,6 +45,7 @@ static void simulator_reader_raw(app_ctx_t *ctx,char type,unsigned x,unsigned y)
     ctx->touch=&touch;ctx->pressed=type=='b';ctx->released=type=='e';
     ui_gesture_event_t event;if(ui_gesture_feed(&s_sim_reader_gesture,ctx,&event))simulator_reader_event(ctx,&event);
     simulator_reader_present(ctx,on_tick(ctx));ctx->touch=NULL;ctx->pressed=ctx->released=false;
+    if(type=='e')simulator_settle_documents(ctx);
 }
 #define SIM_REPLAY_RAW(ctx,type,x,y) simulator_reader_raw(ctx,type,x,y)
 #define SIM_REPLAY_SHORTCUT(ctx,slot) reader_execute_shortcut(ctx,slot)
@@ -108,7 +115,7 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  if(panel==10)panel=READER_PANEL_SHORTCUTS;
  shelf_perf_init();
  app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);scan_shelf(&ctx);s_scan_pending=false;
- if(view==DOCUMENTS||view==DOCUMENT_BULK)ensure_documents(&ctx);
+ if(view==DOCUMENTS||view==DOCUMENT_BULK)ensure_documents();
  // -1只表示阅读续读；列表页必须从非负页码开始。/ -1 requests reader resume; list pages must start at a nonnegative index.
  ctx.leaf=(view!=READING&&view!=TOC)?(page<0?0:page):0;
  if(view==READING||view==TOC){
@@ -131,6 +138,7 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  if(view==EDIT)editor_start(false);
  if(view==SEARCH){s_search_parent=BULK;ui_text_input_open(&s_search_input,s_search_draft,sizeof(s_search_draft),true,false,UI_INPUT_ENGLISH);}
  simulator_settle_covers(&ctx);render(&ctx,fb);s_presented_view=s_view;
+ simulator_settle_documents(&ctx);
  unsigned draws=s_sim_reader_draws,loads=ttf_sim_font_loads;
  simulator_replay(&ctx,simulator_reader_event,on_key,events);
  s_sim_event_draws=s_sim_reader_draws-draws;s_sim_event_loads=ttf_sim_font_loads-loads;

@@ -17,6 +17,7 @@
 #define UI_NAV_ACTIVE_GRAY 0x44
 #define UI_NAV_INACTIVE_GRAY 0x88
 #define UI_NAV_BACK_BORDER_GRAY 0x58
+#define UI_STATUS_SIGNATURE_PX 28
 
 /// 导航绘制和刷新共用同一实际边界。/ Share exact geometry between navigation paint and refresh.
 EpdRect ui_nav_rect(void);

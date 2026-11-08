@@ -1,0 +1,38 @@
+{
+  "name": "if-ink OS",
+  "version": "0.2.2-beta.3",
+  "new_install_prompt_erase": true,
+  "new_install_improv_wait_time": 0,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "improv": false,
+      "parts": [
+        {
+          "path": "bootloader.bin",
+          "offset": 0,
+          "size": 21232,
+          "sha256": "ae588595bdb362eafc24f89de003a267b6d6ed74ad9c721d1bdcb79873269198"
+        },
+        {
+          "path": "partition-table.bin",
+          "offset": 32768,
+          "size": 3072,
+          "sha256": "edba9d92e5fc51c706c12f4b4a5d5d23728ba8fb0fbc00be654f1eccef404bda"
+        },
+        {
+          "path": "firmware.bin",
+          "offset": 65536,
+          "size": 3961712,
+          "sha256": "072301dfcb28ccc2fbd04dfbdd5701668986cf59f115d1e91515652249cad565"
+        },
+        {
+          "path": "ota-data-initial.bin",
+          "offset": 13697024,
+          "size": 8192,
+          "sha256": "7d2c7ac4888bfd75cd5f56e8d61f69595121183afc81556c876732fd3782c62f"
+        }
+      ]
+    }
+  ]
+}
