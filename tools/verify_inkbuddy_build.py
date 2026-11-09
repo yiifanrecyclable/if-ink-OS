@@ -38,9 +38,9 @@ markers = any(mark in image for mark in (b"inkbuddy", b"\x49\x4e\x4b\x31\0",
 feature = bool(compiled or flags or symbols_present or mapped or markers)
 if args.expect == "public":
     assert not feature, "inkbuddy reached a public artifact"
-    assert not re.search(r"-r\d+t\d+$", version), "A local test version cannot be published"
+    assert not re.search(r"(?:-r\d+t\d+|-beta\.\d+t\d+)$", version), "A local test version cannot be published"
 else:
-    assert version == "0.2.1-beta-r2t2"
+    assert version == "0.2.1-beta-r2t2" or re.fullmatch(r"0\.2\.2-beta\.\d+t\d+", version)
     assert compiled == names and flags and symbols_present and mapped and markers
 
 receipt = dict(version=version, features={"inkbuddy": feature}, app_size=len(image),

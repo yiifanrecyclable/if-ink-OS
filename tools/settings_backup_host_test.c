@@ -397,7 +397,7 @@ int main(void) {
     app_settings_init(); assert(app_settings_system_font_size() == 160);
     test_loaded_system_size=0;
     // 普通写入失败应恢复整组旧资料，不覆盖用户备份。/ Ordinary write failures restore all old state without replacing the user backup.
-    s_book_px=70;history_value=70;strcpy(saved_wifi.ssid,"BackupWifi");saved_wifi.configured=1;strcpy(saved_wifi.password,"test-pass");
+    s_book_px=100;history_value=70;strcpy(saved_wifi.ssid,"BackupWifi");saved_wifi.configured=1;strcpy(saved_wifi.password,"test-pass");
     strcpy(saved_cloud.folder,"BackupCloud");assert(app_settings_backup_save()==ESP_OK);
     s_book_px=48;history_value=48;strcpy(saved_wifi.ssid,"CurrentWifi");strcpy(saved_cloud.folder,"CurrentCloud");
     history_fail_once=true;assert(app_settings_backup_restore()==ESP_FAIL);
@@ -406,14 +406,14 @@ int main(void) {
     cloud_fail_once=true;assert(app_settings_backup_restore()==ESP_FAIL);
     assert(persisted_book_px==48&&s_book_px==48&&history_value==48&&!strcmp(saved_wifi.ssid,"CurrentWifi")&&!strcmp(saved_cloud.folder,"CurrentCloud"));
     assert(access(RESTORE_BEFORE,F_OK)!=0);
-    assert(app_settings_backup_restore()==ESP_OK&&persisted_book_px==70&&s_book_px==70&&history_value==70&&!strcmp(saved_wifi.ssid,"BackupWifi")&&!strcmp(saved_cloud.folder,"BackupCloud"));
+    assert(app_settings_backup_restore()==ESP_OK&&persisted_book_px==100&&s_book_px==100&&history_value==70&&!strcmp(saved_wifi.ssid,"BackupWifi")&&!strcmp(saved_cloud.folder,"BackupCloud"));
     assert(access(RESTORE_BEFORE,F_OK)!=0);
     // 连续失败保留旧状态文件；故障消失后由恢复入口先回退再重试。
     // Repeated failures retain old state; the restore entry recovers it before retrying when writes work again.
     s_book_px=48;history_value=48;strcpy(saved_wifi.ssid,"RetryWifi");strcpy(saved_cloud.folder,"RetryCloud");
     history_failures=2;assert(app_settings_backup_restore()==ESP_FAIL&&access(RESTORE_BEFORE,F_OK)==0);
     assert(app_settings_backup_save()==ESP_ERR_INVALID_STATE);
-    assert(app_settings_backup_restore()==ESP_OK&&persisted_book_px==70&&history_value==70&&
+    assert(app_settings_backup_restore()==ESP_OK&&persisted_book_px==100&&history_value==70&&
            !strcmp(saved_wifi.ssid,"BackupWifi")&&!strcmp(saved_cloud.folder,"BackupCloud"));
     assert(access(RESTORE_BEFORE,F_OK)!=0);
     assert(reader_input_assign(READER_SWIPE_RIGHT,READER_ACTION_TOC)==ESP_OK);

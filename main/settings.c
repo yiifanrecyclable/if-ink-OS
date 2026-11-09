@@ -14,6 +14,7 @@
 #include "settings_storage.h"
 #include "wallpaper_preferences.h"
 #include "book/reader_input.h"
+#include "book/book_policy.h"
 
 #include <stdio.h>
 #include <stddef.h>
@@ -130,7 +131,7 @@ static bool settings_u8_valid(const char *key,uint8_t v){
     if(!strcmp(key,NVS_KEY_IDLE_SLEEP))return idle_sleep_valid(v);
     if(!strcmp(key,NVS_KEY_STATUS_DATE))return status_date_valid(v);
     if(!strcmp(key,NVS_KEY_SYS_SIZE))return v>=100&&v<=200&&v%10==0;
-    if(!strcmp(key,NVS_KEY_BOOK_PX))return v>=36&&v<=72;
+    if(!strcmp(key,NVS_KEY_BOOK_PX))return book_text_size_valid(v);
     if(!strcmp(key,NVS_KEY_READER_FULL))return v==0||v==5||v==10||v==15||v==30;
     if(!strcmp(key,NVS_KEY_BOOK_TRACK))return v<=4;
     if(!strcmp(key,NVS_KEY_BOOK_RULE))return v<=2;
@@ -204,7 +205,7 @@ static void remove_legacy_weread_session(void) {
 }
 
 static uint8_t valid_book_px(uint8_t px) {
-    return px >= 36 && px <= 72 ? px : 48;
+    return book_text_size_valid(px) ? px : 48;
 }
 
 void app_settings_init(void) {
@@ -1021,7 +1022,7 @@ static bool backup_valid(const settings_backup_v1_t *backup) {
     if (f[BK_SLEEP] > APP_SLEEP_OFF || f[BK_PICKUP] > 1 ||
         f[BK_SYS_SIZE] < 100 || f[BK_SYS_SIZE] > 200 || f[BK_SYS_SIZE] % 10 ||
         f[BK_SYS_CONTRAST] < 100 || f[BK_SYS_CONTRAST] > 140 || f[BK_SYS_CONTRAST] % 10 ||
-        f[BK_LOCK] > 1 || f[BK_BOOK_PX] < 36 || f[BK_BOOK_PX] > 72 ||
+        f[BK_LOCK] > 1 || !book_text_size_valid(f[BK_BOOK_PX]) ||
         f[BK_SHAKE] > 1 || (f[BK_FULL_PAGES] != 0 && f[BK_FULL_PAGES] != 5 &&
                             f[BK_FULL_PAGES] != 10 && f[BK_FULL_PAGES] != 15 &&
                             f[BK_FULL_PAGES] != 30) ||

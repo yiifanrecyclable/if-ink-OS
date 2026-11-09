@@ -8,6 +8,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include "book_store.h"
+#include "record_store_media.h"
 #include "settings.h"
 #include "ttf_font.h"
 #include "ui_kit.h"
@@ -37,35 +39,66 @@ static const char* system_path(char fallback[TTF_FONT_PATH_MAX]) {
     return item ? item->path : TTF_FONT_BUILTIN;
 }
 
-static bool activate(const char* path,bool system) {
-    bool changed=!ttf_font_ready()||strcmp(ttf_font_path(),path)!=0;
-    return ttf_font_select_context(system,path)==ESP_OK&&changed;
+static const char *reading_path(char fallback[TTF_FONT_PATH_MAX]) {
+    const char *saved = s_document ? content_markdown_font() : app_settings_font_path();
+    if (!ttf_font_path_is_builtin(saved)) return saved;
+    const char *bundled = bundled_path(fallback);
+    return bundled ? bundled : TTF_FONT_BUILTIN;
+}
+
+static bool activate(const char *path, bool system, esp_err_t *result) {
+    char previous[TTF_FONT_PATH_MAX];
+    strlcpy(previous,ttf_font_path(),sizeof(previous));
+    bool was_ready = ttf_font_ready();
+    esp_err_t err = ttf_font_select_context(system,path);
+    if (result) *result = err;
+    s_reading = !system;
+    ttf_font_set_normalized_sizes(true);
+    // 未选字体时由内建思源黑体绘制界面；完整 TTF 为所有动态标题补字。
+    // Built-in Source Han Sans draws default UI; the full TTF remains loaded for missing glyphs.
+    ui_text_set_system_font(system && app_settings_system_font_path()[0] &&
+                            ttf_font_ready() && !ttf_font_is_builtin());
+    ui_text_set_system_scale(system);
+    // 只有实际生效的字体变化才触发主循环刷新。/ Only a change in the effective face requests a redraw.
+    return ttf_font_ready() && (!was_ready || strcmp(previous,ttf_font_path()));
 }
 
 bool app_font_activate_system(void) {
-    s_reading = false;
-    const char* chosen = app_settings_system_font_path();
     char fallback[TTF_FONT_PATH_MAX];
-    const char* path = system_path(fallback);
-    bool changed = activate(path,true);
-    // 未选字体时由内建思源黑体绘制界面；完整 TTF 为所有动态标题补字。
-    // Built-in Source Han Sans draws default UI; the full TTF remains loaded for missing glyphs.
-    ui_text_set_system_font(chosen[0] && ttf_font_ready() && !ttf_font_is_builtin());
-    ui_text_set_system_scale(true);
-    return changed;
+    return activate(system_path(fallback),true,NULL);
 }
 
 bool app_font_activate_reading(void) {
-    s_reading = true;
-    const char* saved = s_document?content_markdown_font():app_settings_font_path();
-    char fallback[TTF_FONT_PATH_MAX];const char *path=saved;
-    if(ttf_font_path_is_builtin(saved)){const char *bundled=bundled_path(fallback);path=bundled?bundled:TTF_FONT_BUILTIN;}
-    bool changed = activate(path,false);
-    ui_text_set_system_font(false);
-    ui_text_set_system_scale(false);
-    return changed;
+    char fallback[TTF_FONT_PATH_MAX];
+    return activate(reading_path(fallback),false,NULL);
+}
+
+void app_font_restore_reading(const char *path) {
+    (void)activate(path,false,NULL);
 }
 
 bool app_font_retry_active(void) {
-    return s_reading ? app_font_activate_reading() : app_font_activate_system();
+    static char failed_path[TTF_FONT_PATH_MAX];
+    static uint32_t failed_mount;
+    static unsigned failed_revision;
+    static bool failed_system;
+    char fallback[TTF_FONT_PATH_MAX];
+    bool system = !s_reading;
+    const char *path = system ? system_path(fallback) : reading_path(fallback);
+    uint32_t mount = record_store_media_epoch();
+    unsigned revision = book_store_revision();
+    if (failed_path[0] && failed_mount == mount && failed_revision == revision &&
+        failed_system == system && !strcmp(failed_path,path)) return false;
+
+    esp_err_t result;
+    bool changed = activate(path,system,&result);
+    if (result == ESP_OK) failed_path[0] = 0;
+    else {
+        // 周期任务等待字体选择或卡上文件变化后再重试失败项。/ Periodic retries wait for a new selection or card change after failure.
+        strlcpy(failed_path,path,sizeof(failed_path));
+        failed_mount = mount;
+        failed_revision = revision;
+        failed_system = system;
+    }
+    return changed;
 }

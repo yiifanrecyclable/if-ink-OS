@@ -63,7 +63,7 @@ void shelf_perf_init(void){
        strcmp(v,"0.2.1-beta-r1t5") && strcmp(v,"0.2.1-beta-r1t6") &&
        strcmp(v,"0.2.2-beta-r1t1")
 #ifdef IFINK_INKBUDDY
-       && strcmp(v,"0.2.1-beta-r2t2")
+       && strcmp(v,"0.2.1-beta-r2t2") && strcmp(v,"0.2.2-beta.3t1") && strcmp(v,"0.2.2-beta.3t2")
 #endif
     )return;
 #ifdef ESP_PLATFORM

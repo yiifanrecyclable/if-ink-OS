@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <time.h>
 #include "book_layout.h"
+#include "book_policy.h"
 #include "html_text.h"
 #include "markdown_text.h"
 #include "ttf_font.h"
@@ -285,7 +286,7 @@ int main(int argc, char **argv) {
         free(reply.data);return written&&font_restored?0:4;
     }
     int px = atoi(argv[4]);
-    if (px < 28 || px > 72) return 2;
+    if ((px < 28 || px > BOOK_PX_MAX) && !(px == 0 && !strncmp(argv[1],"book-",5))) return 2;
     char items[8][260]; int count;
     list_titles(argv[6], items, &count);
     size_t pages = 1;

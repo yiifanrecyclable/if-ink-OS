@@ -10,9 +10,9 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='md-styles-') as temp:
     shutil.copyfile(ROOT/'assets/fonts/PicoSans-Medium.ttf',card/'fonts/PicoSans-Medium.ttf')
     md=card/'markdown/Test.md';md.write_text('# 一级标题\n\n## 二级标题\n\n### 三级标题\n\n#### 小标题\n\n正文 **粗体** *斜体* ==高亮 **重点**==\n\n`==代码保持原样==`\n\n'+('长段落测试，保持阅读位置。'*100))
     (card/'books/Test.txt').write_text('Normal book\n\n'+('Normal body text. '*500))
-    (out/'titles.txt').write_text('');env={**os.environ,'PICO_SIM_CARD_ROOT':str(card)}
+    (out/'titles.txt').write_text('');env={**os.environ,'PICO_SIM_CARD_ROOT':str(card),'PICO_SIM_VERIFY_AREAS':'1'}
     def render(panel=0,events='',path='/sdcard/markdown/Test.md',page=0):
-        p=subprocess.run([str(ROOT/'build/simulator/render'),'book-1',path,str(page),'48','build/simulator/frame.bin','build/simulator/titles.txt',str(panel),','.join(['60']*30),'builtin',events,''],cwd=work,env=env,text=True,capture_output=True,timeout=30)
+        p=subprocess.run([str(ROOT/'build/simulator/render'),'book-1',path,str(page),'0','build/simulator/frame.bin','build/simulator/titles.txt',str(panel),','.join(['60']*30),'builtin',events,''],cwd=work,env=env,text=True,capture_output=True,timeout=30)
         assert p.returncode==0,p.stderr
         return json.loads(p.stdout),(out/'frame.bin').read_bytes()
     info,body=render();assert info['markdown_sizes']==[48,72,64,56] and info['reader_px']==48
@@ -22,20 +22,32 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='md-styles-') as temp:
     prefs=out/'nvs/if_content/md_sizes'
     y=info['markdown_slider_y'][0]
     press=f'p,360,{y},360,{y}';move=f'm,360,{y},584,{y}';release=f'r,360,{y},584,{y}'
-    info,draft=render(11,press+';'+move);assert info['markdown_sizes'][0]==72 and info['reader_px']==48 and not prefs.exists()
+    info,draft=render(11,press+';'+move);assert info['markdown_sizes'][0]==100 and info['reader_px']==48 and not prefs.exists()
+    assert info['reader_area_violations']==0
     assert draft[936*342:1036*342]!=preview[936*342:1036*342]
     info,_=render(11,press+';'+move+';c,360,720,584,720');assert info['reader_px']==48 and info['markdown_sizes'][0]==48 and not prefs.exists()
-    info,_=render(11,press+';'+move+';'+release);assert info['reader_px']==72 and info['markdown_committed'] and prefs.read_bytes()==bytes([72,72,64,56])
-    info,_=render();assert info['reader_px']==72 and not info['markdown_committed']
+    info,_=render(11,press+';'+move+';'+release);assert info['reader_px']==100 and info['markdown_committed'] and prefs.read_bytes()==bytes([100,72,64,56])
+    info,_=render();assert info['reader_px']==100 and not info['markdown_committed']
     # H1/H2/H3 separately persist without overwriting body or book sizes.
     for i,y in enumerate(info['markdown_slider_y'][1:],1):
         info,_=render(11,tap(40,y));assert info['markdown_sizes'][i]==[72,71,63,55][i] and info['markdown_committed']
-    assert prefs.read_bytes()==bytes([72,71,63,55])
-    info,_=render(path='/sdcard/books/Test.txt');assert info['reader_px']==48
+    assert prefs.read_bytes()==bytes([100,71,63,55])
+    book='/sdcard/books/Test.txt'
+    info,_=render(path=book);assert info['reader_px']==48
+    row=info['reader_controls_geometry'][1]
+    book_y=196+row-40
+    events=f'p,360,{book_y},360,{book_y};m,360,{book_y},584,{book_y};r,360,{book_y},584,{book_y}'
+    info,_=render(2,events,path=book,page=2)
+    assert info['reader_px']==100 and info['reader_offset']>0,info
+    assert (out/'nvs/read_pico/bk_px').read_bytes()==bytes([100])
+    reopened,_=render(path=book,page=-1)
+    assert reopened['reader_px']==100 and reopened['reader_offset']==info['reader_offset'],reopened
     assert render(11,tap(340,1183))[0]['reader_panel']==2
     # Reading offsets survive size changes, even though the page count changes.
     prefs.write_bytes(bytes([48,72,64,56]));info,_=render(11,press+';'+move+';'+release,page=2)
     assert info['reader_page']>0 and info['reader_progress']>0
+    reopened,_=render(page=-1)
+    assert reopened['reader_px']==100 and reopened['reader_offset']==info['reader_offset'],reopened
     # Actual pixels distinguish all three styles, using the real font and production draw path.
     prefs.write_bytes(bytes([48,72,64,56]))
     def sample(text):

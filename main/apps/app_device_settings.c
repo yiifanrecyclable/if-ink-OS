@@ -64,13 +64,11 @@
 #include "pmu_selftest.h"
 #include "soc/rtc_cntl_reg.h"
 
-#ifdef IFINK_INKBUDDY
-#define SETTINGS_FIRMWARE_LABEL "v0.2.1 beta r2t2"
-#elif defined(IFINK_DOCUMENT_TIMING)
-#define SETTINGS_FIRMWARE_LABEL "v0.2.2 beta r1t1"
-#else
-#define SETTINGS_FIRMWARE_LABEL "v0.2.2 beta 2"
-#endif
+static void settings_firmware_label(char *label, size_t capacity) {
+    snprintf(label, capacity, "v%s", esp_app_get_description()->version);
+    char *beta = strstr(label, "-beta");
+    if (beta && (beta[5] == '.' || beta[5] == '-')) beta[0] = beta[5] = ' ';
+}
 
 static void fit_value(char *value, int width);
 static char s_notice[96];
@@ -108,6 +106,9 @@ static int font_list_top(void) { return s_page == SETTINGS_SYSTEM_FONT || s_page
 static int font_list_step(void) { return ui_list_row_height(false)+12; }
 static int font_list_rows(void) { return ui_list_visible_rows(font_list_top(),1028,font_list_step()); }
 static EpdRect font_list_rect(int slot) { return (EpdRect){36,font_list_top()+slot*font_list_step(),612,font_list_step()-12}; }
+static unsigned s_font_names_shown;
+static bool s_font_names_settled;
+static EpdRect s_font_names_dirty;
 
 static bool s_scroll_drag_consumed, s_scroll_present_pending;
 static const char *const cloud_guide[]={
@@ -238,6 +239,35 @@ static const char *system_font_label(const char *path) {
     if (len >= 4 && !strcasecmp(stem + len - 4, ".ttf")) stem[len - 4] = 0;
     if (!strcasecmp(stem, "Hei")) return UI_MSG("思源黑体（TF 卡）");
     return ttf_font_localized_name(stem);
+}
+static EpdRect system_font_name_rect(EpdRect box) {
+    return (EpdRect){60,box.y,box.width-102,box.height};
+}
+static app_redraw_t system_font_preview_tick(app_ctx_t *ctx) {
+    if (s_font_names_settled ||
+        !ttf_name_preview_idle(ctx->now_ms,ctx->consumed||ctx->pressed||ctx->released||
+                               (ctx->touch&&ctx->touch->touched))) return APP_REDRAW_NONE;
+    int rows = font_list_rows(), first = s_font_page * rows, px = ui_text_effective_px(26);
+    for (int slot = 0; slot < rows; ++slot) {
+        const ttf_font_item_t *item = ttf_font_item(first+slot-1);
+        if (item && !ttf_name_preview_request(item,ui_message(system_font_label(item->path)),px,
+                                               system_font_name_rect(font_list_rect(slot)).width))
+            return APP_REDRAW_NONE;
+    }
+    s_font_names_settled = true;
+    const char *selected = app_settings_system_font_path();
+    s_font_names_dirty = (EpdRect){0};
+    for (int slot = 0; slot < rows; ++slot) {
+        const ttf_font_item_t *item = ttf_font_item(first+slot-1);
+        if (!item || (s_font_names_shown & (1u << slot))) continue;
+        EpdRect area = system_font_name_rect(font_list_rect(slot));
+        if (ttf_name_preview_draw(ctx->fb,item,ui_message(system_font_label(item->path)),px,area,
+                                  strcmp(selected,item->path)?UI_GRAY_WHITE:0xe0,true)) {
+            s_font_names_shown |= 1u << slot;
+            s_font_names_dirty = ui_rect_union(s_font_names_dirty,area);
+        }
+    }
+    return s_font_names_dirty.width ? APP_REDRAW_AREA : APP_REDRAW_NONE;
 }
 static int s_year, s_month, s_day, s_hour, s_minute;
 static bool s_status_notice_only;
@@ -713,6 +743,8 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         return;
     }
     if (s_page == SETTINGS_SYSTEM_FONT || s_page == SETTINGS_QUOTE_FONT) {
+        s_font_names_shown = 0;
+        s_font_names_settled = false;
         back_header(fb, s_page==SETTINGS_QUOTE_FONT?UI_MSG("首页文字字体"):UI_MSG("系统文字"));
         if (s_page == SETTINGS_SYSTEM_FONT) {
             for (int i = 0; i < 4; ++i) {
@@ -743,12 +775,22 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             settings_option(fb,box,active);
             char label[TTF_FONT_NAME_MAX];
             ui_snprintf(label, sizeof(label), "%s", item ? system_font_label(item->path) : s_page==SETTINGS_QUOTE_FONT?UI_MSG("跟随系统字体"):UI_MSG("默认字体（完整字库补字）"));
-            while (label[0] && ttf_text_width_px(ui_text_effective_px(26), label) > box.width - 102) {
+            if (s_page == SETTINGS_SYSTEM_FONT && item &&
+                ttf_name_preview_draw(fb,item,label,ui_text_effective_px(26),system_font_name_rect(box),
+                                      active?0xe0:UI_GRAY_WHITE,false)) {
+                s_font_names_shown |= 1u << slot;
+                if (active) epd_fill_circle(609, box.y + box.height/2, 6, UI_GRAY_BLACK, fb);
+                continue;
+            }
+            while (label[0] && ui_text_fixed_width_px(ui_text_effective_px(26), label) > box.width - 102) {
                 size_t len = strlen(label) - 1;
                 while (len && ((unsigned char)label[len] & 0xc0) == 0x80) --len;
                 label[len] = 0;
             }
-            ui_text_vc(fb, 60, box.y + box.height/2, 26, label, EPD_DRAW_ALIGN_LEFT, false);
+            if (item || s_page != SETTINGS_SYSTEM_FONT ||
+                !ui_draw_builtin_font_name(fb,system_font_name_rect(box),ui_text_effective_px(26),
+                                           label,active?0xe0:UI_GRAY_WHITE))
+                ui_text_vc(fb, 60, box.y + box.height/2, 26, label, EPD_DRAW_ALIGN_LEFT, false);
             if (active) epd_fill_circle(609, box.y + box.height/2, 6, UI_GRAY_BLACK, fb);
         }
         char pages[32]; ui_snprintf(pages, sizeof(pages), "%d / %d", s_font_page + 1, (count + font_list_rows()) / font_list_rows());
@@ -876,13 +918,14 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
 
     // 名称、版本与口号共用紧凑单行，按可用宽度适配，避免大字号互相覆盖。
     // Fit the brand, version and slogan on one compact line without overlap at large presets.
+    char version_label[sizeof(esp_app_get_description()->version) + 2];
+    settings_firmware_label(version_label, sizeof(version_label));
     const int info_y = UI_PAGE_Y(84) - s_main_scroll;
     if (info_y + SETTINGS_INFO_H > UI_STATUS_HEIGHT) {
         int center=info_y+SETTINGS_INFO_H/2;
         int title_px=ui_text_fit_px(UI_TEXT_TITLE,"if-ink OS",196,48);
         ui_text_fixed_vc(fb,36,center,title_px,"if-ink OS",EPD_DRAW_ALIGN_LEFT,false);
         int version_x=36+ui_text_fixed_width_px(title_px,"if-ink OS")+12;
-        const char *version_label = SETTINGS_FIRMWARE_LABEL;
         int version_px=ui_text_fit_px(UI_TEXT_CAPTION,version_label,156,48);
         ui_text_fixed_vc(fb,version_x,center,version_px,version_label,EPD_DRAW_ALIGN_LEFT,false);
         int width=648-version_x-ui_text_fixed_width_px(version_px,version_label)-24;
@@ -919,8 +962,10 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     setting_group(fb, SETTINGS_DISPLAY_Y - 34, UI_MSG("显示与个性化"), SETTINGS_DISPLAY_Y,
                   reading_icons, reading_labels, reading_values, SETTINGS_DISPLAY_ROWS);
     const char *device_labels[] = {UI_MSG("日期与时间"), UI_MSG("系统语言"), UI_MSG("关机与休眠"), UI_MSG("电池管理"), UI_MSG("保存与恢复"), UI_MSG("固件信息"), UI_MSG("BOOT 刷机")};
+    char version_value[sizeof(version_label) + sizeof("  ›")];
+    snprintf(version_value, sizeof(version_value), "%s  ›", version_label);
     const char *device_values[] = {UI_MSG("设置  ›"), app_settings_language()==APP_LANGUAGE_EN?"English":"中文", app_settings_staged_shutdown() ? UI_MSG("先浅后深  ›") : UI_MSG("彻底断电  ›"),
-                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), SETTINGS_FIRMWARE_LABEL "  ›", UI_MSG("电脑刷机  ›")};
+                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), version_value, UI_MSG("电脑刷机  ›")};
     static const int device_icons[] = {6, 17, 9, 13, 8, 14, 16};
     setting_group(fb, SETTINGS_DEVICE_Y - 34, UI_MSG("系统与设备"), SETTINGS_DEVICE_Y,
                   device_icons, device_labels, device_values, SETTINGS_DEVICE_ROWS);
@@ -951,6 +996,7 @@ static void on_enter(app_ctx_t *ctx) {
 static app_redraw_t on_tick(app_ctx_t *ctx) {
     if(wallpaper_picker_page()){app_redraw_t r=app_files_wallpaper_tick(ctx);if(r==APP_REDRAW_AREA)s_status_notice_only=true;return r;}
     if(ui_nav_notice_tick(ctx->now_ms)){s_status_notice_only=true;return APP_REDRAW_AREA;}
+    if (s_page == SETTINGS_SYSTEM_FONT) return system_font_preview_tick(ctx);
     if(s_page==SETTINGS_ONLINE_UPDATE){
         if(s_online_pending){s_online_pending=false;(void)if_update_check();}
         if_update_poll();if_update_status_t status;if_update_get_status(&status);
@@ -1171,6 +1217,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         if (ev->type == UI_GESTURE_SWIPE_U && *page + 1 < pages) ++*page;
         if (ev->type == UI_GESTURE_SWIPE_D && *page > 0) --*page;
         if (*page == old) return APP_REDRAW_NONE;
+        if (s_page == SETTINGS_SYSTEM_FONT) ttf_name_preview_pause();
         s_scroll_present_pending = true;
         return APP_REDRAW_AREA;
     }
@@ -1240,6 +1287,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         if (s_page == SETTINGS_SYSTEM_FONT) {
             for (int i = 0; i < 4; ++i) if ((ev->x0-(system_size_rect(i).x+50))*(ev->x0-(system_size_rect(i).x+50))+(y-UI_PAGE_Y(300))*(y-UI_PAGE_Y(300))<=2500) {
                 if(app_settings_set_system_font_size(size_values[i])!=ESP_OK){ui_nav_notice_show(UI_MSG("保存失败，请重试"),ctx->now_ms);return APP_REDRAW_PAGE;}
+                ttf_name_preview_pause();
                 s_font_page=0; s_main_scroll=0;
                 ui_text_set_system_scale(true);
                 return APP_REDRAW_PAGE;
@@ -1256,6 +1304,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
             if(!banner_preview_apply(&next,true))return APP_REDRAW_PAGE;
             s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;
         }
+        ttf_name_preview_pause();
         if(app_settings_set_system_font_path(item ? item->path : "")!=ESP_OK){ui_nav_notice_show(UI_MSG("保存失败，请重试"),ctx->now_ms);return APP_REDRAW_PAGE;}
         app_font_activate_system();
         s_font_page=index/font_list_rows();
@@ -1360,6 +1409,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
 
     if (y >= SETTINGS_DISPLAY_Y && y < SETTINGS_DISPLAY_Y + SETTINGS_ROW_H) {
         ttf_font_scan();
+        ttf_name_preview_revision(book_store_revision());
         s_font_page = 0;
         s_page = SETTINGS_SYSTEM_FONT;
         return APP_REDRAW_PAGE;
@@ -1398,7 +1448,7 @@ static app_redraw_t on_key(app_ctx_t *ctx, int key) {
     if(wallpaper_picker_page())return wallpaper_picker_result(app_files_wallpaper_key(ctx,key));
     if(key!=1&&(s_page==SETTINGS_SYSTEM_FONT||s_page==SETTINGS_QUOTE_FONT)){
         int rows=font_list_rows(),count=ttf_font_count()+1,next=s_font_page+(key==0?-1:1);
-        if(count>rows){if(next>=0&&next*rows<count){s_font_page=next;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;}
+        if(count>rows){if(next>=0&&next*rows<count){if(s_page==SETTINGS_SYSTEM_FONT)ttf_name_preview_pause();s_font_page=next;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;}
     }
 
     if(s_page==SETTINGS_ONLINE_UPDATE){
@@ -1428,6 +1478,7 @@ static app_redraw_t on_key(app_ctx_t *ctx, int key) {
     return APP_REDRAW_NONE;
 }
 static void settings_exit(app_ctx_t *ctx) {
+    ttf_name_preview_pause();
     (void)ctx;app_files_wallpaper_close();online_close();quote_preview_clear();s_quote_dragging=false;s_banner_height_drag=0;ui_text_input_clear(&s_text_input);memset(s_editor,0,sizeof(s_editor));
 }
 static void on_before_lock(app_ctx_t *ctx) {
@@ -1443,6 +1494,14 @@ static bool settings_present(app_ctx_t *ctx, app_redraw_t redraw) {
         guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,r));s_status_notice_only=false;return true;
     }
     if(redraw==APP_REDRAW_PAGE||redraw==APP_REDRAW_FULL)s_status_notice_only=false;
+    if ((redraw == APP_REDRAW_PAGE || redraw == APP_REDRAW_FULL) && s_page != SETTINGS_SYSTEM_FONT)
+        ttf_name_preview_pause();
+    if (redraw == APP_REDRAW_AREA && s_page == SETTINGS_SYSTEM_FONT && s_font_names_dirty.width) {
+        EpdRect area = s_font_names_dirty;
+        s_font_names_dirty = (EpdRect){0};
+        guard_draw_result(ctx->hl,update_display_natural_area(ctx->hl,area));
+        return true;
+    }
     if(redraw==APP_REDRAW_AREA&&s_page==SETTINGS_ONLINE_UPDATE){
         if_update_status_t status;if_update_get_status(&status);
         bool progress_only=s_online_progress_only&&!online_stage_changed(&status);

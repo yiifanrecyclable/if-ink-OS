@@ -33,13 +33,18 @@ static bool version_parts(const char *s, version_t *v) {
         if(i<2&&*s++!='.')return false;
     }
     if(!*s)return true;
-    // 新测试版使用beta.N；兼容已安装的beta、betaN及-rN后缀。
-    // New betas use beta.N; retain installed beta, betaN and -rN suffix compatibility.
+    // 新测试版使用beta.N；本地试验版可追加tN，兼容已安装的beta、betaN及-rN后缀。
+    // New betas use beta.N; local trials may append tN, while installed beta, betaN and -rN remain compatible.
     if(!strncmp(s,"-beta",5)){
         s+=5;v->test=v->beta=true;
         if(!*s)return true;
         if(*s=='.'){
-            ++s;if(!version_number(&s,&v->number)||!v->number||*s)return false;
+            ++s;if(!version_number(&s,&v->number)||!v->number)return false;
+            if(*s=='t'){
+                ++s;
+                if(!version_number(&s,&v->trial)||!v->trial)return false;
+            }
+            if(*s)return false;
             return true;
         }
         if(*s>='1'&&*s<='9'){if(!version_number(&s,&v->number))return false;}

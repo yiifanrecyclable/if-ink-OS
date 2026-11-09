@@ -43,6 +43,9 @@ if [[ "${DOCUMENT_TIMING_TEST:-0}" == 1 ]]; then
     flags+=(-DSHELF_PERF_HOST_TEST=1)
     timing_sources=(main/shelf_perf.c)
 fi
+version=$(awk -F '"' '/^set\(PROJECT_VER "/ {print $2; exit}' CMakeLists.txt)
+test -n "$version"
+flags+=("-DPICO_SIM_FIRMWARE_VERSION=\"$version\"")
 cc "${flags[@]}" -std=gnu11 -Wall -Wextra -Werror -Wno-deprecated-declarations -c tools/simulator/vendor/cjson/cJSON.c -o build/simulator/cJSON-render.o
 cc "${flags[@]}" "-DPICO_SIM_CARD_PATH=\"$card\"" -std=gnu11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -Wno-unused-parameter \
     -Wno-unused-function -Wno-unused-variable -Wno-sign-compare -ffunction-sections -fdata-sections \

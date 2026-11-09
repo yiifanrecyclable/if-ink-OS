@@ -45,7 +45,8 @@ int ui_text_fit_px(int px, const char *text, int width, int height) {
 
 int ui_text_line_height(int px) {
     int above=0, below=0, actual=ui_text_effective_px(px);
-    ui_text_fixed_measure_px(actual,"国Agjy",&above,&below);
+    if (s_system_text_scale) ui_font_measure_line_px(actual,"国Agjy",&above,&below);
+    else ui_text_fixed_measure_px(actual,"国Agjy",&above,&below);
     int ink=above+below;
     int minimum=(actual*3+3)/4;
     return (ink>minimum?ink:minimum)+8;
@@ -314,6 +315,16 @@ void ui_text_fixed_vc(
 ) {
     ui_text_fixed_vc_gray(framebuffer,x,center_y,px,text,align,
         inverted?UI_INK_WHITE:UI_INK_BLACK,inverted?UI_INK_BLACK:UI_INK_WHITE);
+}
+
+bool ui_draw_builtin_font_name(uint8_t *fb, EpdRect area, int px, const char *text, uint8_t bg) {
+    text = ui_message(text);
+    if (!ui_font_has_text(text) || ui_font_text_width_px(px,text) > area.width) return false;
+    int above, below;
+    ui_font_measure_line_px(px,text,&above,&below);
+    ui_font_draw_text_px(fb,area.x,area.y+area.height/2+(above-below)/2,px,text,
+                         EPD_DRAW_ALIGN_LEFT,0,bg>>4,false);
+    return true;
 }
 
 void ui_text_bw(

@@ -43,6 +43,8 @@ int main(int argc,char **argv){assert(argc==2);unsigned before=logs();
  if(!strcmp(argv[1],"r1t4"))strcpy(descriptor.version,"0.2.1-beta-r1t4");
  if(!strcmp(argv[1],"r1t5"))strcpy(descriptor.version,"0.2.1-beta-r1t5");
  if(!strcmp(argv[1],"r1t6"))strcpy(descriptor.version,"0.2.1-beta-r1t6");
+ if(!strcmp(argv[1],"beta3t1"))strcpy(descriptor.version,"0.2.2-beta.3t1");
+ if(!strcmp(argv[1],"beta3t2"))strcpy(descriptor.version,"0.2.2-beta.3t2");
  if(!strcmp(argv[1],"formal"))strcpy(descriptor.version,"0.2.1");
  if(!strcmp(argv[1],"oom"))test_alloc_fail=true;
  shelf_perf_init();shelf_perf_request(0,123);
@@ -97,16 +99,16 @@ with tempfile.TemporaryDirectory(prefix='shelf-perf-',dir=R/'build') as tmp:
  (headers/'esp_timer.h').write_text('#pragma once\n#include <stdint.h>\nextern int64_t test_us;static inline int64_t esp_timer_get_time(void){return test_us;}\n')
  (headers/'esp_heap_caps.h').write_text('#pragma once\n#include <stdlib.h>\n#include <stdbool.h>\n#define MALLOC_CAP_SPIRAM 1\n#define MALLOC_CAP_8BIT 2\nextern bool test_alloc_fail;static inline void *heap_caps_malloc(size_t n,int c){(void)c;return test_alloc_fail?NULL:malloc(n);}\n')
  (p/'test.c').write_text(SOURCE)
- cmd=['cc','-std=gnu11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-pthread','-DSHELF_PERF_HOST_TEST','-DPICO_SIM_CARD_PATH="unused"','-include',str(R/'tools/simulator/fs.h'),'-I'+str(headers),'-I'+str(R/'tools/simulator/include'),'-I'+str(R/'main'),'-I'+str(R/'main/apps'),str(p/'test.c'),str(R/'main/shelf_perf.c'),str(R/'tools/simulator/fs.c'),'-o',str(p/'test')]
+ cmd=['cc','-std=gnu11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-pthread','-DIFINK_INKBUDDY=1','-DSHELF_PERF_HOST_TEST','-DPICO_SIM_CARD_PATH="unused"','-include',str(R/'tools/simulator/fs.h'),'-I'+str(headers),'-I'+str(R/'tools/simulator/include'),'-I'+str(R/'main'),'-I'+str(R/'main/apps'),str(p/'test.c'),str(R/'main/shelf_perf.c'),str(R/'tools/simulator/fs.c'),'-o',str(p/'test')]
  subprocess.run(cmd,check=True)
- for mode in ('normal','t2','t3','t4','t5','t6','t7','r1t2','r1t3','r1t4','r1t5','r1t6','full','expiry','formal','oom'):
+ for mode in ('normal','t2','t3','t4','t5','t6','t7','r1t2','r1t3','r1t4','r1t5','r1t6','beta3t1','beta3t2','full','expiry','formal','oom'):
   card=p/mode;card.mkdir();env={**os.environ,'PICO_SIM_CARD_ROOT':str(card),'ASAN_OPTIONS':'detect_leaks=0'}
   subprocess.run([str(p/'test'),mode],env=env,check=True)
   logs=list(card.glob('diagnostics/*.csv'))
   if mode in ('formal','oom'):assert not logs;continue
-  version='r9'+mode if mode in ('t2','t3','t4','t5','t6','t7') else 'r9t1'
+  version='beta.3t1' if mode=='beta3t1' else 'beta.3t2' if mode=='beta3t2' else 'r9'+mode if mode in ('t2','t3','t4','t5','t6','t7') else 'r9t1'
   if mode in ('r1t2','r1t3','r1t4','r1t5','r1t6'):version=mode
-  expected='0.2.1-beta-'+version if mode in ('r1t2','r1t3','r1t4','r1t5','r1t6') else '0.2.0-'+version
+  expected='0.2.2-beta.3t1' if mode=='beta3t1' else '0.2.2-beta.3t2' if mode=='beta3t2' else '0.2.1-beta-'+version if mode in ('r1t2','r1t3','r1t4','r1t5','r1t6') else '0.2.0-'+version
   assert len(logs)==1;raw=logs[0].read_text();assert raw.startswith('# shelf_perf schema=1 version='+expected+' ');assert raw.endswith('# complete=1\n')
   assert logs[0].name=='shelf-perf-'+version+'-0001.csv'
   rows=list(csv.DictReader(io.StringIO('\n'.join(line for line in raw.splitlines() if not line.startswith('#')))))

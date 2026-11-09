@@ -20,7 +20,6 @@
 #define TTF_SIZE_SMALL 0
 #define TTF_SIZE_LARGE 1
 
-#define TTF_FONT_MAX 24
 #define TTF_FONT_NAME_MAX 64
 #define TTF_FONT_PATH_MAX 160
 
@@ -54,9 +53,21 @@ bool ttf_font_is_builtin(void);
 bool ttf_font_path_is_builtin(const char* path);
 /// 选择系统或阅读字体缓存；调用方须持有绘制锁，失败不丢失另一字体。/ Select a cached face under the draw lock, retaining the other face on failure.
 esp_err_t ttf_font_select_context(bool system,const char *path);
+/// 启用校准字号并返回之前的状态；与字体上下文共用绘制锁约束。
+/// Toggle optical sizes and return the previous mode, under the same draw lock as face selection.
+bool ttf_font_set_normalized_sizes(bool enabled);
 /// 借用另一缓存槽预载，回调绘制期间临时切换活动字形。/ Preload in the other slot and temporarily select the face for a draw callback.
 bool ttf_font_prepare_preview(const char *path);
 bool ttf_font_with_preview(const char *path, void (*draw)(void *), void *ctx);
+/// 字体列表只保留名称位图；空闲时提交，绘制只查缓存。/ Font lists submit on idle and paint from cached name masks only.
+bool ttf_name_preview_request(const ttf_font_item_t *item, const char *label, int px, int width);
+bool ttf_name_preview_draw(uint8_t *fb, const ttf_font_item_t *item, const char *label,
+                           int px, EpdRect area, uint8_t background, bool replace);
+void ttf_name_preview_revision(unsigned revision);
+bool ttf_name_preview_idle(int64_t now_ms, bool input);
+void ttf_name_preview_pause(void);
+/// 停止读取 TF 卡，供退页和休眠使用。/ Stop SD reads before leaving a picker or sleeping.
+void ttf_name_preview_stop(void);
 /// 文件操作前释放匹配文件或目录的缓存句柄。/ Close cached handles for a file or directory before editing it.
 bool ttf_font_release_path(const char *root);
 /// 释放两套字体的来源及缓存；拔卡和USB存储切换前调用。/ Release both faces and caches before card loss or USB storage access.

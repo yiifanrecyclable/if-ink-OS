@@ -60,8 +60,8 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='feedback-011-') as dir
     assert frame(events=tap(40,600))[0]['reader_page']==0
     # 文档选字形不会改变图书字体；重新打开仍使用已选字体。/ A document face persists without changing the book preference.
     path='/sdcard/markdown/Doc00.md'
-    state,_=frame(path=path,panel=2);rh=state['reader_controls_geometry'][1]
-    state,_=frame(path=path,panel=2,events=tap(300,250)+';'+tap(200,220+rh+rh//2))
+    picker,_=frame(path=path,panel=5);rh=picker['reader_controls_geometry'][1]
+    state,_=frame(path=path,panel=2,events=tap(300,250)+';'+tap(200,196+rh//2))
     assert state['reader_panel']==2 and state['markdown_font_path']=='/sdcard/fonts/Document.ttf',state
     assert state['reading_font_path']==baseline['reading_font_path']
     assert frame(path=path)[0]['font_path']=='/sdcard/fonts/Document.ttf'

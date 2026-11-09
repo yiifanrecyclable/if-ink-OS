@@ -159,6 +159,7 @@ void ui_text_fixed_vc(
 );
 /// 在指定4位灰阶底色上抗锯齿绘制，避免反白数字周围出现黑边。/ Antialias against the supplied 4-bit background without dark halos around reversed digits.
 void ui_text_fixed_vc_gray(uint8_t *fb,int x,int center_y,int px,const char *text,enum EpdFontFlags align,uint8_t fg,uint8_t bg);
+bool ui_draw_builtin_font_name(uint8_t *fb, EpdRect area, int px, const char *text, uint8_t bg);
 void ui_text_bw(
     uint8_t* framebuffer, int x, int y_top, int px, const char* text,
     enum EpdFontFlags align, bool inverted

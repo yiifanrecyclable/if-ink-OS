@@ -138,8 +138,6 @@
 #define BOOK_BULK_ROWS (management_rows())
 static int management_rows(void);
 static int document_rows(void);
-#define BOOK_PX_MIN 36
-#define BOOK_PX_MAX 72
 #define BOOK_PX_STEP 4
 #define BOOK_MARGIN_MIN 8
 #define BOOK_MARGIN_MAX 60
@@ -464,7 +462,8 @@ static void draw_documents(app_ctx_t *ctx,uint8_t *fb){
     if(s_document_scan_pending||!s_document_cache_valid){
         const char *label=s_document_scan_pending?UI_MSG("加载中"):
             record_store_ready()?UI_MSG("文档读取失败，请重试"):UI_MSG("TF 卡尚未挂载");
-        ui_text_vc(fb,342,408,27,label,EPD_DRAW_ALIGN_CENTER,false);
+        int y=s_document_scan_pending?UI_LOCK_HEIGHT/2:408;
+        ui_text_vc(fb,UI_LOCK_WIDTH/2,y,27,label,EPD_DRAW_ALIGN_CENTER,false);
         ui_nav_draw(fb,1);
         return;
     }
@@ -522,8 +521,13 @@ static void draw_content_sort(uint8_t *fb){
     ui_nav_draw_action_card(fb,card);
     ui_text_vc(fb,36,card.close.y+card.close.height/2,UI_TEXT_TITLE,UI_MSG("排序"),EPD_DRAW_ALIGN_LEFT,false);
     ui_nav_close_in(fb,card.close);
-    const char *labels[]={s_sort_documents?UI_MSG("文档名"):UI_MSG("书名"),
+    const char *labels[]={s_sort_documents?UI_MSG("文档\n名称"):UI_MSG("书籍\n名称"),
                          UI_MSG("阅读\n进度"),UI_MSG("加入\n日期"),UI_MSG("最近\n阅读")};
+    int single_line_px=ui_text_effective_px(UI_TEXT_BODY);
+    if(ui_i18n_english())for(int i=0;i<4;++i){
+        int fitted=ui_text_fit_px(UI_TEXT_BODY,labels[i],content_sort_mode(i).width-20,48);
+        if(fitted<single_line_px)single_line_px=fitted;
+    }
     for(int i=0;i<4;++i){
         EpdRect r=content_sort_mode(i);
         int cx=r.x+r.width/2,cy=r.y+r.height/2-6;
@@ -537,8 +541,7 @@ static void draw_content_sort(uint8_t *fb){
             ui_text_vc(fb,cx,cy-gap/2,UI_TEXT_BODY,first,EPD_DRAW_ALIGN_CENTER,false);
             ui_text_vc(fb,cx,cy+(gap+1)/2,UI_TEXT_BODY,second+1,EPD_DRAW_ALIGN_CENTER,false);
         }else{
-            int px=ui_text_fit_px(UI_TEXT_BODY,label,r.width-20,48);
-            ui_text_fixed_vc(fb,cx,cy,px,label,EPD_DRAW_ALIGN_CENTER,false);
+            ui_text_fixed_vc(fb,cx,cy,single_line_px,label,EPD_DRAW_ALIGN_CENTER,false);
         }
         if(s_sort_options.mode==i)
             ui_fill_round_rect(fb,(EpdRect){cx-18,r.y+r.height-12,36,6},3,UI_GRAY_BLACK);
@@ -1790,7 +1793,7 @@ static void ensure_prep(void) {
     if(!s_prep_task&&s_draw_lock&&s_prep_done&&s_next_fb&&xTaskCreatePinnedToCore(prep_task,"book_prep",12*1024,NULL,3,&s_prep_task,1)!=pdPASS)s_prep_task=NULL;
 }
 static bool kick_prep(void) {
-    if(s_view!=READING||!s_text||s_toolbar||s_clear_confirm||s_page+1>=book_layout_page_count()||
+    if(s_view!=READING||!s_text||s_toolbar||s_clear_confirm||s_reader_panel!=READER_PANEL_NONE||s_page+1>=book_layout_page_count()||
        book_layout_page_image(s_page+1)>=0||book_layout_page_image_count(s_page+1)>0)return false;
     int target=(int)s_page+1;
     if(s_next_page==target&&s_next_generation==book_layout_generation())return false;
@@ -1811,7 +1814,7 @@ static bool reader_prefetch_resume(size_t page) {
     return s_next_page==(int)page&&s_next_generation==book_layout_generation();
 }
 static void reader_prefetch_idle(app_ctx_t *ctx) {
-    if(s_view!=READING||!s_text||s_toolbar||s_clear_confirm||ctx->consumed||ctx->request_app||ctx->request_menu||
+    if(s_view!=READING||!s_text||s_toolbar||s_clear_confirm||s_reader_panel!=READER_PANEL_NONE||ctx->consumed||ctx->request_app||ctx->request_menu||
        (ctx->touch&&ctx->touch->touched)||s_prep_page!=(int)s_page+1||s_next_page==s_prep_page)return;
     lock_draw();int64_t deadline=esp_timer_get_time()+4000;
     for(unsigned row=0;row<8;++row)if(reader_prefetch_step()!=0||esp_timer_get_time()>=deadline)break;
@@ -1899,6 +1902,12 @@ static bool present(app_ctx_t* ctx, app_redraw_t redraw) {
     if (redraw == APP_REDRAW_NONE || redraw == APP_REDRAW_DONE) return true;
     SHELF_PERF_SCOPE(present_perf,SP_PRESENT,redraw,s_view);
     if (s_presented_view != (int)s_view && redraw == APP_REDRAW_AREA) redraw = APP_REDRAW_PAGE;
+    if ((redraw == APP_REDRAW_PAGE || redraw == APP_REDRAW_FULL) &&
+        (s_view != READING || s_reader_panel != READER_PANEL_FONT_PICKER)) ttf_name_preview_pause();
+    if (redraw == APP_REDRAW_AREA && s_view == READING && s_reader_panel == READER_PANEL_FONT_PICKER && !s_reader_cleanup) {
+        guard_draw_result(ctx->hl,update_display_natural_area(ctx->hl,s_area));
+        return true;
+    }
     if((s_view==EDIT||s_view==SEARCH)&&redraw==APP_REDRAW_AREA){
         guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,ui_text_input_area()));
         return true;
@@ -2418,7 +2427,7 @@ static bool open_book(app_ctx_t* ctx, const char* path) {
     s_md_notice[0]=0; s_md_committed=false;
     content_markdown_sizes(s_md_sizes);
     s_px = is_document ? s_md_sizes[0] : app_settings_book_px();
-    if (s_px < BOOK_PX_MIN || s_px > BOOK_PX_MAX) s_px = 48;
+    if (!book_text_size_valid(s_px)) s_px = 48;
     size_t chapter = resume && p.chapter < book_chapter_count() ? p.chapter : 0;
     if (!load_chapter(ctx, chapter, resume && p.chapter == chapter ? p.byte_off : 0, false)) {
         free_book();
@@ -2880,7 +2889,7 @@ static app_redraw_t turn_page(app_ctx_t* ctx, int dir) {
 
 static app_redraw_t apply_reader_layout(app_ctx_t* ctx, int next_px, int next_margin,
                                         uint8_t next_line, uint8_t next_para) {
-    if (next_px < BOOK_PX_MIN || next_px > BOOK_PX_MAX ||
+    if (!book_text_size_valid(next_px) ||
         next_margin < BOOK_MARGIN_MIN || next_margin > BOOK_MARGIN_MAX ||
         next_line < 110 || next_line > 150 ||
         next_para > 75) return APP_REDRAW_NONE;
@@ -3088,33 +3097,58 @@ static app_redraw_t toggle_reader_fullscreen(app_ctx_t* ctx) {
     save_progress();return APP_REDRAW_PAGE;
 }
 
+static bool reflow_reading_font(size_t offset) {
+    if (!book_layout_build_blocks(s_text,s_text_len,s_blocks,s_block_count,body_rect(),s_px)) return false;
+    s_page = book_layout_page_for_offset(offset);
+    s_jump_offset = offset;
+    s_jump_page = s_page;
+    return true;
+}
+
 static app_redraw_t select_reading_font_item(app_ctx_t* ctx, const ttf_font_item_t* item) {
-    if (!item) return APP_REDRAW_NONE;
-    if(!strcmp(ttf_font_path(),item->path))return APP_REDRAW_NONE;
+    if (!item || !s_text) return APP_REDRAW_NONE;
+    bool document = book_kind()==BOOK_KIND_MARKDOWN;
+    const char *saved_path = document ? content_markdown_font() : app_settings_font_path();
+    bool same_face = !strcmp(s_font_path,item->path) && ttf_font_ready() && !strcmp(ttf_font_path(),item->path);
+    if (same_face && !strcmp(saved_path,item->path)) {
+        s_reader_panel = READER_PANEL_FONT_SETTINGS;
+        return APP_REDRAW_PAGE;
+    }
+    ttf_name_preview_stop();
     char previous[TTF_FONT_PATH_MAX];
-    copy_text(previous, sizeof(previous), ttf_font_path());
-    if (ttf_font_open(item->path) != ESP_OK) return APP_REDRAW_NONE;
-    size_t off = book_layout_page_start_offset(s_page);
+    copy_text(previous,sizeof(previous),s_font_path);
+    size_t off = reader_page_offset(s_page);
+    if (s_unsaved) save_progress();
     lock_draw();
     invalidate_prep();
-    bool ok = book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count, body_rect(), s_px);
-    if (ok) s_page = book_layout_page_for_offset(off);
-    else if (previous[0]) {
-        (void)ttf_font_open(previous);
-        (void)book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count, body_rect(), s_px);
-    }
+    free(s_next_fb);
+    s_next_fb = NULL;
+    bool loaded = ttf_font_select_context(false,item->path) == ESP_OK && !strcmp(ttf_font_path(),item->path);
+    bool reflowed = loaded && (same_face || reflow_reading_font(off));
     unlock_draw();
-    if (!ok) return APP_REDRAW_NONE;
-    if(book_kind()==BOOK_KIND_MARKDOWN){
-        if(content_markdown_font_set(item->path)!=ESP_OK){
-            lock_draw();(void)ttf_font_open(previous);(void)book_layout_build_blocks(s_text,s_text_len,s_blocks,s_block_count,body_rect(),s_px);s_page=book_layout_page_for_offset(off);unlock_draw();
-            copy_text(s_reader_notice,sizeof(s_reader_notice),UI_MSG("字体保存失败，请重试"));s_reader_notice_until=esp_timer_get_time()/1000+2500;return APP_REDRAW_PAGE;
+    esp_err_t saved = ESP_FAIL;
+    if (reflowed) saved = document ?
+        content_markdown_font_set(item->path) : app_settings_set_font_path(item->path);
+    if (saved != ESP_OK) {
+        lock_draw();
+        bool intact = (!loaded || same_face) && ttf_font_ready() && !strcmp(ttf_font_path(),previous);
+        bool restored = intact || (ttf_font_select_context(false,previous)==ESP_OK &&
+                                   reflow_reading_font(off));
+        if (!restored) book_layout_free();
+        unlock_draw();
+        const char *notice = !loaded ? UI_MSG("字体无法加载") :
+            !reflowed ? UI_MSG("排版失败，请重试") : UI_MSG("字体保存失败，请重试");
+        if (!restored) {
+            ui_nav_notice_show(notice,ctx->now_ms);
+            return reader_return(ctx,false);
         }
-    }else if(app_settings_set_font_path(item->path)!=ESP_OK){
-        lock_draw();(void)ttf_font_open(previous);(void)book_layout_build_blocks(s_text,s_text_len,s_blocks,s_block_count,body_rect(),s_px);s_page=book_layout_page_for_offset(off);unlock_draw();
-        copy_text(s_reader_notice,sizeof(s_reader_notice),UI_MSG("字体保存失败，请重试"));s_reader_notice_until=esp_timer_get_time()/1000+2500;return APP_REDRAW_PAGE;
+        if (!intact) prepare_inline_image();
+        copy_text(s_reader_notice,sizeof(s_reader_notice),notice);
+        s_reader_notice_until = esp_timer_get_time()/1000+2500;
+        return APP_REDRAW_PAGE;
     }
     copy_text(s_font_path, sizeof(s_font_path), item->path);
+    s_reader_panel = READER_PANEL_FONT_SETTINGS;
     prepare_inline_image();
     save_progress();
     return APP_REDRAW_PAGE;
@@ -3154,7 +3188,7 @@ static void reader_slider_map(int slider, int x) {
     if (slider >= 5 && slider <= 8) {
         int i=slider-5, min=i?24:BOOK_PX_MIN,max=i?96:BOOK_PX_MAX;
         s_md_draft[i]=min+slider_index(reader_slider_rect(slider),x,max-min+1);
-    } else if (slider == 0) s_reader_preview_px = BOOK_PX_MIN + slider_index(reader_slider_rect(0), x, 37);
+    } else if (slider == 0) s_reader_preview_px = BOOK_PX_MIN + slider_index(reader_slider_rect(0), x, BOOK_PX_MAX-BOOK_PX_MIN+1);
     else if (slider == 1) s_reader_preview_margin = BOOK_MARGIN_MIN + slider_index(reader_slider_rect(1), x, BOOK_MARGIN_MAX-BOOK_MARGIN_MIN+1);
     else if (slider == 2) s_reader_preview_line = 110 + slider_index(reader_slider_rect(2), x, 41);
     else if (slider == 3) s_reader_preview_para = slider_index(reader_slider_rect(3), x, 76);
@@ -3219,7 +3253,10 @@ static app_redraw_t apply_markdown_sizes(app_ctx_t *ctx) {
         return APP_REDRAW_PAGE;
     }
     s_md_notice[0]=0; s_md_committed=true;
-    s_page=book_layout_page_for_offset(off); unlock_draw(); save_progress();
+    s_page=book_layout_page_for_offset(off);
+    unlock_draw();
+    prepare_inline_image();
+    save_progress();
     return APP_REDRAW_PAGE;
 }
 
@@ -3813,6 +3850,7 @@ static void on_enter(app_ctx_t* ctx) {
     }
 }
 static void book_on_exit(app_ctx_t* ctx) {
+    ttf_name_preview_pause();
     track_ticket_stats(ctx);
     s_document_scan_pending=false;
     clear_content_search(ctx);
@@ -4124,7 +4162,7 @@ static app_redraw_t on_key(app_ctx_t* ctx, int key) {
         s_reader_multi=(reader_multi_t){.blocked=true};
         if(key==UI_KEY_2)return s_reader_panel==READER_PANEL_HELP?reader_help_close():reader_show_panel(READER_PANEL_NONE);
         int next=s_control_page+(key==UI_KEY_1?-1:1),count=reader_control_count();
-        if(next>=0&&next*reader_control_rows()<count){s_control_page=next;return APP_REDRAW_PAGE;}
+        if(next>=0&&next*reader_control_rows()<count){reader_set_control_page(next);return APP_REDRAW_PAGE;}
         return APP_REDRAW_NONE;
     }
     s_pressed_control = -1;
@@ -4232,6 +4270,8 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
         if (failed != s_save_failed) { invalidate_prep(); return APP_REDRAW_PAGE; }
         if(documents_changed&&(s_view==DOCUMENTS||s_view==DOCUMENT_BULK))return APP_REDRAW_PAGE;
     }
+    if (s_view == READING && s_reader_panel == READER_PANEL_FONT_PICKER)
+        return reader_font_preview_tick(ctx);
     // 卡片打开时暂停后台扫描和封面补绘，避免覆盖淡显区域。/ Pause background scans and cover painting while the sort card owns the display.
     if (s_sort_open) return APP_REDRAW_NONE;
     if (s_document_scan_pending && (s_view == DOCUMENTS || s_view == DOCUMENT_BULK) &&
@@ -4276,15 +4316,18 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
     }
     // 目录暂借系统字体，不应把正文按系统字体重新分页。/ The directory borrows the system face without repaginating the reader.
     if (s_view == READING && s_text && strcmp(s_font_path, ttf_font_path())) {
-        size_t off = book_layout_page_start_offset(s_page);
+        size_t off = reader_page_offset(s_page);
         save_progress();
         lock_draw();
         invalidate_prep();
-        bool ok = book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count, body_rect(), s_px);
-        if (ok) s_page = book_layout_page_for_offset(off);
+        bool ok = reflow_reading_font(off);
         copy_text(s_font_path, sizeof(s_font_path), ttf_font_path());
         unlock_draw();
-        if (!ok) { free_book(); s_view = SHELF; copy_text(s_message, sizeof(s_message), UI_MSG("字体重排失败，请重新打开图书")); }
+        if (!ok) {
+            ui_nav_notice_show(UI_MSG("排版失败，请重试"),ctx->now_ms);
+            return reader_return(ctx,false);
+        }
+        prepare_inline_image();
         return APP_REDRAW_PAGE;
     }
     return APP_REDRAW_NONE;

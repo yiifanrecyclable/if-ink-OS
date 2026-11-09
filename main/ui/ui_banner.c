@@ -85,10 +85,12 @@ bool ui_banner_quote_fits_size(const char *text,const char *path,int px){
     ui_banner_positions_t p=ui_banner_positions_size(longest_date,px);
     if(!path||!path[0])return fits_active(text,false,p);
     char saved[TTF_FONT_PATH_MAX];strlcpy(saved,ttf_font_path(),sizeof(saved));int weight=ttf_get_weight();
+    bool normalized=ttf_font_set_normalized_sizes(false);
     bool custom=ttf_font_open(path)==ESP_OK&&ttf_font_has_text(text),fit=false;
     if(custom)fit=fits_active(text,true,p);
     if(ttf_font_open(saved)!=ESP_OK)ttf_font_open_builtin();
     ttf_set_weight(weight);
+    ttf_font_set_normalized_sizes(normalized);
     return custom?fit:fits_active(text,false,p);
 }
 void ui_banner_quote_draw(uint8_t *fb,const char *text,bool custom,ui_banner_positions_t p){
@@ -158,9 +160,10 @@ uint16_t ui_banner_text_y(const content_banner_config_t *cfg){
     ui_banner_positions_t p=ui_banner_positions_size(longest_date,cfg->quote_px);p.quote_valign=cfg->valign;
     if(cfg->text_y!=CONTENT_BANNER_TEXT_AUTO){p.quote_top=UI_STATUS_HEIGHT+cfg->text_y;p.free_y=true;}
     char saved[TTF_FONT_PATH_MAX];strlcpy(saved,ttf_font_path(),sizeof(saved));int weight=ttf_get_weight();
+    bool normalized=cfg->font[0]?ttf_font_set_normalized_sizes(false):false;
     bool custom=cfg->font[0]&&ttf_font_open(cfg->font)==ESP_OK&&ttf_font_has_text(cfg->text);
     ui_banner_quote_t q;quote_layout_size(cfg->text,custom,cfg->quote_px,&q);int y=quote_top(&q,custom,p);
-    if(cfg->font[0]){if(ttf_font_open(saved)!=ESP_OK)ttf_font_open_builtin();ttf_set_weight(weight);}
+    if(cfg->font[0]){if(ttf_font_open(saved)!=ESP_OK)ttf_font_open_builtin();ttf_set_weight(weight);ttf_font_set_normalized_sizes(normalized);}
     return (uint16_t)(y-UI_STATUS_HEIGHT);
 }
 static ui_banner_positions_t banner_positions(const content_banner_config_t *cfg, const char *date) {
@@ -182,6 +185,7 @@ static bool banner_draw_quote_layer(uint8_t *page, const content_banner_config_t
         char saved[TTF_FONT_PATH_MAX];
         strlcpy(saved, ttf_font_path(), sizeof(saved));
         int weight = ttf_get_weight();
+        bool normalized = ttf_font_set_normalized_sizes(false);
         custom = ttf_font_open(cfg->font) == ESP_OK && ttf_font_has_text(cfg->text);
         if (custom) {
             ui_banner_quote_draw(page, cfg->text, true, p);
@@ -190,6 +194,7 @@ static bool banner_draw_quote_layer(uint8_t *page, const content_banner_config_t
         restored = ttf_font_open(saved) == ESP_OK;
         if (!restored) ttf_font_open_builtin();
         ttf_set_weight(weight);
+        ttf_font_set_normalized_sizes(normalized);
     }
     if (!custom) {
         ui_banner_quote_draw(page, cfg->text, false, p);

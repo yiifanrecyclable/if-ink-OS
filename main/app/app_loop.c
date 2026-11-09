@@ -323,6 +323,7 @@ static bool poll_media(app_ctx_t* ctx, const app_desc_t* current,
 
 // 返回目标先清成当前主页面，阅读回调再补充文件路径。/ Start with the current root; the reader callback supplies its path.
 static bool prepare_lock_resume(app_ctx_t *ctx,const app_desc_t *current){
+    ttf_name_preview_stop();
     unsigned tab=0;for(unsigned i=0;i<4;++i)if(app_at(i)==current)tab=i;
     sleep_resume_set_target(tab,NULL);
     esp_err_t error=ESP_OK;

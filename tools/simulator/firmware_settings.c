@@ -39,6 +39,13 @@ int simulator_settings(uint8_t *fb,int page,int scroll,const char *events){
  if(s_page==SETTINGS_ONLINE_UPDATE)(void)if_update_check();
  if(s_page==SETTINGS_WALLPAPER_PREVIEW)render(&ctx,fb);
  simulator_replay(&ctx,preview_settings_gesture,on_key,events);render(&ctx,fb);
+ if(s_page==SETTINGS_SYSTEM_FONT&&!getenv("PICO_SIM_DEFER_FONT_NAMES")){
+     ctx.consumed=ctx.pressed=ctx.released=false;
+     for(int i=0;i<=font_list_rows()+1&&!s_font_names_settled;++i){
+         ctx.now_ms+=400;
+         (void)system_font_preview_tick(&ctx);
+     }
+ }
  if(ctx.request_app){extern const app_desc_t app_transfer;simulator_route=ctx.request_app==&app_transfer?5:app_index_of(ctx.request_app);}
  return s_home_quote_editor&&s_page==SETTINGS_TEXT_EDIT?23:s_page;
 }

@@ -95,6 +95,7 @@ bool ttf_font_is_builtin(void) {return !sd_font;}
 const char* ttf_font_path(void) {return "other";}
 int ttf_font_open(const char*p) {(void)p;font_opens++;sd_font=true;return 0;}
 void ttf_font_unload(void) {assert(media_lost>0);}
+void ttf_name_preview_stop(void) {}
 int ttf_font_open_builtin(void) {assert(media_lost>0);builtin_opens++;sd_font=font_due=false;return 0;}
 int read_pico_sd_get_info(read_pico_sd_info_t*i) {i->present=media_test?present_steps[step]:font_due;i->mounted=media_test?mounted_steps[step]:font_due;return media_test&&!i->mounted?ESP_ERR_INVALID_STATE:0;}
 void read_pico_sd_start_probe(void) {probes++;}

@@ -5,9 +5,9 @@
 const button = document.getElementById('flash-installer');
 const status = document.getElementById('flash-status');
 const expectedRelease = Object.freeze({
-  version: '0.2.0',
-  size: 3884544,
-  sha256: 'd2a8b8a4a0a71345e546a59363a5889e3e921c0833c887d0ea285e4ad39ea20b',
+  version: '0.2.2',
+  size: 3974336,
+  sha256: 'fc83e7cb57a4d0abdfb44c3cca121940004ec89ee22f417c2eefe8f85dbb73c1',
 });
 const expectedParts = new Map([
   ['bootloader.bin', 0], ['partition-table.bin', 0x8000],

@@ -13,6 +13,7 @@
  * persistent v2 sequences; v1 resumes with order zero. Forget only the given path, retrying partial failures.
  */
 #include "book_progress.h"
+#include "book_policy.h"
 #include "book_store.h"
 #include "book_progress_kv.h"
 
@@ -105,7 +106,7 @@ bool book_progress_load(const char* path, uint32_t size, book_progress_t* out) {
     progress_kv_close(h);
     if (err != ESP_OK || !record_valid(data, len) ||
         strcmp((const char*)data + HEADER_SIZE, path) != 0 || get32(data + 4) != size ||
-        data[14] < 36 || data[14] > 72 || data[15] > 100) return false;
+        !book_text_size_valid(data[14]) || data[15] > 100) return false;
     *out = (book_progress_t){
         .file_size = get32(data + 4), .chapter = (uint16_t)(data[8] | (data[9] << 8)),
         .byte_off = get32(data + 10), .px = data[14], .pct = data[15],
@@ -118,7 +119,7 @@ typedef struct { book_progress_visit_fn visit; void *ctx; } list_ctx_t;
 static bool list_record(const char *key, nvs_type_t type, const void *raw, size_t len, void *ctx) {
     (void)key;
     const uint8_t *data=raw;
-    if(type!=NVS_TYPE_BLOB || !record_valid(data,len) || data[14]<36 || data[14]>72 || data[15]>100) return true;
+    if(type!=NVS_TYPE_BLOB || !record_valid(data,len) || !book_text_size_valid(data[14]) || data[15]>100) return true;
     book_progress_t value={
         .file_size=get32(data+4), .chapter=(uint16_t)(data[8]|(data[9]<<8)),
         .byte_off=get32(data+10), .px=data[14], .pct=data[15],
@@ -157,7 +158,7 @@ esp_err_t book_progress_copy_for_move(const char *source,const char *target,uint
     else if(err==ESP_OK){
         if(!record_valid(record,len)||strcmp((const char *)record+HEADER_SIZE,source)||!strcmp(from,to))
             err=ESP_ERR_INVALID_STATE;
-        else if(get32(record+4)==size&&record[14]>=36&&record[14]<=72&&record[15]<=100){
+        else if(get32(record+4)==size&&book_text_size_valid(record[14])&&record[15]<=100){
             size_t path_len=strlen(target)+1;
             if(record[3]==1){record[3]=2;put32(record+16,0);}
             record[22]=(uint8_t)path_len;record[23]=(uint8_t)(path_len>>8);
@@ -185,7 +186,7 @@ esp_err_t book_progress_copy_for_move(const char *source,const char *target,uint
 }
 
 esp_err_t book_progress_save(const char* path, const book_progress_t* progress) {
-    if (!path_valid(path) || progress == NULL || progress->px < 36 || progress->px > 72 ||
+    if (!path_valid(path) || progress == NULL || !book_text_size_valid(progress->px) ||
         progress->pct > 100) return ESP_ERR_INVALID_ARG;
     uint8_t data[RECORD_CAP] = {'R', 'P', 'B', 2};
     put32(data + 4, progress->file_size);

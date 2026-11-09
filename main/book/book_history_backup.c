@@ -6,6 +6,7 @@
  * English: Stream progress, reading time, bookmarks, favorites, titles and shelf removals to TF.
  */
 #include "book_history_backup.h"
+#include "book_policy.h"
 #include "book_progress_kv.h"
 #include "content_library.h"
 #include <stdlib.h>
@@ -121,7 +122,7 @@ bool book_history_record_valid(const char *space,uint8_t type,const char *key,co
     if(!known)return false;
     // 清退旧源前额外核对路径及哈希；旧备份格式仍保持兼容。/ Validate path/hash before retirement while retaining legacy backup compatibility.
     const uint8_t *v=value;const char *path=NULL;size_t path_cap=0;char prefix=0;
-    if(!strcmp(space,"rp_books")&&key[0]=='b'){if(v[14]<36||v[14]>72||v[15]>100||(v[3]==1&&bytes-24>160))return false;path=(const char*)v+24;path_cap=bytes-24;prefix='b';}
+    if(!strcmp(space,"rp_books")&&key[0]=='b'){if(!book_text_size_valid(v[14])||v[15]>100||(v[3]==1&&bytes-24>160))return false;path=(const char*)v+24;path_cap=bytes-24;prefix='b';}
     if(!strcmp(space,"rp_titles")){
         if(bytes>416)return false;
         size_t n=strnlen(value,bytes);if(!n||n>=288||n+2>bytes)return false;

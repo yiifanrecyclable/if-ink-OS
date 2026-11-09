@@ -123,7 +123,7 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
    // -1是跨页面打开的续读请求；按原文字节位置重排，不用界面的默认第0页覆盖它。
    // -1 requests resume across app routes; reflow the saved text offset instead of overriding it with UI page zero.
    size_t resume_offset=reader_page_offset(s_page);
-   s_reader_fullscreen=panel==100||app_settings_reader_fullscreen();s_reader_immersive=app_settings_reader_immersive();if(book_kind()!=BOOK_KIND_MARKDOWN)s_px=px;
+   s_reader_fullscreen=panel==100||app_settings_reader_fullscreen();s_reader_immersive=app_settings_reader_immersive();if(book_kind()!=BOOK_KIND_MARKDOWN&&px>0)s_px=px;
    if(!load_chapter(&ctx,s_chapter,page<0?resume_offset:0,false))return 0;
    if(page>=0)s_page=(size_t)page;
    if(s_page>=book_layout_page_count())s_page=book_layout_page_count()-1;prepare_inline_image();
@@ -146,6 +146,13 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  // Each host frame is a separate process; persist its current position to model the hardware leave-page save boundary.
  if(s_text&&(s_view==READING||s_view==TOC))save_progress();
  simulator_settle_covers(&ctx);render(&ctx,fb);
+ if(s_view==READING&&s_reader_panel==READER_PANEL_FONT_PICKER&&!getenv("PICO_SIM_DEFER_FONT_NAMES")){
+     ctx.consumed=ctx.pressed=ctx.released=false;
+     for(int i=0;i<=reader_control_rows()+1&&!s_reader_names_settled;++i){
+         ctx.now_ms+=400;
+         (void)reader_font_preview_tick(&ctx);
+     }
+ }
  shelf_perf_finish();
  shelf_perf_poll(true);
  if(ctx.request_app)simulator_route=app_index_of(ctx.request_app);

@@ -3,6 +3,7 @@
  * English: Bounded preferences stay in NVS; per-file records use SD with full-path collision checks.
  */
 #include "content_library.h"
+#include "book_policy.h"
 #include "nvs.h"
 #include "record_store.h"
 #include "../settings_storage.h"
@@ -303,7 +304,7 @@ esp_err_t content_book_pin_set(const char *path,bool pinned){
 }
 
 bool content_markdown_sizes_valid(const uint8_t sizes[4]) {
-    if (!sizes || sizes[0] < 36 || sizes[0] > 72) return false;
+    if (!sizes || !book_text_size_valid(sizes[0])) return false;
     for (int i = 1; i < 4; ++i) if (sizes[i] < 24 || sizes[i] > 96) return false;
     return true;
 }

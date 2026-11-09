@@ -160,11 +160,12 @@ int main(void) {
     uint8_t bad_align=4;assert(!valid_record(6,NVS_TYPE_U8,"quote_align",&bad_align,1));
     assert(!valid_record(6,NVS_TYPE_U32,"quote_align",&quote_align,1));
     uint8_t md_sizes[4];content_markdown_sizes(md_sizes);assert(md_sizes[0]==48&&md_sizes[1]==72&&md_sizes[2]==64&&md_sizes[3]==56);
-    uint8_t wanted[4]={40,80,68,60};assert(content_markdown_sizes_set(wanted)==ESP_OK);
+    uint8_t wanted[4]={100,80,68,60};assert(content_markdown_sizes_set(wanted)==ESP_OK);
     content_markdown_sizes(md_sizes);assert(!memcmp(md_sizes,wanted,4));
     assert(!valid_record(6,NVS_TYPE_BLOB,"md_sizes",wanted,3));
     uint8_t invalid_sizes[4]={0,80,68,60};assert(!content_markdown_sizes_valid(invalid_sizes));
     assert(!valid_record(6,NVS_TYPE_BLOB,"md_sizes",invalid_sizes,4));
+    invalid_sizes[0]=101;assert(!content_markdown_sizes_valid(invalid_sizes));
     assert(content_home_quote_valign()==CONTENT_QUOTE_VTOP);
     assert(content_home_quote_valign_set(CONTENT_QUOTE_VBOTTOM)==ESP_OK);
     assert(content_home_quote_valign()==CONTENT_QUOTE_VBOTTOM);

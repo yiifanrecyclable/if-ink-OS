@@ -3,6 +3,11 @@
  */
 #pragma once
 static app_redraw_t reader_show_panel(reader_panel_t panel){
+    if (s_reader_panel == READER_PANEL_FONT_PICKER) ttf_name_preview_pause();
+    if (panel == READER_PANEL_FONT_PICKER) {
+        ttf_font_scan();
+        ttf_name_preview_revision(book_store_revision());
+    }
     s_reader_panel=panel;s_control_page=0;s_reader_slider=-1;s_progress_drag=false;s_pressed_control=-1;
     s_reader_multi=(reader_multi_t){.blocked=true};invalidate_prep();return APP_REDRAW_PAGE;
 }
@@ -86,22 +91,18 @@ static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
         return APP_REDRAW_NONE;
     }
     if(reader_markdown_font_panel()){
-        if(ui_rect_hit((EpdRect){36,UI_PAGE_Y(210),612,80},x,y)){ttf_font_scan();return reader_show_panel(READER_PANEL_FONT_PICKER);}
+        if(ui_rect_hit((EpdRect){36,UI_PAGE_Y(210),612,80},x,y))return reader_show_panel(READER_PANEL_FONT_PICKER);
         return APP_REDRAW_NONE;
     }
     int count=reader_control_count(),rows=reader_control_rows();
-    if(y>=1018&&y<1096&&count>rows){int next=s_control_page+(x<342?-1:1);if(next>=0&&next<1+(count-1)/rows)s_control_page=next;return APP_REDRAW_PAGE;}
+    if(y>=1018&&y<1096&&count>rows){int next=s_control_page+(x<342?-1:1);if(next>=0&&next<1+(count-1)/rows)reader_set_control_page(next);return APP_REDRAW_PAGE;}
     if(y<UI_PAGE_Y(220)||y>=UI_PAGE_Y(220)+rows*reader_row_height())return APP_REDRAW_NONE;
     int row=(y-UI_PAGE_Y(220))/reader_row_height(),i=s_control_page*rows+row;
     if(s_reader_panel==READER_PANEL_FONT_SETTINGS){
-        if(row==1){ttf_font_scan();return reader_show_panel(READER_PANEL_FONT_PICKER);}
+        if(row==1)return reader_show_panel(READER_PANEL_FONT_PICKER);
         if(row==2&&book_kind()==BOOK_KIND_MARKDOWN)return reader_show_panel(READER_PANEL_MARKDOWN_SIZES);
     }else if(s_reader_panel==READER_PANEL_FONT_PICKER){
-        if(i>=ttf_font_count()+1)return APP_REDRAW_NONE;
-        ttf_font_item_t builtin={0};ui_snprintf(builtin.path,sizeof(builtin.path),"%s",TTF_FONT_BUILTIN);
-        app_redraw_t result=select_reading_font_item(ctx,i?ttf_font_item(i-1):&builtin);
-        if(result!=APP_REDRAW_NONE)s_reader_panel=READER_PANEL_FONT_SETTINGS;
-        return result;
+        return select_reading_font_item(ctx,ttf_font_item(i));
     }else if(s_reader_panel==READER_PANEL_LAYOUT_SETTINGS){
         if(i==4)return apply_reader_indent(ctx,(app_settings_book_indent()+1)%4);
         if(i==5)return reader_show_panel(READER_PANEL_RULE_SETTINGS);
@@ -205,7 +206,7 @@ static app_redraw_t reader_controls_gesture(app_ctx_t *ctx,const ui_gesture_even
             return APP_REDRAW_NONE;
         }
         if(ev->type==UI_GESTURE_TAP)return reader_panel_action(ctx,ev->x0,ev->y0);
-        if(ev->type==UI_GESTURE_SWIPE_U||ev->type==UI_GESTURE_SWIPE_D){int count=reader_control_count(),next=s_control_page+(ev->type==UI_GESTURE_SWIPE_U?1:-1);if(next>=0&&next*reader_control_rows()<count){s_control_page=next;return APP_REDRAW_PAGE;}}
+        if(ev->type==UI_GESTURE_SWIPE_U||ev->type==UI_GESTURE_SWIPE_D){int count=reader_control_count(),next=s_control_page+(ev->type==UI_GESTURE_SWIPE_U?1:-1);if(next>=0&&next*reader_control_rows()<count){reader_set_control_page(next);return APP_REDRAW_PAGE;}}
         return APP_REDRAW_NONE;
     }
     if(ev->type==UI_GESTURE_TAP){

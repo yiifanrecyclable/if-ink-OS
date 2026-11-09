@@ -47,7 +47,7 @@ class Preview:
                 for key in ("px", "days", "active"):
                     if key in saved:
                         self.state[key] = saved[key]
-                if self.state["px"] not in (32,36,38,40,44,48,50,56,64,68,72):
+                if type(self.state["px"]) is not int or not 28 <= self.state["px"] <= 100:
                     self.state["px"] = 48
                 if isinstance(self.state["days"], list) and len(self.state["days"]) == 7:
                     self.state["days"] = DEMO_HISTORY[:23] + self.state["days"]
@@ -430,7 +430,7 @@ class Preview:
             self.state["page"] = max(0, min(self.state["pages"] - 1, self.state["page"] + (1 if action == "next" else -1)))
         elif action == "font":
             px = data.get("px")
-            if px not in (32,36,38,40,44,48,50,56,64,68,72):
+            if type(px) is not int or not 28 <= px <= 100:
                 raise ValueError("字号无效")
             self.state.update(px=px, page=0, events=[], root_view=None)
         elif action == "open":

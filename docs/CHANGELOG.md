@@ -4,6 +4,14 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.2 / 2026-11-09
+
+- 本版累计 0.2.2 Beta 1 至 Beta 3 的功能，并包含以下修订。/ Includes the accumulated features from 0.2.2 Beta 1 through Beta 3, plus the following fixes.
+
+- 书籍和 Markdown 的正文字号上限提高至 100 px。/ Raise the book and Markdown body size limit to 100 px.
+- 阅读字体列表直接显示 TF 卡上的字体。修复字体加载失败后可能反复重试并触发全刷的问题。/ List TF card faces directly in the reader. A font load failure no longer repeatedly requests a full refresh.
+- 系统文字和阅读字体列表用各自的字体显示名称。当前页在空闲时生成预览，缺字时沿用列表字体。/ System and reader font lists show names in their own faces. Visible previews are prepared on idle, with a fallback for missing glyphs.
+
 ## 0.2.2 beta 3 / 2026-11-09
 
 - 文档列表按摘要加载，需要重查时先切到文档页显示「加载中」。点开单篇时校验正文和插图，坚果云同步单篇后按变更路径更新缓存。/ Load document summaries first and show “Loading” on the Documents tab before a directory scan. Opening a document validates its text and images. A single Nutstore import updates its cached entry.

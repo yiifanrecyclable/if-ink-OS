@@ -16,6 +16,7 @@ fake=(ROOT/'tools/settings_aux_storage_host_test.c').read_text().split('#include
 macros='\n'.join(line for line in source.splitlines() if line.startswith('#define NVS_'))
 code=fake+'''
 #include "settings.h"
+#include "book/book_policy.h"
 #include "settings_storage.h"
 #include "wallpaper_preferences.h"
 #include "ui/ui_wallpaper_rotation.h"
@@ -38,7 +39,7 @@ int main(void){
     const struct {const char *key;uint8_t invalid;} cases[]={
         {NVS_KEY_LANGUAGE,2},{NVS_KEY_IDLE_SLEEP,2},{NVS_KEY_STATUS_DATE,7},{NVS_KEY_SHUTDOWN_MODE,2},
         {NVS_KEY_SYS_SIZE,99},{NVS_KEY_SLEEP,3},{NVS_KEY_HOME_FULL,2},{NVS_KEY_PICKUP,2},
-        {NVS_KEY_BOOK_PX,35},{NVS_KEY_READER_FULL,7},{NVS_KEY_READER_TURN,2},{NVS_KEY_BOOK_LINE,109},
+        {NVS_KEY_BOOK_PX,35},{NVS_KEY_BOOK_PX,101},{NVS_KEY_READER_FULL,7},{NVS_KEY_READER_TURN,2},{NVS_KEY_BOOK_LINE,109},
         {NVS_KEY_BOOK_PARA,76},{NVS_KEY_BOOK_MARGIN,7},{NVS_KEY_BOOK_TRACK,5},{NVS_KEY_BOOK_INDENT,4},
         {NVS_KEY_BOOK_RULE,3},{NVS_KEY_BOOK_RULE_OFFSET,9},{NVS_KEY_FULLSCREEN,2}};
     for(unsigned i=0;i<sizeof(cases)/sizeof(cases[0]);++i){
@@ -47,6 +48,7 @@ int main(void){
         assert(settings_read_u8(h,cases[i].key,&got)==ESP_ERR_INVALID_RESPONSE);assert(s_load_error==ESP_ERR_INVALID_RESPONSE);nvs_close(h);
     }
     assert(settings_u8_valid(NVS_KEY_BOOK_LINE,180)&&settings_u8_valid(NVS_KEY_SYS_SIZE,200));
+    assert(settings_u8_valid(NVS_KEY_BOOK_PX,100));
     nvs_handle_t h;assert(nvs_open(NVS_NS,NVS_READWRITE,&h)==ESP_OK);assert(nvs_set_str(h,NVS_KEY_AVATAR,"/private/no.png")==ESP_OK);
     char text[288];size_t size=sizeof(text);s_load_error=ESP_OK;assert(settings_read_str(h,NVS_KEY_AVATAR,text,&size)==ESP_ERR_INVALID_RESPONSE&&s_load_error==ESP_ERR_INVALID_RESPONSE);nvs_close(h);
     assert(settings_storage_put_u8(NVS_NS,NVS_KEY_STATUS_DATE,0x82)==ESP_OK);s_status_date=0;

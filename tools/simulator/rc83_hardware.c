@@ -12,7 +12,7 @@ const esp_app_desc_t *esp_app_get_description(void){
 #ifdef SHELF_PERF_HOST_TEST
     static const esp_app_desc_t desc={.version="0.2.2-beta-r1t1",.project_name="Read_Pico_IF"};
 #else
-    static const esp_app_desc_t desc={.version="0.1.7",.project_name="Read_Pico_IF"};
+    static const esp_app_desc_t desc={.version=PICO_SIM_FIRMWARE_VERSION,.project_name="Read_Pico_IF"};
 #endif
     return &desc;
 }

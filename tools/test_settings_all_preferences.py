@@ -7,7 +7,7 @@ R=Path(__file__).resolve().parents[1]
 CASES=[
  ('sleep_mode','sleep_mode','sleep',0,2),('staged_shutdown','staged_shutdown','shutdown',1,0),('home_full_refresh','home_full_refresh','home_full',1,0),
  ('idle_sleep_minutes','idle_sleep_minutes','idle_sleep',30,10),('system_font_size','system_font_size','sys_size',160,140),('pickup_wake','pickup_wake','pickup',1,0),
- ('book_px','book_px','bk_px',52,56),('reader_full_pages','reader_full_pages','rd_gc16',30,5),('reader_turn_effect','reader_turn_effect','rd_turn',1,0),
+ ('book_px','book_px','bk_px',52,100),('reader_full_pages','reader_full_pages','rd_gc16',30,5),('reader_turn_effect','reader_turn_effect','rd_turn',1,0),
  ('reader_power_turn','reader_power_turn','rd_power',1,0),('reader_fullscreen','reader_fullscreen','rd_fullscreen',1,0),('reader_immersive','reader_immersive','rd_immersive',1,0),
  ('reader_hide_images','reader_hide_images','rd_no_image',1,0),('reader_vertical_turn','reader_vertical_turn','rd_vertical',1,0),('reader_hold_refresh','reader_hold_refresh','rd_hold_full',1,0),
  ('shelf_recent_sort','shelf_recent_sort','shelf_recent',1,0),('book_tracking','book_tracking','bk_track',4,1),('book_indent','book_indent','bk_indent',3,1),

@@ -21,6 +21,9 @@ with tempfile.TemporaryDirectory(prefix='reader-previews-',dir=ROOT/'build') as 
         shutil.copyfile(ROOT/'main/assets/builtin.ttf',card/f'font/{name}.ttf')
     for key,name in (('font','Reader'),('sys_font','System')):
         (nvs/key).write_bytes(f'/sdcard/font/{name}.ttf\0'.encode())
+    document_font=nvs.parent/'if_content/md_font'
+    document_font.parent.mkdir()
+    document_font.write_bytes(b'/sdcard/font/Reader.ttf\0')
     (base/'titles.txt').write_text('')
     env={**os.environ,'PICO_SIM_CARD_ROOT':str(card),'PICO_SIM_VERIFY_AREAS':'1'}
     def frame(events='',panel=1,view=1):

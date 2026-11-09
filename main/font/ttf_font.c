@@ -14,18 +14,23 @@
 
 #include <dirent.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <math.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "settings.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 
 static void* ttf_malloc(size_t size, void* userdata) {
     (void)userdata;
@@ -80,10 +85,6 @@ static void ttf_free(void* ptr, void* userdata) {
 #define TTF_MAP_MAX (5u * 1024u * 1024u)
 
 static const char* TAG = "ttf_font";
-
-static const char* const k_font_dirs[] = {
-    NULL,
-};
 
 typedef struct glyph_entry {
     uint32_t codepoint;
@@ -143,6 +144,11 @@ typedef struct {
     uint16_t shared_pts[TTF_MAX_VAR_PTS];
 } ttf_work_t;
 static ttf_work_t* work;
+typedef struct {
+    bool sampled;
+    float factor, reference_center, face_center;
+} ttf_size_calibration_t;
+static bool s_normalized_sizes;
 // 两个独立有界字体上下文；光栅工作区仍共用，由调用方串行化。/ Two bounded faces share raster scratch; callers serialize drawing.
 typedef struct {
     int state_font_fd;
@@ -179,6 +185,7 @@ typedef struct {
     bool state_font_ready;
     ttf_size_metrics_t state_size_metrics[2];
     int state_raw_ascent_units;
+    ttf_size_calibration_t state_size_calibration;
     int state_current_weight;
     int state_wght_min;
     int state_wght_def;
@@ -197,7 +204,11 @@ typedef struct {
     size_t state_cache_bytes;
 } ttf_context_t;
 static ttf_context_t s_font_contexts[2]={{.state_font_fd=-1,.state_font_file_pos=UINT32_MAX,.state_packed_root=-1,.state_packed_weight=-1,.state_current_weight=TTF_WGHT_DEF,.state_wght_min=TTF_WGHT_MIN,.state_wght_def=TTF_WGHT_DEF,.state_wght_max=TTF_WGHT_MAX},{.state_font_fd=-1,.state_font_file_pos=UINT32_MAX,.state_packed_root=-1,.state_packed_weight=-1,.state_current_weight=TTF_WGHT_DEF,.state_wght_min=TTF_WGHT_MIN,.state_wght_def=TTF_WGHT_DEF,.state_wght_max=TTF_WGHT_MAX}};
-static ttf_context_t *s_font_context=&s_font_contexts[0];
+static ttf_context_t *s_active_context=&s_font_contexts[0];
+// 名称预览有独立工作槽，其他调用仍按现有绘制锁串行。/ Name previews have a private face; other callers retain the existing draw lock.
+static _Thread_local ttf_context_t *s_name_face;
+static atomic_bool s_name_cancel;
+#define s_font_context (s_name_face ? s_name_face : s_active_context)
 #define font_fd (s_font_context->state_font_fd)
 #define font_mem (s_font_context->state_font_mem)
 #define font_mem_len (s_font_context->state_font_mem_len)
@@ -249,13 +260,17 @@ static ttf_context_t *s_font_context=&s_font_contexts[0];
 #define lru_tail (s_font_context->state_lru_tail)
 #define cache_bytes (s_font_context->state_cache_bytes)
 // 两份字形位图合计上限仍为1.5MiB，界面字体不整表映射。/ Keep the combined glyph budget at 1.5MiB; UI does not map whole tables.
-static size_t ttf_cache_budget(void){return s_font_context==&s_font_contexts[1]?256u*1024u:1280u*1024u;}
+static size_t ttf_cache_budget(void){
+    if(s_name_face)return 64u*1024u;
+    return s_font_context==&s_font_contexts[1]?256u*1024u:1280u*1024u;
+}
 #ifdef PICO_HOST_SIMULATOR
 unsigned ttf_sim_font_loads;
 #endif
 static bool bench_on;
 static ttf_bench_stats_t bench;
 static int64_t bench_start_us;
+static void name_previews_clear(void);
 
 /* ---- 字节序与文件读 / Endian and file I/O ---- */
 static uint16_t be16(const uint8_t* p) {
@@ -286,7 +301,8 @@ static bool io_read_raw(uint32_t offset, void* dst, size_t n) {
         return true;
     }
     if (font_fd < 0) return false;
-    int64_t t0 = bench_on ? esp_timer_get_time() : 0;
+    const bool measure = !s_name_face && bench_on;
+    int64_t t0 = measure ? esp_timer_get_time() : 0;
     bool ok = false;
     do {
         if (font_file_pos != offset) {
@@ -299,8 +315,10 @@ static bool io_read_raw(uint32_t offset, void* dst, size_t n) {
         uint8_t* out = dst;
         size_t done = 0;
         while (done < n) {
+            if (s_name_face && atomic_load_explicit(&s_name_cancel, memory_order_relaxed)) break;
             size_t chunk = n - done;
-            if (chunk > 16384) chunk = 16384;
+            size_t limit = s_name_face ? 4096 : 16384;
+            if (chunk > limit) chunk = limit;
             ssize_t got = read(font_fd, out + done, chunk);
             if (got <= 0) {
                 font_file_pos = UINT32_MAX;
@@ -311,7 +329,7 @@ static bool io_read_raw(uint32_t offset, void* dst, size_t n) {
         }
         ok = done == n;
     } while (0);
-    if (bench_on) bench.read_us += esp_timer_get_time() - t0;
+    if (measure) bench.read_us += esp_timer_get_time() - t0;
     return ok;
 }
 
@@ -430,6 +448,7 @@ static bool io_load_block(uint32_t base) {
 
 static bool file_read_at(uint32_t offset, void* dst, size_t n) {
     if (n == 0) return true;
+    if (s_name_face) return io_read_raw(offset, dst, n);
     if (font_mem != NULL) {
         if (io_from_map(offset, n, dst)) return true;
         return io_read_raw(offset, dst, n);
@@ -579,67 +598,60 @@ static bool is_ttf_name(const char* name) {
 }
 
 static void font_stem(const char* path, char* out, size_t n) {
-    const char* slash = strrchr(path, '/');
-    const char* name = slash != NULL ? slash + 1 : path;
-    strlcpy(out, name, n);
-    size_t len = strlen(out);
-    if (len >= 4 && strcasecmp(out + len - 4, ".ttf") == 0) {
-        out[len - 4] = '\0';
-    }
+    if (!n) return;
+    const char *name = font_basename(path);
+    size_t length = strlen(name);
+    if (length >= 4 && strcasecmp(name + length - 4, ".ttf") == 0) length -= 4;
+    if (length >= n) length = n - 1;
+    while (length && ((unsigned char)name[length] & 0xc0) == 0x80) --length;
+    memcpy(out, name, length);
+    out[length] = '\0';
 }
 
 static int font_item_cmp(const void* a, const void* b) {
-    return strcasecmp(
-        ((const ttf_font_item_t*)a)->name, ((const ttf_font_item_t*)b)->name
-    );
+    const ttf_font_item_t *first = a, *second = b;
+    int order = strcasecmp(first->name, second->name);
+    return order ? order : strcasecmp(first->path, second->path);
 }
 
-static bool catalog_has_name(
-    const ttf_font_item_t* items, int n, const char* name
-) {
-    for (int i = 0; i < n; i++) {
-        if (strcasecmp(items[i].name, name) == 0) return true;
-    }
-    return false;
-}
-
-// 字体目录放 PSRAM，理由同文件列表。
-// The font catalogue lives in PSRAM for the same reason as the file list.
+// 字体目录按需在 PSRAM 扩容，避免截断 TF 卡上的字体清单。
+// Grow the font catalogue on demand in PSRAM to avoid truncating the TF font list.
 static ttf_font_item_t *s_catalog;
+static int s_catalog_n, s_catalog_capacity;
 
-static bool catalog_alloc(void) {
-    if (!s_catalog)
-        s_catalog = heap_caps_calloc(TTF_FONT_MAX, sizeof(ttf_font_item_t),
-                                     MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    return s_catalog != NULL;
+static bool catalog_reserve_next(void) {
+    if (s_catalog_n < s_catalog_capacity) return true;
+    if (s_catalog_capacity > INT_MAX / 2) return false;
+    int capacity = s_catalog_capacity ? 2 * s_catalog_capacity : 24;
+    if ((size_t)capacity > SIZE_MAX / sizeof(*s_catalog)) return false;
+    ttf_font_item_t *grown = heap_caps_realloc(s_catalog, (size_t)capacity * sizeof(*s_catalog),
+                                              MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!grown) return false;
+    s_catalog = grown;
+    s_catalog_capacity = capacity;
+    return true;
 }
-static int s_catalog_n;
 
 int ttf_font_scan(void) {
-    if (!catalog_alloc()) return 0;
     s_catalog_n = 0;
-    for (size_t d = 0; d < sizeof(k_font_dirs) / sizeof(k_font_dirs[0]); d++) {
-        const char* font_dir = k_font_dirs[d] ? k_font_dirs[d] : app_settings_fonts_dir();
-        DIR* dir = opendir(font_dir);
-        if (dir == NULL) continue;
-        struct dirent* ent;
-        while ((ent = readdir(dir)) != NULL && s_catalog_n < TTF_FONT_MAX) {
-            if (ent->d_name[0] == '.') continue; // Ignore macOS ._ font sidecars.
-            if (!is_ttf_name(ent->d_name)) continue;
-            char name[TTF_FONT_NAME_MAX];
-            font_stem(ent->d_name, name, sizeof(name));
-            if (name[0] == '\0' || catalog_has_name(s_catalog, s_catalog_n, name)) {
-                continue;
-            }
-            snprintf(
-                s_catalog[s_catalog_n].path, sizeof(s_catalog[s_catalog_n].path),
-                "%s/%s", font_dir, ent->d_name
-            );
-            strlcpy(s_catalog[s_catalog_n].name, name, sizeof(s_catalog[0].name));
-            s_catalog_n++;
+    const char *font_dir = app_settings_fonts_dir();
+    DIR *dir = opendir(font_dir);
+    if (!dir) return 0;
+    struct dirent *ent;
+    while ((ent = readdir(dir)) != NULL) {
+        if (ent->d_type == DT_DIR || !is_ttf_name(ent->d_name)) continue;
+        ttf_font_item_t item = {0};
+        int length = snprintf(item.path, sizeof(item.path), "%s/%s", font_dir, ent->d_name);
+        if (length < 0 || (size_t)length >= sizeof(item.path)) continue;
+        font_stem(ent->d_name, item.name, sizeof(item.name));
+        if (!item.name[0]) continue;
+        if (!catalog_reserve_next()) {
+            ESP_LOGW(TAG, "font catalog allocation failed at %d items", s_catalog_n);
+            break;
         }
-        closedir(dir);
+        s_catalog[s_catalog_n++] = item;
     }
+    closedir(dir);
     if (s_catalog_n > 1) {
         qsort(s_catalog, (size_t)s_catalog_n, sizeof(s_catalog[0]), font_item_cmp);
     }
@@ -669,7 +681,7 @@ static int open_font_file(const char* preferred) {
         || is_junk_name(font_basename(preferred))) {
         return -1;
     }
-    return try_open_path(preferred);
+    return open(preferred, O_RDONLY);
 }
 
 const char* ttf_font_path(void) {
@@ -1489,14 +1501,16 @@ static bool pack_glyph_tree(int root_gid) {
     uint32_t packed = 0;
     for (int i = 0; i < tree_n; i++) {
         int gid = tree[i];
+        uint32_t offset = file_glyph_off(gid);
         uint32_t len = file_glyph_len(gid);
-        if (packed + len > TTF_GLYF_ARENA) {
+        if (len > TTF_GLYF_ARENA - packed ||
+            (s_name_face && (offset > file_glyf_len || len > file_glyf_len - offset))) {
             ESP_LOGE(TAG, "glyf arena overflow gid=%d len=%u", gid, (unsigned)len);
             return false;
         }
         uint8_t* blob = arena + packed;
         if (len > 0
-            && !file_read_at(file_glyf_off + file_glyph_off(gid), blob, len)) {
+            && !file_read_at(file_glyf_off + offset, blob, len)) {
             return false;
         }
         uint32_t used = len;
@@ -1555,13 +1569,19 @@ static uint8_t* build_working_font(const uint8_t* header, size_t header_len) {
         }
     }
 
+    if (s_name_face && (src[0].length < 4 || src[2].length < 54 ||
+                        src[3].length < 36 || src[4].length < 4 || src[6].length < 6))
+        return NULL;
     uint32_t cursor = 12 + 7 * 16;
     uint32_t dst_off[7];
     uint32_t total = cursor;
     for (int i = 0; i < 7; i++) {
+        if (s_name_face && src[i].length > 1024u * 1024u - total) return NULL;
         dst_off[i] = total;
         total = align4(total + src[i].length);
     }
+    if (s_name_face && heap_caps_get_free_size(MALLOC_CAP_SPIRAM) <
+        total + src[5].length + 768u * 1024u) return NULL;
 
     uint8_t* data = heap_caps_calloc(1, total, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (data == NULL) return NULL;
@@ -1584,6 +1604,25 @@ static uint8_t* build_working_font(const uint8_t* header, size_t header_len) {
         }
     }
 
+    if (s_name_face) {
+        const uint8_t *cmap = data + dst_off[0];
+        unsigned records = be16(cmap + 2);
+        unsigned glyphs = be16(data + dst_off[6] + 4);
+        unsigned metrics = be16(data + dst_off[3] + 34);
+        unsigned loca_format = be16(data + dst_off[2] + 50);
+        if (records > (src[0].length - 4) / 8 || loca_format > 1 ||
+            src[5].length < (glyphs + 1) * (loca_format ? 4u : 2u) ||
+            !metrics || metrics > glyphs || src[4].length < 2 * (glyphs + metrics)) {
+            heap_caps_free(data);
+            return NULL;
+        }
+        for (unsigned i = 0; i < records; ++i) {
+            if (be32(cmap + 8 + 8*i) > src[0].length - 4) {
+                heap_caps_free(data);
+                return NULL;
+            }
+        }
+    }
     work_loca_off = dst_off[5];
     work_glyf_off = dst_off[1];
     file_loca_len = src[5].length;
@@ -1642,6 +1681,77 @@ static int clamp_px(int pixel_height) {
     if (pixel_height < 12) return 12;
     if (pixel_height > 120) return 120;
     return pixel_height;
+}
+
+bool ttf_font_set_normalized_sizes(bool enabled) {
+    bool previous = s_normalized_sizes;
+    s_normalized_sizes = enabled;
+    return previous;
+}
+
+static bool glyph_vertical_bounds(int codepoint, int *bottom, int *top) {
+    int glyph = stbtt_FindGlyphIndex(&font_info, codepoint);
+    uint8_t header[10];
+    size_t loca_entry = loca_long ? 4 : 2;
+    if (glyph <= 0 || (size_t)glyph + 1 >= file_loca_len / loca_entry ||
+        file_glyph_len(glyph) < sizeof(header)) return false;
+    uint32_t offset = file_glyph_off(glyph);
+    if (file_glyf_len < sizeof(header) || offset > file_glyf_len - sizeof(header) ||
+        offset > UINT32_MAX - file_glyf_off ||
+        !file_read_at(file_glyf_off + offset, header, sizeof(header))) return false;
+    *bottom = (int16_t)be16(header + 4);
+    *top = (int16_t)be16(header + 8);
+    return *top > *bottom;
+}
+
+static void calibrate_sizes(ttf_size_calibration_t *calibration) {
+    calibration->sampled = true;
+    stbtt_fontinfo reference;
+    if (!stbtt_InitFont(&reference, builtin_ttf_start, 0)) return;
+    float reference_scale = stbtt_ScaleForPixelHeight(&reference, 1);
+    float face_scale = stbtt_ScaleForPixelHeight(&font_info, 1);
+    if (!(reference_scale > 0 && face_scale > 0) || !isfinite(face_scale)) return;
+    int reference_ascent;
+    stbtt_GetFontVMetrics(&reference, &reference_ascent, NULL, NULL);
+    // 同一组实际轮廓对齐字号。缺少常见汉字时，使用拉丁大写字作为参考。
+    // Align matching outlines. Use Latin capitals when the face lacks common Han glyphs.
+    static const int samples[][3] = {{0x56fd, 0x7530, 0x6c38}, {'H', 'E', 'N'}};
+    for (size_t group = 0; group < sizeof(samples) / sizeof(samples[0]); ++group) {
+        int matched = 0, reference_height = 0, face_height = 0;
+        int reference_centers = 0, face_centers = 0;
+        for (size_t i = 0; i < 3; ++i) {
+            int cp = samples[group][i], bottom, top, ref_bottom, ref_top;
+            int glyph = stbtt_FindGlyphIndex(&reference, cp);
+            if (glyph <= 0 || !stbtt_GetGlyphBox(&reference, glyph, NULL, &ref_bottom, NULL, &ref_top) ||
+                ref_top <= ref_bottom || !glyph_vertical_bounds(cp, &bottom, &top)) continue;
+            ++matched;
+            reference_height += ref_top - ref_bottom;
+            face_height += top - bottom;
+            reference_centers += ref_top + ref_bottom;
+            face_centers += top + bottom;
+        }
+        if (matched < 2) continue;
+        float factor = reference_height * reference_scale / (face_height * face_scale);
+        calibration->factor = fminf(4.0f / 3, fmaxf(0.75f, factor));
+        calibration->reference_center = (reference_ascent - reference_centers / (2.0f * matched)) * reference_scale;
+        calibration->face_center = face_centers * face_scale / (2.0f * matched);
+        return;
+    }
+}
+
+static const ttf_size_calibration_t *active_size_calibration(void) {
+    if ((!s_name_face && !s_normalized_sizes) || !font_ready || font_mem == builtin_ttf_start) return NULL;
+    ttf_size_calibration_t *calibration = &s_font_context->state_size_calibration;
+    if (!calibration->sampled) calibrate_sizes(calibration);
+    return calibration->factor > 0 ? calibration : NULL;
+}
+
+static int raster_px(int pixel_height) {
+    int nominal = clamp_px(pixel_height);
+    const ttf_size_calibration_t *calibration = active_size_calibration();
+    // 用实际光栅字号作缓存键，让校准与原始字号共用同一套缓存。
+    // Key the glyph cache by the raster size so calibrated and raw calls can share it.
+    return calibration ? clamp_px((int)(nominal * calibration->factor + 0.5f)) : nominal;
 }
 
 /* ---- 字形缓存 / Glyph cache ---- */
@@ -1747,6 +1857,7 @@ static glyph_entry_t* rasterize_glyph(uint32_t codepoint, int pixel_height) {
     int height = y1 - y0;
     if (width < 0) width = 0;
     if (height < 0) height = 0;
+    if (s_name_face && (width > 128 || height > 128)) return NULL;
 
     size_t bitmap_bytes = (size_t)width * (size_t)height;
     cache_reserve(bitmap_bytes + sizeof(glyph_entry_t));
@@ -1794,16 +1905,17 @@ static glyph_entry_t* rasterize_glyph(uint32_t codepoint, int pixel_height) {
 static const glyph_entry_t* get_glyph(uint32_t codepoint, int pixel_height) {
     if (!font_ready) return NULL;
     pixel_height = clamp_px(pixel_height);
-    if (bench_on) bench.glyphs++;
+    const bool measure = !s_name_face && bench_on;
+    if (measure) bench.glyphs++;
     glyph_entry_t* entry = cache_lookup(codepoint, pixel_height);
     if (entry != NULL) {
-        if (bench_on) bench.hits++;
+        if (measure) bench.hits++;
         return entry;
     }
-    if (bench_on) bench.misses++;
-    int64_t t0 = bench_on ? esp_timer_get_time() : 0;
+    if (measure) bench.misses++;
+    int64_t t0 = measure ? esp_timer_get_time() : 0;
     entry = rasterize_glyph(codepoint, pixel_height);
-    if (bench_on) bench.raster_us += esp_timer_get_time() - t0;
+    if (measure) bench.raster_us += esp_timer_get_time() - t0;
     return entry;
 }
 
@@ -1886,6 +1998,11 @@ int ttf_ascender(int size) {
 int ttf_ascender_px(int pixel_height) {
     if (!font_ready) return 0;
     pixel_height = clamp_px(pixel_height);
+    const ttf_size_calibration_t *calibration = active_size_calibration();
+    if (calibration) {
+        return (int)lroundf(pixel_height * calibration->reference_center +
+                            raster_px(pixel_height) * calibration->face_center);
+    }
     return (int)lroundf(
         raw_ascent_units * stbtt_ScaleForPixelHeight(&font_info, (float)pixel_height)
     );
@@ -1921,6 +2038,7 @@ static void abandon_font_source(void) {
 
 static void unload_active_font(void) {
     font_ready = false;
+    s_font_context->state_size_calibration = (ttf_size_calibration_t){0};
     cache_reset();
     io_unmap();
     io_reset();
@@ -1948,15 +2066,17 @@ static void unload_active_font(void) {
 // 回收可重建字形，保持双槽字体及字重，供开书和插图内存让路。/ Reclaim rebuildable glyphs without unloading faces or weights.
 size_t ttf_font_cache_clear_all(void) {
     ttf_context_t *previous=s_font_context;size_t reclaimed=0;
-    for(unsigned i=0;i<2;++i){s_font_context=&s_font_contexts[i];reclaimed+=cache_bytes;cache_reset();}
-    s_font_context=previous;return reclaimed;
+    for(unsigned i=0;i<2;++i){s_active_context=&s_font_contexts[i];reclaimed+=cache_bytes;cache_reset();}
+    s_active_context=previous;return reclaimed;
 }
 void ttf_font_unload(void){
+    name_previews_clear();
     ttf_context_t *previous=s_font_context;
-    for(unsigned i=0;i<2;++i){s_font_context=&s_font_contexts[i];unload_active_font();heap_caps_free(io_data);io_data=NULL;heap_caps_free(io_run_buf);io_run_buf=NULL;font_path[0]=0;}
-    s_font_context=previous;
+    for(unsigned i=0;i<2;++i){s_active_context=&s_font_contexts[i];unload_active_font();heap_caps_free(io_data);io_data=NULL;heap_caps_free(io_run_buf);io_run_buf=NULL;font_path[0]=0;}
+    s_active_context=previous;
 }
 bool ttf_font_release_path(const char *root) {
+    name_previews_clear();
     ttf_context_t *previous = s_font_context;
     size_t n = strlen(root);
     bool active = false;
@@ -1964,12 +2084,12 @@ bool ttf_font_release_path(const char *root) {
         ttf_context_t *slot = &s_font_contexts[i];
         const char *path = slot->state_font_path;
         if (strncasecmp(path, root, n) || (path[n] && path[n] != '/')) continue;
-        s_font_context = slot;
+        s_active_context= slot;
         unload_active_font();
         font_path[0] = 0;
         active |= slot == previous;
     }
-    s_font_context = previous;
+    s_active_context= previous;
     return active;
 }
 static esp_err_t load_opened_font(void) {
@@ -2060,19 +2180,21 @@ esp_err_t ttf_font_open(const char* path) {
     bool had = font_ready;
     bool prev_file = had && !ttf_font_path_is_builtin(prev);
 
-    unload_active_font();
-    if (!ensure_work()) return ESP_ERR_NO_MEM;
-
-    font_fd = open_font_file(path);
-    if (font_fd < 0) {
+    int candidate = open_font_file(path);
+    if (candidate < 0) {
         ESP_LOGW(TAG, "TTF missing: %s", path);
-        if (prev_file) {
-            font_fd = try_open_path(prev);
-            if (font_fd >= 0) return load_opened_font();
-        }
+        if (had) return ESP_ERR_NOT_FOUND;
         return ttf_font_open_builtin() == ESP_OK ? ESP_ERR_NOT_FOUND : ESP_FAIL;
     }
+    if (!ensure_work()) {
+        close(candidate);
+        return ESP_ERR_NO_MEM;
+    }
 
+    unload_active_font();
+    font_fd = candidate;
+    strlcpy(font_path, path, sizeof(font_path));
+    ESP_LOGI(TAG, "using %s", font_path);
     esp_err_t err = load_opened_font();
     if (err != ESP_OK) {
         if (prev_file && strcmp(prev, path) != 0) {
@@ -2091,10 +2213,10 @@ esp_err_t ttf_font_select_context(bool system,const char *path){
     ttf_context_t *target=&s_font_contexts[system?1:0];
     // 同一路径直接共享阅读槽，不复制文件映射或字形。/ Share the reader face when both settings use the same file.
     if(system&&s_font_contexts[0].state_font_ready&&!strcmp(s_font_contexts[0].state_font_path,resolved))target=&s_font_contexts[0];
-    s_font_context=target;
+    s_active_context=target;
     if(font_ready&&!strcmp(font_path,resolved))return ESP_OK;
     esp_err_t err=ttf_font_open(resolved);
-    if(!font_ready)s_font_context=previous;
+    if(!font_ready)s_active_context=previous;
     return err;
 }
 static ttf_context_t *preview_face(const char *path) {
@@ -2108,18 +2230,18 @@ bool ttf_font_prepare_preview(const char *path) {
     if (!path || !*path || strlen(path) >= TTF_FONT_PATH_MAX) return false;
     if (preview_face(path)) return true;
     ttf_context_t *previous = s_font_context;
-    s_font_context = previous == &s_font_contexts[0] ? &s_font_contexts[1] : &s_font_contexts[0];
+    s_active_context= previous == &s_font_contexts[0] ? &s_font_contexts[1] : &s_font_contexts[0];
     bool loaded = ttf_font_open(path) == ESP_OK && !strcmp(font_path, path);
-    s_font_context = previous;
+    s_active_context= previous;
     return loaded;
 }
 bool ttf_font_with_preview(const char *path, void (*draw)(void *), void *ctx) {
     ttf_context_t *face = preview_face(path);
     if (!face) return false;
     ttf_context_t *previous = s_font_context;
-    s_font_context = face;
+    s_active_context= face;
     draw(ctx);
-    s_font_context = previous;
+    s_active_context= previous;
     return true;
 }
 esp_err_t ttf_font_init(void) {
@@ -2143,7 +2265,7 @@ void ttf_measure_line_px(
     int max_above = 0;
     int max_below = 0;
     if (font_ready && text != NULL) {
-        pixel_height = clamp_px(pixel_height);
+        pixel_height = raster_px(pixel_height);
         warm_text_io(pixel_height, text);
         const char* cursor = text;
         while (*cursor != '\0') {
@@ -2161,12 +2283,12 @@ void ttf_measure_line_px(
 
 int ttf_text_width_px(int pixel_height, const char* text) {
     if (!font_ready || text == NULL) return 0;
-    return measure_width(clamp_px(pixel_height), text);
+    return measure_width(raster_px(pixel_height), text);
 }
 
 int ttf_text_left_bearing_px(int pixel_height, const char* text) {
     if (!font_ready || !text || !*text) return 0;
-    pixel_height = clamp_px(pixel_height);
+    pixel_height = raster_px(pixel_height);
     const char *cursor = text;
     uint32_t cp = decode_utf8(&cursor);
     const glyph_entry_t *glyph = cache_lookup(cp, pixel_height);
@@ -2198,6 +2320,336 @@ static uint8_t mix_ink(uint8_t alpha, uint8_t fg, uint8_t bg) {
     return (uint8_t)(bg + s_cover[alpha] * ((int)fg - (int)bg) / 255);
 }
 
+/* ---- 列表名称预览 / Picker name previews ---- */
+
+#define NAME_PREVIEW_SLOTS 32
+#define NAME_PREVIEW_BYTES (192u * 1024u)
+
+typedef struct {
+    char path[TTF_FONT_PATH_MAX];
+    char label[TTF_FONT_NAME_MAX];
+    int px, limit;
+} name_preview_key_t;
+
+typedef struct {
+    name_preview_key_t key;
+    uint8_t *mask;
+    int stride, height;
+    unsigned used;
+} name_preview_t;
+
+static name_preview_t *s_names, s_name_job;
+static atomic_bool s_name_busy;
+static bool s_name_pending;
+static unsigned s_name_revision, s_name_clock;
+static size_t s_name_bytes;
+static int64_t s_name_idle_since;
+#ifndef PICO_HOST_SIMULATOR
+static TaskHandle_t s_name_task;
+#endif
+
+static bool name_cmap_valid(const uint8_t *header, size_t header_len) {
+    uint32_t offset, length;
+    if (!find_sfnt_table(header,header_len,"cmap",&offset,&length)) return false;
+    const uint8_t *cmap = font_data + be32(font_data + 20);
+    const uint8_t *map = font_data + font_info.index_map;
+    uint32_t left = length - (uint32_t)(map - cmap);
+    unsigned format = be16(map);
+    if (format == 12 || format == 13)
+        return left >= 16 && be32(map + 12) <= (left - 16) / 12;
+    if (format == 0) return be16(map + 2) <= left;
+    if (format == 6) return left >= 10 && be16(map + 8) <= (left - 10) / 2;
+    if (format != 4 || left < 16) return false;
+    unsigned segments = be16(map + 6) / 2;
+    if (!segments || segments > (left - 16) / 8) return false;
+    unsigned range = 1, selector = 0;
+    while (range * 2 <= segments) { range *= 2; ++selector; }
+    if (be16(map + 8) != range * 2 || be16(map + 10) != selector ||
+        be16(map + 12) != (segments - range) * 2) return false;
+    const uint8_t *ends = map + 14, *starts = ends + 2 * segments + 2;
+    const uint8_t *offsets = starts + 4 * segments;
+    for (unsigned i = 0; i < segments; ++i) {
+        unsigned first = be16(starts + 2*i), last = be16(ends + 2*i);
+        unsigned at = be16(offsets + 2*i);
+        if (first > last || (i && last <= be16(ends + 2*i - 2))) return false;
+        if (at && (size_t)(offsets + 2*i - map) + at + 2 * (last - first + 1) > left)
+            return false;
+    }
+    return be16(ends + 2*segments - 2) == 0xffff;
+}
+
+// 列表会自动接触未选中的字体；光栅化前检查实际用到的轮廓。/ The picker opens unselected faces, so validate the outlines it actually uses.
+static bool name_outline_valid(int glyph, unsigned depth, unsigned *budget) {
+    if (glyph <= 0 || glyph >= num_glyphs || depth >= 8 || !*budget) return false;
+    --*budget;
+    uint32_t len = file_glyph_len(glyph);
+    if (!len) return true;
+    int at = stbtt__GetGlyfOffset(&font_info, glyph);
+    if (at < (int)work_glyf_off || len < 10 ||
+        (uint32_t)at - work_glyf_off > TTF_GLYF_ARENA - len) return false;
+    const uint8_t *blob = font_data + at;
+    int contours = (int16_t)be16(blob);
+    size_t pos = 10;
+    if (!contours) return true;
+    if (contours < 0) {
+        unsigned flags;
+        do {
+            if (pos + 4 > len) return false;
+            flags = be16(blob + pos);
+            int child = be16(blob + pos + 2);
+            pos += 4 + (flags & 1 ? 4 : 2);
+            pos += flags & 8 ? 2 : flags & 64 ? 4 : flags & 128 ? 8 : 0;
+            if (!(flags & 2) || pos > len || !name_outline_valid(child, depth + 1, budget))
+                return false;
+        } while (flags & 32);
+        return true;
+    }
+    if (contours > 64 || pos + (size_t)contours * 2 + 2 > len) return false;
+    int points = 0, last_contour_points = 0;
+    for (int i = 0; i < contours; ++i, pos += 2) {
+        int end = be16(blob + pos);
+        if (end < points || end >= TTF_MAX_PTS) return false;
+        last_contour_points = end + 1 - points;
+        points = end + 1;
+    }
+    pos += 2 + be16(blob + pos);
+    unsigned coordinates = 0;
+    while (points > 0) {
+        if (pos >= len) return false;
+        unsigned flags = blob[pos++], repeat = 1;
+        if (flags & 8) {
+            if (pos >= len) return false;
+            repeat += blob[pos++];
+        }
+        if (repeat > (unsigned)points ||
+            (last_contour_points == 1 && repeat == (unsigned)points && !(flags & 1))) return false;
+        coordinates += repeat * ((flags & 2 ? 1 : flags & 16 ? 0 : 2) +
+                                 (flags & 4 ? 1 : flags & 32 ? 0 : 2));
+        points -= (int)repeat;
+    }
+    return pos + coordinates <= len;
+}
+
+static void name_preview_raster(name_preview_t *preview) {
+    const name_preview_key_t *key = &preview->key;
+    uint8_t header[12 + 32 * 16];
+    struct stat info;
+    font_fd = open(key->path, O_RDONLY);
+    if (font_fd < 0 || fstat(font_fd, &info) != 0 || !S_ISREG(info.st_mode) ||
+        !file_read_at(0, header, sizeof(header))) return;
+    unsigned tables = be16(header + 4);
+    uint32_t format = be32(header);
+    if ((format != 0x00010000 && format != 0x74727565) || tables > 32) return;
+    for (unsigned i = 0; i < tables; ++i) {
+        const uint8_t *record = header + 12 + 16*i;
+        uint64_t end = (uint64_t)be32(record + 8) + be32(record + 12);
+        if (end > (uint64_t)info.st_size || end > UINT32_MAX)
+            return;
+    }
+    font_data = build_working_font(header, sizeof(header));
+    if (!font_data || !stbtt_InitFont(&font_info,font_data,0) ||
+        !name_cmap_valid(header,sizeof(header))) return;
+    int descent;
+    stbtt_GetFontVMetrics(&font_info, &raw_ascent_units, &descent, NULL);
+    if (raw_ascent_units - descent < 64) return;
+    font_ready = true;
+    int px = raster_px(key->px);
+    const char *cursor = key->label;
+    while (*cursor) {
+        int gid = stbtt_FindGlyphIndex(&font_info,(int)decode_utf8(&cursor));
+        if (gid <= 0 || gid >= num_glyphs) return;
+    }
+    int width = measure_width(px, key->label) + 8;
+    if (width > key->limit) width = key->limit;
+    if (width <= 0) return;
+    int height = key->px * 2 + 16, stride = (width + 1) / 2;
+    uint8_t *mask = heap_caps_calloc((size_t)stride, height, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!mask) return;
+    const char *label = key->label;
+    int x = 0, top = height, bottom = 0;
+    while (*label && x < width) {
+        if (atomic_load_explicit(&s_name_cancel,memory_order_relaxed)) break;
+        uint32_t cp = decode_utf8(&label);
+        int gid = stbtt_FindGlyphIndex(&font_info,(int)cp);
+        unsigned components = 48;
+        if (!pack_glyph_tree(gid) || !name_outline_valid(gid,0,&components)) break;
+        const glyph_entry_t *glyph = get_glyph(cp,px);
+        if (!glyph) break;
+        if (x && x + glyph->advance_x > key->limit) {
+            label = "";
+            break;
+        }
+        for (int y = 0; y < glyph->height; ++y) {
+            int yy = height / 2 + key->px / 4 - glyph->top + y;
+            if (yy < 0 || yy >= height) continue;
+            for (int xx = 0; xx < glyph->width; ++xx) {
+                int target = x + glyph->left + xx;
+                if (target < 0 || target >= width) continue;
+                unsigned alpha = s_cover[glyph->bitmap[y*glyph->width+xx]] >> 4;
+                if (!alpha) continue;
+                unsigned shift = (target & 1) * 4;
+                uint8_t *cell = &mask[yy*stride+target/2];
+                if (alpha > ((*cell >> shift) & 15))
+                    *cell = (uint8_t)((*cell & ~(15u << shift)) | (alpha << shift));
+                if (yy < top) top = yy;
+                if (yy >= bottom) bottom = yy + 1;
+            }
+        }
+        x += glyph->advance_x;
+    }
+    if ((*label && x < width) || !bottom || bottom-top > key->px + 12 ||
+        atomic_load_explicit(&s_name_cancel,memory_order_relaxed)) {
+        heap_caps_free(mask);
+        return;
+    }
+    if (top) memmove(mask, mask + top * stride, (size_t)(bottom-top) * stride);
+    uint8_t *cropped = heap_caps_realloc(mask,(size_t)(bottom-top)*stride,MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!cropped) { heap_caps_free(mask); return; }
+    preview->mask = cropped;
+    preview->stride = stride;
+    preview->height = bottom - top;
+}
+
+static void name_preview_work(void) {
+    ttf_context_t *face = heap_caps_calloc(1,sizeof(*face),MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (face && !atomic_load_explicit(&s_name_cancel,memory_order_relaxed)) {
+        face->state_font_fd = -1;
+        face->state_font_file_pos = UINT32_MAX;
+        face->state_packed_root = -1;
+        s_name_face = face;
+        name_preview_raster(&s_name_job);
+        unload_active_font();
+        s_name_face = NULL;
+    }
+    heap_caps_free(face);
+    atomic_store_explicit(&s_name_busy,false,memory_order_release);
+}
+
+#ifndef PICO_HOST_SIMULATOR
+static void name_preview_worker(void *arg) {
+    (void)arg;
+    for (;;) {
+        ulTaskNotifyTake(pdTRUE,portMAX_DELAY);
+        name_preview_work();
+    }
+}
+#endif
+
+static void name_preview_evict(name_preview_t *entry) {
+    s_name_bytes -= (size_t)entry->stride * entry->height;
+    heap_caps_free(entry->mask);
+    *entry = (name_preview_t){0};
+}
+
+static void name_preview_collect(void) {
+    if (!s_name_pending || atomic_load_explicit(&s_name_busy,memory_order_acquire)) return;
+    s_name_pending = false;
+    if (atomic_load_explicit(&s_name_cancel,memory_order_relaxed)) {
+        heap_caps_free(s_name_job.mask);
+        return;
+    }
+    size_t bytes = (size_t)s_name_job.stride * s_name_job.height;
+    name_preview_t *entry;
+    do {
+        entry = &s_names[0];
+        for (size_t i = 1; i < NAME_PREVIEW_SLOTS; ++i)
+            if (s_names[i].used < entry->used) entry = &s_names[i];
+        name_preview_evict(entry);
+    } while (s_name_bytes + bytes > NAME_PREVIEW_BYTES);
+    *entry = s_name_job;
+    entry->used = ++s_name_clock;
+    s_name_bytes += bytes;
+}
+
+static name_preview_t *name_preview_find(const ttf_font_item_t *item,const char *label,int px,int width) {
+    if (!s_names) return NULL;
+    for (size_t i = 0; i < NAME_PREVIEW_SLOTS; ++i) {
+        name_preview_t *entry = &s_names[i];
+        if (entry->used && entry->key.px == px && entry->key.limit == width &&
+            !strcmp(entry->key.path,item->path) && !strcmp(entry->key.label,label)) return entry;
+    }
+    return NULL;
+}
+
+bool ttf_name_preview_request(const ttf_font_item_t *item, const char *label, int px, int width) {
+    if (!s_names) {
+        s_names = heap_caps_calloc(NAME_PREVIEW_SLOTS,sizeof(*s_names),MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (!s_names) return true;
+    }
+    name_preview_collect();
+    name_preview_t *entry = name_preview_find(item,label,px,width);
+    if (entry) { entry->used = ++s_name_clock; return true; }
+    if (s_name_pending) return false;
+#ifndef PICO_HOST_SIMULATOR
+    if (!s_name_task &&
+        xTaskCreatePinnedToCore(name_preview_worker,"font_name",6144,NULL,1,&s_name_task,1) != pdPASS)
+        return true;
+#endif
+    ttf_cover_lut_init();
+    s_name_job = (name_preview_t){.key = {.px = px,.limit = width}};
+    strlcpy(s_name_job.key.path,item->path,sizeof(s_name_job.key.path));
+    strlcpy(s_name_job.key.label,label,sizeof(s_name_job.key.label));
+    s_name_pending = true;
+    atomic_store_explicit(&s_name_cancel,false,memory_order_relaxed);
+    atomic_store_explicit(&s_name_busy,true,memory_order_release);
+#ifdef PICO_HOST_SIMULATOR
+    name_preview_work();
+#else
+    xTaskNotifyGive(s_name_task);
+#endif
+    return false;
+}
+
+bool ttf_name_preview_draw(uint8_t *fb, const ttf_font_item_t *item, const char *label,
+                           int px, EpdRect area, uint8_t background, bool replace) {
+    name_preview_t *entry = name_preview_find(item,label,px,area.width);
+    if (!entry || !entry->mask) return false;
+    if (replace) epd_fill_rect(area,background,fb);
+    int top = area.y + (area.height - entry->height) / 2;
+    for (int y = 0; y < entry->height; ++y) {
+        int yy = top + y;
+        if (yy < area.y || yy >= area.y + area.height) continue;
+        for (int x = 0; x < area.width && x < entry->stride * 2; ++x) {
+            unsigned alpha = (entry->mask[y*entry->stride+x/2] >> ((x&1)*4)) & 15;
+            if (alpha) epd_draw_pixel(area.x+x, yy, (uint8_t)(background*(15-alpha)/15) & 0xf0, fb);
+        }
+    }
+    return true;
+}
+
+bool ttf_name_preview_idle(int64_t now_ms, bool input) {
+    if (input) s_name_idle_since = 0;
+    else if (!s_name_idle_since) s_name_idle_since = now_ms;
+    return !input && now_ms - s_name_idle_since >= 350;
+}
+
+void ttf_name_preview_pause(void) {
+    s_name_idle_since = 0;
+    if (s_name_pending) atomic_store_explicit(&s_name_cancel,true,memory_order_relaxed);
+}
+
+void ttf_name_preview_stop(void) {
+    ttf_name_preview_pause();
+    while (atomic_load_explicit(&s_name_busy,memory_order_acquire)) vTaskDelay(1);
+    name_preview_collect();
+}
+
+static void name_previews_clear(void) {
+    ttf_name_preview_stop();
+    if (!s_names) return;
+    for (size_t i = 0; i < NAME_PREVIEW_SLOTS; ++i) name_preview_evict(&s_names[i]);
+    heap_caps_free(s_names);
+    s_names = NULL;
+}
+
+void ttf_name_preview_revision(unsigned revision) {
+    if (revision == s_name_revision) return;
+    s_name_revision = revision;
+    ttf_name_preview_pause();
+    if (s_names)
+        for (size_t i = 0; i < NAME_PREVIEW_SLOTS; ++i) name_preview_evict(&s_names[i]);
+}
+
 void ttf_draw_text(
     uint8_t* framebuffer, int x, int y, int size, const char* text,
     enum EpdFontFlags align, uint8_t fg, uint8_t bg
@@ -2211,7 +2663,7 @@ void ttf_draw_text_px(
 ) {
     if (!font_ready || framebuffer == NULL || text == NULL) return;
     ttf_cover_lut_init();
-    pixel_height = clamp_px(pixel_height);
+    pixel_height = raster_px(pixel_height);
     warm_text_io(pixel_height, text);
 
     int cursor_x = x;
@@ -2253,7 +2705,7 @@ void ttf_draw_text_px_spaced(
     }
     if (!font_ready || framebuffer == NULL || text == NULL) return;
     ttf_cover_lut_init();
-    pixel_height = clamp_px(pixel_height);
+    pixel_height = raster_px(pixel_height);
     warm_text_io(pixel_height, text);
     int cursor_x = x;
     const char* cursor = text;
@@ -2287,7 +2739,8 @@ void ttf_draw_text_px_fitted(
 ) {
     if (!font_ready || !framebuffer || !text || !*text) return;
     ttf_cover_lut_init();
-    pixel_height = clamp_px(pixel_height);
+    int requested_px = pixel_height;
+    pixel_height = raster_px(pixel_height);
     warm_text_io(pixel_height, text);
     int glyph_count = 0, cjk_gaps = 0;
     const char* cursor = text;
@@ -2305,7 +2758,7 @@ void ttf_draw_text_px_fitted(
     int adjustable = compress ? gaps : cjk_gaps;
     if (adjustable < 2 || (compress && -delta > adjustable * 3) ||
         (!compress && delta > adjustable * 12)) {
-        ttf_draw_text_px_spaced(framebuffer, x, y, pixel_height, text, tracking_px, fg, bg);
+        ttf_draw_text_px_spaced(framebuffer, x, y, requested_px, text, tracking_px, fg, bg);
         return;
     }
     int quotient = delta / adjustable;
@@ -2346,7 +2799,7 @@ void ttf_draw_text_px_bw(
     enum EpdFontFlags align, uint8_t fg, uint8_t bg
 ) {
     if (!font_ready || framebuffer == NULL || text == NULL) return;
-    pixel_height = clamp_px(pixel_height);
+    pixel_height = raster_px(pixel_height);
     warm_text_io(pixel_height, text);
 
     int cursor_x = x;
@@ -2384,8 +2837,8 @@ static int styled_extra(int px, unsigned flags) {
 }
 int ttf_text_width_styled_px(int px, const char *text, unsigned flags) {
     if (!font_ready || !text) return 0;
-    px = clamp_px(px);
-    int width = ttf_text_width_px(px, text);
+    px = raster_px(px);
+    int width = measure_width(px, text);
     const char *at = text;
     while (*at) { decode_utf8(&at); width += styled_extra(px, flags); }
     return width;
@@ -2393,7 +2846,7 @@ int ttf_text_width_styled_px(int px, const char *text, unsigned flags) {
 void ttf_draw_glyph_styled_px(uint8_t *fb, int x, int baseline, int px,
                               const char *text, unsigned flags, uint8_t fg, uint8_t bg) {
     if (!font_ready || !fb || !text || !*text) return;
-    px = clamp_px(px); ttf_cover_lut_init();
+    px = raster_px(px); ttf_cover_lut_init();
     const char *at = text;
     const glyph_entry_t *g = get_glyph(decode_utf8(&at), px);
     if (!g || !g->bitmap) return;
