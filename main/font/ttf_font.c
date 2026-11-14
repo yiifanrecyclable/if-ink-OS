@@ -2877,3 +2877,64 @@ void ttf_draw_glyph_styled_px(uint8_t *fb, int x, int baseline, int px,
         }
     }
 }
+
+int ttf_vertical_advance_px(int px, uint32_t cp) {
+    if (cp == ' ' || cp == '\t') return px / 2;
+    if ((cp >= '0' && cp <= '9') || (cp >= 'A' && cp <= 'Z') ||
+        (cp >= 'a' && cp <= 'z')) return px * 3 / 4;
+    return px;
+}
+
+static uint32_t vertical_form(uint32_t cp) {
+    switch (cp) {
+        case '(': case 0xff08: return 0xfe35;
+        case ')': case 0xff09: return 0xfe36;
+        case '[': case 0xff3b: return 0xfe47;
+        case ']': case 0xff3d: return 0xfe48;
+        case 0x3008: return 0xfe3f;
+        case 0x3009: return 0xfe40;
+        case 0x300a: return 0xfe3d;
+        case 0x300b: return 0xfe3e;
+        case 0x300c: case 0x201c: return 0xfe41;
+        case 0x300d: case 0x201d: return 0xfe42;
+        case 0x300e: case 0x2018: return 0xfe43;
+        case 0x300f: case 0x2019: return 0xfe44;
+        case 0x2026: return 0xfe19;
+        case 0x2014: return 0xfe31;
+        default: return 0;
+    }
+}
+
+void ttf_draw_vertical_px(uint8_t *fb, int center_x, int top, int height, int px,
+                          const char *text, int tracking) {
+    if (!fb || !text || !font_ready) return;
+    int bottom = top + height;
+    while (*text && top < bottom) {
+        uint32_t cp = decode_utf8(&text);
+        int advance = ttf_vertical_advance_px(px, cp);
+        if (advance > bottom - top) break;
+        int size = raster_px(advance);
+        uint32_t form = vertical_form(cp);
+        bool has_form = form && stbtt_FindGlyphIndex(&font_info, (int)form) != 0;
+        bool sideways = (form && !has_form) ||
+            (cp >= 'A' && cp <= 'Z') || (cp >= 'a' && cp <= 'z');
+        bool corner = cp == 0x3001 || cp == 0x3002 || cp == 0xff0c;
+        const glyph_entry_t *g = get_glyph(has_form ? form : cp, size);
+        if (g && g->bitmap) {
+            int w = sideways ? g->height : g->width;
+            int h = sideways ? g->width : g->height;
+            int x = corner ? center_x + px / 2 - w - px / 10 : center_x - w / 2;
+            int y = corner ? top + px / 10 : top + (advance - h) / 2;
+            for (int gy = 0; gy < g->height; ++gy) {
+                for (int gx = 0; gx < g->width; ++gx) {
+                    int dx = x + (sideways ? g->height - 1 - gy : gx);
+                    int dy = y + (sideways ? gx : gy);
+                    uint8_t alpha = g->bitmap[gy * g->width + gx];
+                    if (alpha && dy >= top && dy < top + advance)
+                        epd_draw_pixel(dx, dy, mix_ink(alpha, 0, 15) << 4, fb);
+                }
+            }
+        }
+        top += advance + tracking;
+    }
+}

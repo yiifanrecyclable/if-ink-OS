@@ -343,6 +343,9 @@ int main(int argc, char **argv) {
     printf(",\"quote_settings_committed\":%s,\"quote_size\":%d",app_device_settings_quote_committed()?"true":"false",app_device_settings_quote_size());printf(",\"home_quote_requested\":%s",app_device_settings_home_quote_requested()?"true":"false");printf(",\"cloud_settings_requested\":%s",app_device_settings_cloud_requested()?"true":"false");printf(",\"cloud_command\":%d,\"cloud_index\":%d,\"cloud_page\":%d",simulator_cloud_command,simulator_cloud_index,simulator_cloud_page);printf(",\"toc_jump\":%s,\"system_view\":%d,\"transfer_mode\":%d,\"transfer_entry\":%d,\"files_dir\":",simulator_toc_jump?"true":"false",simulator_system_view,simulator_transfer_mode,simulator_transfer_entry());json_string(simulator_files_dir);printf(",\"document_zoom\":%s,\"image_top\":%u,\"toc_count\":%zu,\"document_image_ready\":%s,\"reader_progress\":%u",simulator_document_zoom()?"true":"false",simulator_document_image_top(),book_navigation_count(),simulator_document_image_ready()?"true":"false",simulator_reader_progress());
     extern unsigned simulator_reader_binding(unsigned);
     extern unsigned simulator_reader_perf(unsigned);
+    extern unsigned simulator_reader_water_turns(void);
+    extern int simulator_reader_detail_page(void);
+    printf(",\"reader_water_turns\":%u,\"reader_detail_page\":%d",simulator_reader_water_turns(),simulator_reader_detail_page());
     extern int simulator_toc_percent(void);
     extern bool simulator_toc_drag(void);
     printf(",\"reader_event_draws\":%u,\"reader_event_font_loads\":%u,\"reader_area_updates\":%u,\"reader_area_violations\":%u,\"toc_percent\":%d,\"toc_drag\":%s",simulator_reader_perf(0),simulator_reader_perf(1),simulator_reader_perf(2),simulator_reader_perf(3),simulator_toc_percent(),simulator_toc_drag()?"true":"false");

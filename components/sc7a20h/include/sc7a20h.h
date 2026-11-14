@@ -152,6 +152,11 @@ typedef struct {
     uint8_t status;
 } sc7a20h_sample_t;
 
+/// STATUS.ZYXDA is set when all three axes have fresh output.
+static inline bool sc7a20h_sample_fresh(const sc7a20h_sample_t *sample) {
+    return (sample->status & 0x08u) != 0;
+}
+
 esp_err_t sc7a20h_init(i2c_master_bus_handle_t bus_handle, const sc7a20h_config_t* config,
                        sc7a20h_handle_t* handle);
 esp_err_t sc7a20h_deinit(sc7a20h_handle_t handle);

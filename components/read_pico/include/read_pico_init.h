@@ -40,8 +40,8 @@ typedef struct {
 esp_err_t read_pico_init(read_pico_handle_t* handle);
 void read_pico_deinit(read_pico_handle_t* handle);
 
-/// 加速度计只在 AXIS 页采样，离开后关掉 ODR。
-/// / Sample the accelerometer only on the AXIS page; drop ODR on leave.
+/// 按需开启加速度计，采样结束后关掉 ODR。
+/// / Enable the accelerometer on demand and drop ODR when sampling finishes.
 void read_pico_sensor_wake(sc7a20h_handle_t h);
 void read_pico_sensor_sleep(sc7a20h_handle_t h);
 

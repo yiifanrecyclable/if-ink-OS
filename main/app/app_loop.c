@@ -37,7 +37,6 @@
 #ifdef IFINK_INKBUDDY
 #include "app_inkbuddy.h"
 #endif
-#include "continuous_du.h"
 #include "ui_nav.h"
 #include "ui_i18n.h"
 #include "display.h"
@@ -62,7 +61,7 @@
 #include "ui_gesture.h"
 #include "operation_log.h"
 #include "shelf_perf.h"
-extern bool app_book_reader_body_visible(void);
+extern const app_desc_t app_book;
 #include "ui_power_dialog.h"
 #include "usb_storage.h"
 #include "book/record_store_media.h"
@@ -167,6 +166,12 @@ static void cancel_gesture(app_ctx_t* ctx, const app_desc_t* app, ui_gesture_t* 
         app_present(ctx, app, redraw);
     }
     ui_gesture_reset(gesture);
+}
+
+static app_redraw_t dispatch_key_hold(app_ctx_t *ctx, const app_desc_t *app, int key, bool middle_deferred) {
+    if (app->on_key_long) return app->on_key_long(ctx, key);
+    if (middle_deferred && app != app_home_page()) ctx->request_app = app_home_page();
+    return APP_REDRAW_NONE;
 }
 
 static void present_page(app_ctx_t* ctx, const app_desc_t* app,
@@ -370,7 +375,6 @@ void app_loop_run(const app_loop_config_t* config) {
         .acc = config->acc,
         .tp = config->tp,
         .sensor_ready = config->sensor_ready,
-        .continuous_ready = continuous_du_init(),
         .touch = &latest,
         .touch_info = &touch_info,
     };
@@ -388,6 +392,7 @@ void app_loop_run(const app_loop_config_t* config) {
     int return_leaf = 0, return_menu_leaf = 0;
     bool return_to_menu = false;
     int held_key = -1;
+    bool held_middle_deferred = false;
     int64_t held_since_ms = 0;
     int64_t last_lock_poll_ms = 0;
     int64_t last_font_retry_ms = 0;
@@ -478,8 +483,12 @@ void app_loop_run(const app_loop_config_t* config) {
 #endif
         ){
             // 全屏阅读也恢复原内容，不凭空补出状态栏。/ Restore the original content even when fullscreen hides the status bar.
-            if(current->render)current->render(&ctx,ctx.fb);else ui_nav_status(ctx.fb);
-            guard_draw_result(ctx.hl,update_display_area_with(ctx.hl,&E0470_WAVEFORM,MODE_GL16,(EpdRect){0,0,UI_LOCK_WIDTH,UI_STATUS_HEIGHT}));
+            if (!menu_open && current == &app_book && app_book_landscape_visible()) {
+                app_present(&ctx,current,APP_REDRAW_PAGE);
+            } else {
+                if(current->render)current->render(&ctx,ctx.fb);else ui_nav_status(ctx.fb);
+                guard_draw_result(ctx.hl,update_display_area_with(ctx.hl,&E0470_WAVEFORM,MODE_GL16,(EpdRect){0,0,UI_LOCK_WIDTH,UI_STATUS_HEIGHT}));
+            }
         }
         if(err==ESP_OK&&(touch.touched||released))last_activity_ms=ctx.now_ms;
         if (ctx.now_ms - last_network_poll_ms >= 500) {
@@ -537,7 +546,6 @@ void app_loop_run(const app_loop_config_t* config) {
                         guard_draw_result(ctx.hl,update_display_mode(ctx.hl,APP_PAGE_REFRESH_MODE));
                     }else{
                         app_settings_trace_storage("menu_staged_sleep");
-                        extern const app_desc_t app_book;
                         app_lock_set_save_confirmed(true);
                         enter_lock_and_sleep(ctx.hl,&s_lock_ignore_until_ms,ctx.acc,current==&app_book&&app_book_reader_body_visible());
                         ctx.now_ms=esp_timer_get_time()/1000;last_activity_ms=ctx.now_ms;
@@ -580,41 +588,37 @@ void app_loop_run(const app_loop_config_t* config) {
                 if (menu_pressed >= 0) menu_feedback(&ctx, current, menu_leaf, menu_pressed, false, &feedback);
                 menu_pressed = UI_MENU_HIT_NONE;
             }
-            if (key >= 0 && current->owns_keys && !menu_open) {
-                app_redraw_t redraw = current->on_key && !(key == UI_KEY_2 && current->defer_middle_short)
-                    ? current->on_key(&ctx, key) : APP_REDRAW_NONE;
-                present_page(&ctx, current, &gesture, redraw);
-                if (current->on_key_long && touch.count == 1) {
-                    held_key = key;
-                    held_since_ms = ctx.now_ms;
+            if (key >= 0 && !menu_open) {
+                held_middle_deferred = key == UI_KEY_2 && current->defer_middle_short;
+                bool specialized_keys = current->owns_keys && (!current->defer_middle_short ||
+                    (current == &app_book && app_book_reader_active()));
+                if (touch.count == 1 || specialized_keys) {
+                    app_redraw_t redraw = current->on_key && !held_middle_deferred
+                        ? current->on_key(&ctx, key) : APP_REDRAW_NONE;
+                    present_page(&ctx, current, &gesture, redraw);
+                    if (touch.count == 1 && (held_middle_deferred || (current->owns_keys && current->on_key_long))) {
+                        held_key = key;
+                        held_since_ms = ctx.now_ms;
+                    }
                 }
-            } else if (key == UI_KEY_2) {
-                if (menu_open) {
-                    feedback.updates = 0;
-                    ui_draw_menu_page(ctx.fb, current, menu_leaf);
-                    guard_draw_result(ctx.hl, update_display_full(ctx.hl));
-                } else if (current->present != NULL && current->present(&ctx, APP_REDRAW_FULL)) {
-                } else if (current->render != NULL) {
-                    current->render(&ctx, ctx.fb);
-                    guard_draw_result(ctx.hl, update_display_full(ctx.hl));
-                }
-            } else if ((key == UI_KEY_3 || handle_hit) && !usb_storage_active()) {
+            } else if (handle_hit && key < 0 && !usb_storage_active()) {
                 menu_open = !menu_open;
                 if (menu_open) {
                     menu_leaf = ui_menu_leaf_for_app(current);
                     present_menu(&ctx, current, menu_leaf, &feedback);
                 } else app_present(&ctx, current, APP_REDRAW_PAGE);
             } else if (key >= 0 && menu_open) {
-                int next = menu_leaf + (key == UI_KEY_1 ? -1 : 1);
-                if (next >= 0 && next < ui_menu_leaf_count()) {
-                    menu_leaf = next;
-                    present_menu(&ctx, current, menu_leaf, &feedback);
+                if (key == UI_KEY_2 && touch.count == 1) {
+                    held_middle_deferred = true;
+                    held_key = key;
+                    held_since_ms = ctx.now_ms;
+                } else if (key != UI_KEY_2) {
+                    int next = menu_leaf + (key == UI_KEY_1 ? -1 : 1);
+                    if (next >= 0 && next < ui_menu_leaf_count()) {
+                        menu_leaf = next;
+                        present_menu(&ctx, current, menu_leaf, &feedback);
+                    }
                 }
-            } else if (key >= 0) {
-                app_redraw_t redraw = current->on_key ? current->on_key(&ctx, key) : APP_REDRAW_NONE;
-                if (redraw == APP_REDRAW_NONE)
-                    ESP_LOGI(TAG, "KEY%d pressed, no action bound", key + 1);
-                present_page(&ctx, current, &gesture, redraw);
             } else if (menu_open) {
                 int hit = ui_menu_hit_test(touch.x, touch.y, menu_leaf);
                 if (hit == UI_MENU_HIT_PREV || hit == UI_MENU_HIT_NEXT) {
@@ -685,7 +689,6 @@ void app_loop_run(const app_loop_config_t* config) {
                     cancel_gesture(&ctx, current, &gesture);
                     if (menu_pressed >= 0) menu_feedback(&ctx, current, menu_leaf, menu_pressed, false, &feedback);
                     menu_pressed = UI_MENU_HIT_NONE;
-                    extern const app_desc_t app_book;
                     bool reader_power_lock = !menu_open && current == &app_book &&
                         app_book_reader_body_visible() && app_settings_reader_power_turn();
                     if (reader_power_lock) {
@@ -723,7 +726,6 @@ void app_loop_run(const app_loop_config_t* config) {
                         present_page(&ctx, current, &gesture, power_redraw);
                         ctx.consumed = true;
                     } else {
-                        extern const app_desc_t app_book;
                         app_lock_set_save_confirmed(prepare_lock_resume(&ctx,current));enter_lock_and_sleep(ctx.hl, &s_lock_ignore_until_ms, ctx.acc,
                                              !menu_open && current == &app_book && app_book_reader_body_visible());
                         ctx.now_ms = esp_timer_get_time() / 1000;
@@ -762,18 +764,27 @@ void app_loop_run(const app_loop_config_t* config) {
             }
         }
 
-        if (!power_dialog_open && released && held_key == UI_KEY_2 && ui_key_hit_test(latest.x, latest.y) == UI_KEY_2 &&
-            current->defer_middle_short && !menu_open &&
+        if (!power_input_owned && !power_dialog_open && released && held_key == UI_KEY_2 && ui_key_hit_test(latest.x, latest.y) == UI_KEY_2 &&
+            held_middle_deferred &&
             !ctx.request_app && !ctx.request_menu && !ctx.request_return) {
             int key = held_key;
             held_key = -1;
             ctx.consumed = true;
-            app_redraw_t redraw = ctx.now_ms - held_since_ms >= UI_LONG_PRESS_MS
-                ? current->on_key_long(&ctx, key) : current->on_key(&ctx, key);
+            app_redraw_t redraw = APP_REDRAW_NONE;
+            if (menu_open && ctx.now_ms >= held_since_ms) {
+                menu_open = false;
+                if (ctx.now_ms - held_since_ms >= UI_LONG_PRESS_MS)
+                    (void)dispatch_key_hold(&ctx,current,key,true);
+                redraw = APP_REDRAW_PAGE;
+            } else if (ctx.now_ms - held_since_ms >= UI_LONG_PRESS_MS) {
+                redraw = dispatch_key_hold(&ctx, current, key, true);
+            } else if (ctx.now_ms >= held_since_ms && current->on_key) {
+                redraw = current->on_key(&ctx, key);
+            }
             present_page(&ctx, current, &gesture, redraw);
         }
         if (!power_dialog_open && held_key >= 0) {
-            if (menu_open || ctx.request_app || ctx.request_menu || ctx.request_return || !touch.touched ||
+            if (ctx.request_app || ctx.request_menu || ctx.request_return || !touch.touched ||
                 touch.count != 1 || ui_key_hit_test(touch.x, touch.y) != held_key ||
                 ctx.now_ms < held_since_ms) {
                 held_key = -1;
@@ -781,12 +792,18 @@ void app_loop_run(const app_loop_config_t* config) {
                 int key = held_key;
                 held_key = -1;
                 ctx.consumed = true;
-                present_page(&ctx, current, &gesture, current->on_key_long(&ctx, key));
+                if (menu_open) {
+                    menu_open = false;
+                    (void)dispatch_key_hold(&ctx,current,key,true);
+                    app_present(&ctx, current, APP_REDRAW_PAGE);
+                } else present_page(&ctx, current, &gesture, dispatch_key_hold(&ctx,current,key,held_middle_deferred));
             }
         }
         if (!power_dialog_open && !menu_open && !ctx.request_app && !ctx.request_menu && !ctx.request_return && current->on_tick != NULL) {
             app_redraw_t redraw = current->on_tick(&ctx);
-            if (redraw == APP_REDRAW_PAGE || redraw == APP_REDRAW_FULL) held_key = -1;
+            if ((redraw == APP_REDRAW_PAGE || redraw == APP_REDRAW_FULL) &&
+                (!held_middle_deferred || (current == &app_book && app_book_reader_active())))
+                held_key = -1;
             present_page(&ctx, current, &gesture, redraw);
         }
         if (menu_open && feedback.updates > 0
@@ -859,7 +876,6 @@ void app_loop_run(const app_loop_config_t* config) {
                 held_key=-1;cancel_gesture(&ctx,current,&gesture);
                 if(menu_pressed>=0)menu_feedback(&ctx,current,menu_leaf,menu_pressed,false,&feedback);
                 menu_pressed=UI_MENU_HIT_NONE;
-                extern const app_desc_t app_book;
                 app_lock_set_save_confirmed(prepare_lock_resume(&ctx,current));enter_lock_and_sleep(ctx.hl,&s_lock_ignore_until_ms,ctx.acc,!menu_open&&current==&app_book&&app_book_reader_body_visible());
                 ctx.now_ms=esp_timer_get_time()/1000;last_activity_ms=last_idle_poll_ms=ctx.now_ms;
                 poll_media(&ctx,current,&media_mounted,&media_invalidated);last_media_poll_ms=ctx.now_ms;

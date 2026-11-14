@@ -68,6 +68,8 @@ bool app_font_activate_system(void) {
     return activate(system_path(fallback),true,NULL);
 }
 
+bool app_font_reading_active(void) { return s_reading; }
+
 bool app_font_activate_reading(void) {
     char fallback[TTF_FONT_PATH_MAX];
     return activate(reading_path(fallback),false,NULL);

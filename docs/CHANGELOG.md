@@ -4,9 +4,14 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
-## 0.2.2 / 2026-11-09
+## 0.2.3 beta 1 / 2026-11-14
 
-- 本版累计 0.2.2 Beta 1 至 Beta 3 的功能，并包含以下修订。/ Includes the accumulated features from 0.2.2 Beta 1 through Beta 3, plus the following fixes.
+- 系统列表用左右实体键翻页。中键短按退回上一层，长按直达首页。/ Side keys page through system lists. Tap the middle key to go back one level, or hold it to go Home.
+
+- 图书横屏支持三种版式、随持握方向自动转向及跟随实体键侧的翻页热区。阅读控制面板靠实体键显示，目录等子页在另一侧按页浏览。/ Landscape books have three reading layouts, automatic orientation and tap zones that follow the hardware keys. Reader controls stay beside the hardware keys, with paged subpanels on the opposite side.
+- 横屏签名和书名以中央短线分隔，普通全屏和沉浸全屏收紧底部留白，打开横屏控制面板时按需检测持握方向。/ Center the signature and title around a divider, reclaim bottom space in fullscreen and immersive reading, and check landscape orientation on opening the controls.
+
+- 横屏水波纹改用逐行扫描，含插图的翻页改用灰阶差分，减少整屏闪烁。/ Landscape ripple turns scan by line, and illustrated turns use grayscale differences to reduce full-screen flashing.
 
 - 书籍和 Markdown 的正文字号上限提高至 100 px。/ Raise the book and Markdown body size limit to 100 px.
 - 阅读字体列表直接显示 TF 卡上的字体。修复字体加载失败后可能反复重试并触发全刷的问题。/ List TF card faces directly in the reader. A font load failure no longer repeatedly requests a full refresh.

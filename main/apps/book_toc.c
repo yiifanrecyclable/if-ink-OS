@@ -12,7 +12,6 @@
 #include "book_source.h"
 #include "book_markdown.h"
 #include "ui_kit.h"
-#include "ui_nav.h"
 
 enum { TOC_LEFT = 36, TOC_RIGHT = 648, TOC_ROW_TOP = UI_PAGE_Y(252),
        TOC_ROW_STEP = 108, TOC_ROW_HEIGHT = 94 };
@@ -68,7 +67,6 @@ static void fit_line(char *text, int px, int width) {
 }
 
 int book_toc_hit(uint16_t x, uint16_t y, int page, size_t chapters) {
-    if (x < 100 && y >= 76 && y < 151) return BOOK_TOC_BACK;
     if (y >= 1018 && y < 1086) {
         if (x >= 36 && x < 136) return BOOK_TOC_SKIP_PREV;
         if (x >= 146 && x < 258) return BOOK_TOC_PREV;
@@ -121,23 +119,8 @@ static void toc_pill(uint8_t *fb, EpdRect rect, const char *text, int px, bool s
                   EPD_DRAW_ALIGN_CENTER, false);
 }
 
-void book_toc_render(uint8_t *fb, const char *book_title, size_t chapters,
-                     size_t current, int page, const char *message) {
+void book_toc_render(uint8_t *fb, size_t chapters, size_t current, int page, const char *message) {
     ui_clear_page(fb);
-    epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_LOCK_HEIGHT}, UI_GRAY_WHITE, fb);
-    ui_nav_status(fb);
-    ui_nav_back(fb, TOC_LEFT, UI_PAGE_Y(79));
-    ui_text_fixed(fb, 342, UI_PAGE_Y(93), ui_text_effective_px(UI_TEXT_TITLE), UI_MSG("目录"), EPD_DRAW_ALIGN_CENTER, false);
-
-    char title[160];
-    one_line(title, sizeof(title), book_title ? book_title : "");
-    if (!title[0]) strcpy(title, UI_MSG("当前书籍"));
-    ui_text_title_line(fb,(EpdRect){TOC_LEFT,UI_PAGE_Y(160),445,48},ui_text_effective_px(UI_TEXT_CAPTION),title,UI_GRAY_WHITE);
-    char total[48];
-    ui_snprintf(total, sizeof(total), UI_MSG("%u 节"), (unsigned)chapters);
-    ui_text_fixed(fb, TOC_RIGHT, UI_PAGE_Y(169), ui_text_effective_px(UI_TEXT_CAPTION), total, EPD_DRAW_ALIGN_RIGHT, false);
-    epd_fill_rect((EpdRect){TOC_LEFT, UI_PAGE_Y(213), TOC_RIGHT - TOC_LEFT, 2}, 0x68, fb);
-
     if (message && *message) {
         char info[160]; one_line(info, sizeof(info), message); fit_line(info, 23, 540);
         ui_text_fixed(fb, 342, 408, 23, info, EPD_DRAW_ALIGN_CENTER, false);

@@ -173,6 +173,11 @@ static app_redraw_t tick(app_ctx_t *ctx) {
         s_cloud_page = 0;
     return APP_REDRAW_PAGE;
 }
+static app_redraw_t cloud_back(app_ctx_t *ctx) {
+    cloud_cancel();
+    ui_nav_request(ctx,2);
+    return APP_REDRAW_NONE;
+}
 static app_redraw_t gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     cloud_status_t status;
     cloud_get_status(&status);
@@ -195,9 +200,7 @@ static app_redraw_t gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         return APP_REDRAW_NONE;
     }
     if (ev->y0 < UI_PAGE_Y(170) && ev->x0 < 160) {
-        cloud_cancel();
-        ui_nav_request(ctx, 2);
-        return APP_REDRAW_NONE;
+        return cloud_back(ctx);
     }
     if (status.busy) {
         if(ev->y0>=UI_PAGE_Y(985)&&ev->y0<UI_PAGE_Y(1063)&&!status.cancel_requested){cloud_cancel();return APP_REDRAW_PAGE;}
@@ -225,15 +228,13 @@ static app_redraw_t gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     return APP_REDRAW_NONE;
 }
 static app_redraw_t key(app_ctx_t *ctx, int key) {
-    cloud_status_t status;cloud_get_status(&status);
-    if(key!=UI_KEY_2&&!status.busy&&status.count>cloud_rows()){
-        int next=(int)s_cloud_page+(key==UI_KEY_1?-1:1);
-        if(next<0||(unsigned)next*cloud_rows()>=status.count)return APP_REDRAW_NONE;
-        s_cloud_page=(unsigned)next;return APP_REDRAW_PAGE;
-    }
-    cloud_cancel();
-    ui_nav_request(ctx, key == UI_KEY_2 ? 0 : 2);
-    return APP_REDRAW_NONE;
+    if (key == UI_KEY_2) return cloud_back(ctx);
+    cloud_status_t status;
+    cloud_get_status(&status);
+    int next = (int)s_cloud_page + (key == UI_KEY_1 ? -1 : 1);
+    if (status.busy || next < 0 || (unsigned)next * cloud_rows() >= status.count) return APP_REDRAW_NONE;
+    s_cloud_page = (unsigned)next;
+    return APP_REDRAW_PAGE;
 }
 static bool no_menu(app_ctx_t *ctx) {
     (void)ctx;
@@ -253,4 +254,4 @@ const app_desc_t app_cloud = {.title = UI_MSG("坚果云"),
                               .present = present,
                               .on_tick = tick,
                               .on_gesture = gesture,
-                              .on_key = key};
+                              .on_key = key, .defer_middle_short = true};

@@ -9,8 +9,11 @@ Settings → Display → System text: circular S/M/L/XL controls below the cente
 | 正文、列表名 / Body and list title | 28px | 34px | 39px | 45px |
 | 注释、日期及阅读进度 / Caption, date and progress | 22px | 26px | 31px | 35px |
 
-列表根据当前字体的实际字形高度与字号计算行高、每页数量、分页及点击区域。文档、文件、云端目录、管理列表、设置与字体列表使用同一测量方法；标题按字宽在 UTF-8 边界折行或截断，不为挤进旧行高而缩小标题。首页最近阅读右列用满标题旁的高度，按实际字形行高显示最多六行，左右标题均单行静默截断；图书分页在 S/M 显示 3×3 封面，L/XL 显示 2×2，封面下标题最多两行且首行位置固定。
-Measure actual glyph heights to derive list rows, page sizes, pagination and hit regions. Documents, files, cloud entries, management and settings/font lists share these metrics. Wrap or trim long titles at UTF-8 boundaries without squeezing them into old row heights. Recent home documents reserve three rows at XL and four otherwise; silently truncate home titles to one line. The bookshelf uses a 3×3 grid at S/M and 2×2 at L/XL, with at most two title lines and a fixed first-line anchor.
+系统列表按当前字号和内建字体的字形指标计算行高、每页数量和触控区。同一字号切换字体时，列表布局保持一致。系统和阅读字体按常见汉字的实际高度校准，缺少样本汉字时使用拉丁大写字。字体保留原本的字宽比例，阅读换行与分页会随实际字宽变化。阅读行距仍由阅读字号和行距设置决定。
+System lists derive row height, page capacity and touch targets from the selected size and builtin glyph metrics. These stay consistent across font changes at the same preset. System and reading faces are optically sized using common Han glyphs, with Latin capitals as a fallback. Natural glyph proportions can still change wrapping and page breaks. The reader's size and line-spacing preferences determine its line height.
+
+标题按字宽在 UTF-8 边界折行或截断。首页最近阅读右列最多显示六行，左右标题均单行截断。图书分页在 S/M 显示 3×3 封面，L/XL 显示 2×2，封面下标题最多两行且首行位置固定。
+Titles wrap or trim at UTF-8 boundaries. Home displays up to six recent documents and keeps the titles on both sides to one line. The bookshelf uses a 3×3 grid at S/M and 2×2 at L/XL, with at most two title lines and a fixed first-line anchor.
 
 顶部时间及电量区使用统一固定 28px 字号；首页日期与格言 Banner、内容切换胶囊、底部导航图标保持独立尺寸。首页阅读记录模块坐标固定，月份及星期英文保持标准 34px，七列方块阵列居中。键盘位置与按键格固定，文字在按键可用空间中适配；密集按钮同样按可用空间收敛。阅读正文、目录与阅读工具仍使用独立阅读设置。
 All status text uses fixed 28px type. The home date/quote banner, content capsule and navigation icons retain independent metrics. Calendar geometry stays fixed with 34px month/weekday labels and a centered seven-column array. Keyboard position and key cells stay fixed while labels fit available bounds, as do dense controls. Reading content, TOC and tools retain their independent reading settings.

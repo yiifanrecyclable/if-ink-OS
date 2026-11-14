@@ -16,7 +16,13 @@ static void simulator_reader_present(app_ctx_t *ctx,app_redraw_t redraw){
             ui_gesture_event_t cancel={.type=UI_GESTURE_CANCEL,.x0=s_sim_reader_gesture.x0,.y0=s_sim_reader_gesture.y0,.x=s_sim_reader_gesture.x,.y=s_sim_reader_gesture.y};
             gesture_event(ctx,&cancel);
         }
-        ui_gesture_reset(&s_sim_reader_gesture);render(ctx,ctx->fb);s_presented_view=s_view;
+        ui_gesture_reset(&s_sim_reader_gesture);
+        if(s_water_turn_pending&&reader_landscape()){
+            present(ctx,redraw);
+        }else{
+            render(ctx,ctx->fb);
+            s_presented_view=s_view;
+        }
     }
 }
 static void simulator_settle_documents(app_ctx_t *ctx){
@@ -100,6 +106,8 @@ int simulator_reader_layout(void){return s_reader_fullscreen?(s_reader_immersive
 int simulator_reader_tap_layout(void){return reader_input_tap_layout();}
 int simulator_markdown_slider_y(unsigned index){EpdRect r=reader_markdown_row((int)index);return r.y+(index?98:54)+26;}
 unsigned simulator_reader_perf(unsigned i){return i==0?s_sim_event_draws:i==1?s_sim_event_loads:i==2?s_sim_area_updates:s_sim_area_violations;}
+unsigned simulator_reader_water_turns(void){return s_sim_water_turns;}
+int simulator_reader_detail_page(void){return s_control_page;}
 int simulator_toc_percent(void){return s_toc_jump_percent;}
 bool simulator_toc_drag(void){return s_toc_jump_drag;}
 // 宿主每帧完成有限个空闲封面任务；硬件仍一次只处理一张。
@@ -114,6 +122,7 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  if(panel==6||panel==8)panel=READER_PANEL_TOOLS;
  if(panel==10)panel=READER_PANEL_SHORTCUTS;
  shelf_perf_init();
+ s_reader_landscape_reverse = getenv("PICO_SIM_READER_REVERSE") != NULL;
  app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);scan_shelf(&ctx);s_scan_pending=false;
  if(view==DOCUMENTS||view==DOCUMENT_BULK)ensure_documents();
  // -1只表示阅读续读；列表页必须从非负页码开始。/ -1 requests reader resume; list pages must start at a nonnegative index.
@@ -148,9 +157,9 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  simulator_settle_covers(&ctx);render(&ctx,fb);
  if(s_view==READING&&s_reader_panel==READER_PANEL_FONT_PICKER&&!getenv("PICO_SIM_DEFER_FONT_NAMES")){
      ctx.consumed=ctx.pressed=ctx.released=false;
-     for(int i=0;i<=reader_control_rows()+1&&!s_reader_names_settled;++i){
+     for(int i=0;i<=(reader_landscape()?wide_detail_rows():reader_control_rows())+1&&!s_reader_names_settled;++i){
          ctx.now_ms+=400;
-         (void)reader_font_preview_tick(&ctx);
+         simulator_reader_present(&ctx,reader_landscape()?wide_font_preview_tick(&ctx):reader_font_preview_tick(&ctx));
      }
  }
  shelf_perf_finish();

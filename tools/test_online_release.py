@@ -36,6 +36,6 @@ for version in ('0.1.8-beta.1','0.1.8-beta.10','0.1.8-beta','0.1.8-beta3-r2'):
     feed=m.prepare(data,release,'123','beta');assert feed['channel']=='beta' and feed['version']==version
     reject(data,release)
     release['prerelease']=False;reject_beta(data,release)
-for version in ('0.1.8','0.1.8-test.2','0.1.8-beta.0','0.1.8-beta.01','0.1.8-beta.100000','0.1.8-beta.1junk'):
+for version in ('0.2.3-beta3t','0.1.8','0.1.8-test.2','0.1.8-beta.0','0.1.8-beta.01','0.1.8-beta.100000','0.1.8-beta.1junk'):
     data=image(version);reject_beta(data,release_for(data,version))
 print('PASS: stable release gate, raw application identity, chip/ESP checksum/SHA256, tag/asset/digest mismatch and prerelease rejection')

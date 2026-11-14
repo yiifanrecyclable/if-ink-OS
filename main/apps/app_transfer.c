@@ -541,10 +541,16 @@ static app_redraw_t provisioning_action(int id) {
     }
     return APP_REDRAW_NONE;
 }
+static app_redraw_t cancel_password(void) {
+    clear_password();
+    s_network_message[0]=0;
+    s_view=TRANSFER_NETWORKS;
+    return APP_REDRAW_PAGE;
+}
 static app_redraw_t password_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev){
     ui_input_result_t result=ui_text_input_gesture(&s_password_input,ev);
     if(result==UI_INPUT_NONE)return APP_REDRAW_NONE;
-    if(result==UI_INPUT_CANCEL){clear_password();s_network_message[0]=0;s_view=TRANSFER_NETWORKS;return APP_REDRAW_PAGE;}
+    if(result==UI_INPUT_CANCEL)return cancel_password();
     if(result==UI_INPUT_DONE){
         size_t len=strlen(s_password);
         if(s_selected.requires_password&&len<8)ui_snprintf(s_network_message,sizeof(s_network_message),UI_MSG("加密网络密码至少 8 个字符"));
@@ -1015,6 +1021,25 @@ static app_redraw_t method_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev)
     return APP_REDRAW_AREA;
 }
 
+static app_redraw_t transfer_back(app_ctx_t *ctx) {
+    if (s_usb_entry || usb_storage_active()) return stop_usb_for_navigation(ctx, false);
+    if (s_view == TRANSFER_PASSWORD) return cancel_password();
+    if (s_view == TRANSFER_NETWORKS) {
+        if (s_forget_confirm) return provisioning_action(12);
+        if (s_wifi_settings_only) { ui_nav_request(ctx,3); return APP_REDRAW_NONE; }
+        if (s_direct_entry) { ctx->request_return = true; return APP_REDRAW_NONE; }
+        s_view = TRANSFER_METHODS; return APP_REDRAW_PAGE;
+    }
+    if (s_view == TRANSFER_HOME) {
+        if (!stop_upload_if_idle()) return APP_REDRAW_NONE;
+        if (s_direct_entry) { ctx->request_return = true; return APP_REDRAW_NONE; }
+        s_view = TRANSFER_METHODS;
+        return APP_REDRAW_PAGE;
+    }
+    ctx->request_return = true;
+    return APP_REDRAW_NONE;
+}
+
 static app_redraw_t on_gesture(app_ctx_t* ctx, const ui_gesture_event_t* ev) {
     if (s_status.state == READ_PICO_TRANSFER_UPLOADING) return APP_REDRAW_NONE;
     if(s_view==TRANSFER_PASSWORD)return password_gesture(ctx,ev);
@@ -1030,21 +1055,7 @@ static app_redraw_t on_gesture(app_ctx_t* ctx, const ui_gesture_event_t* ev) {
     if (ev->type == UI_GESTURE_TAP && (s_wifi_settings_only ?
         ui_rect_hit(ui_nav_close_rect(),ev->x0,ev->y0)&&ui_rect_hit(ui_nav_close_rect(),ev->x,ev->y) :
         ev->y0 < UI_PAGE_Y(160) && ev->x0 < 120)) {
-        if (s_usb_entry || usb_storage_active()) return stop_usb_for_navigation(ctx, false);
-        if (s_view == TRANSFER_PASSWORD) { clear_password(); s_view = TRANSFER_NETWORKS; return APP_REDRAW_PAGE; }
-        if (s_view == TRANSFER_NETWORKS) {
-            if (s_wifi_settings_only) { ui_nav_request(ctx,3); return APP_REDRAW_NONE; }
-            if (s_direct_entry) { ctx->request_return = true; return APP_REDRAW_NONE; }
-            s_view = TRANSFER_METHODS; return APP_REDRAW_PAGE;
-        }
-        if (s_view == TRANSFER_HOME) {
-            if (!stop_upload_if_idle()) return APP_REDRAW_NONE;
-            if (s_direct_entry) { ctx->request_return = true; return APP_REDRAW_NONE; }
-            s_view = TRANSFER_METHODS;
-            return APP_REDRAW_PAGE;
-        }
-        ctx->request_return = true;
-        return APP_REDRAW_NONE;
+        return transfer_back(ctx);
     }
     if (s_view == TRANSFER_METHODS) return method_gesture(ctx, ev);
     if (s_view != TRANSFER_HOME) return provisioning_gesture(ctx, ev);
@@ -1084,25 +1095,21 @@ static app_redraw_t on_gesture(app_ctx_t* ctx, const ui_gesture_event_t* ev) {
 }
 
 static app_redraw_t on_key(app_ctx_t *ctx, int key) {
-    if (s_usb_entry || usb_storage_active()) return stop_usb_for_navigation(ctx, key == UI_KEY_2);
-    if(s_view==TRANSFER_NETWORKS&&key!=UI_KEY_2&&!s_scan_pending&&s_network_count>NETWORK_ROWS){
+    if (s_status.state == READ_PICO_TRANSFER_UPLOADING) return APP_REDRAW_NONE;
+    if (key == UI_KEY_2) return transfer_back(ctx);
+    if(s_view==TRANSFER_NETWORKS&&!s_scan_pending&&!s_forget_confirm&&!usb_storage_active()){
         int next=(int)s_network_page+(key==UI_KEY_1?-1:1);
         if(next<0||(size_t)next*NETWORK_ROWS>=s_network_count)return APP_REDRAW_NONE;
         s_network_page=(size_t)next;return APP_REDRAW_PAGE;
     }
-    if (s_view == TRANSFER_HOME && !stop_upload_if_idle()) return APP_REDRAW_NONE;
-    if (key == UI_KEY_2) { ui_nav_request(ctx, 0); return APP_REDRAW_NONE; }
-    if (s_view == TRANSFER_PASSWORD) { clear_password(); s_view = TRANSFER_NETWORKS; return APP_REDRAW_PAGE; }
-    if (s_view == TRANSFER_NETWORKS) {
-        if (s_wifi_settings_only) { ui_nav_request(ctx,3); return APP_REDRAW_NONE; }
-        if (s_direct_entry) { ctx->request_return = true; return APP_REDRAW_NONE; }
-        s_view = TRANSFER_METHODS; return APP_REDRAW_PAGE;
-    }
-    if (s_view == TRANSFER_HOME) {
-        if (s_direct_entry) { ctx->request_return = true; return APP_REDRAW_NONE; }
-        s_view = TRANSFER_METHODS; return APP_REDRAW_PAGE;
-    }
-    ctx->request_return = true;
+    return APP_REDRAW_NONE;
+}
+static app_redraw_t on_key_long(app_ctx_t *ctx, int key) {
+    if (key != UI_KEY_2) return APP_REDRAW_NONE;
+    if (s_usb_entry || usb_storage_active()) return stop_usb_for_navigation(ctx,true);
+    if (s_status.state == READ_PICO_TRANSFER_UPLOADING ||
+        (s_view == TRANSFER_HOME && !stop_upload_if_idle())) return APP_REDRAW_NONE;
+    ui_nav_request(ctx,0);
     return APP_REDRAW_NONE;
 }
 
@@ -1128,7 +1135,7 @@ const app_desc_t app_transfer = {
     .on_media_lost = transfer_on_media_lost,
     .title = UI_MSG("传书 Transfer"), .detail = UI_MSG("热点或已有 WiFi，浏览器上传"), .enter_full = false,
     .on_enter = on_enter, .on_exit = transfer_on_exit, .render = render, .present = present,
-    .on_tick = on_tick, .on_gesture = on_gesture, .on_key = on_key, .owns_keys = true,
+    .on_tick = on_tick, .on_gesture = on_gesture, .on_key = on_key, .on_key_long = on_key_long, .defer_middle_short = true, .owns_keys = true,
     .menu_handle_enabled = transfer_menu_handle_enabled,
     .prevent_idle_sleep = prevent_idle_sleep,
 };

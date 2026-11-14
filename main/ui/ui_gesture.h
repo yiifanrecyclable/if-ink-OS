@@ -40,6 +40,11 @@ typedef struct {
     bool long_fired; ///< 已发出长按 / Long press emitted
 } ui_gesture_t;
 
+/// Send an existing on-screen action through the same tap handler.
+static inline ui_gesture_event_t ui_tap_at(uint16_t x, uint16_t y) {
+    return (ui_gesture_event_t){.type=UI_GESTURE_TAP,.x0=x,.y0=y,.x=x,.y=y};
+}
+
 /// 清除状态；进出页面时调用。/ Clear state when entering or leaving a page.
 void ui_gesture_reset(ui_gesture_t *gesture);
 /// 每次最多一个事件；consumed、多点或缺失快照取消活动序列。

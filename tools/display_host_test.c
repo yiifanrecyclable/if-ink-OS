@@ -25,9 +25,10 @@ static int water_calls;
 static int release_calls,release_failures,poweroffs;
 
 enum EpdDrawError e0470_page_turn(EpdiyHighlevelState* hl, EpdRect area, e0470_turn_dir_t dir) {
-    assert(hl && area.width > 0 && dir == E0470_TURN_RTL);
+    assert(hl && area.width > 0);
     ++water_calls;
-    assert(last_scan == READ_PICO_EPD_SCAN_FAST);
+    if (dir == E0470_TURN_RTL) assert(last_scan == READ_PICO_EPD_SCAN_FAST && prefill == 64);
+    else assert(dir == E0470_TURN_TTB && last_scan == READ_PICO_EPD_SCAN_FULL && prefill == 127);
     return water_result;
 }
 
@@ -198,13 +199,39 @@ int main(void) {
     memset(back, 0x55, FB_BYTES);
     water_calls = draws = clears = 0;
     water_result = EPD_DRAW_NO_PHASES_AVAILABLE;
-    assert(update_display_water_turn(&hl, (EpdRect){0, 0, 16, 16}, E0470_TURN_RTL) == EPD_DRAW_SUCCESS);
+    const EpdRect turn = {0, 0, 16, 16};
+    assert(update_display_water_turn(&hl, turn, E0470_TURN_RTL, false) == EPD_DRAW_SUCCESS);
     assert(water_calls == 1 && draws == 1 && !clears && last_mode == MODE_GL16);
     memset(back, 0x55, FB_BYTES);
     water_result = EPD_DRAW_OTHER_ERROR;
-    assert(update_display_water_turn(&hl, (EpdRect){0, 0, 16, 16}, E0470_TURN_RTL) == EPD_DRAW_SUCCESS);
+    assert(update_display_water_turn(&hl, turn, E0470_TURN_RTL, false) == EPD_DRAW_SUCCESS);
     assert(water_calls == 2 && clears == 1 && white_baseline && correct_target_at_draw);
     assert(last_mode == MODE_GC16 && !memcmp(back, target, FB_BYTES));
+
+    water_calls = draws = full_draws = clears = 0;
+    water_result = EPD_DRAW_NO_PHASES_AVAILABLE;
+    assert(update_display_water_turn(&hl, turn, E0470_TURN_TTB, true) == EPD_DRAW_SUCCESS);
+    assert(water_calls == 1 && draws == 1 && !full_draws && !clears && last_mode == MODE_GL16);
+    water_result = EPD_DRAW_SUCCESS;
+    assert(update_display_water_turn(&hl, turn, E0470_TURN_TTB, true) == EPD_DRAW_SUCCESS);
+    assert(water_calls == 2 && draws == 1 && !clears);
+    water_result = EPD_DRAW_EMPTY_LINE_QUEUE;
+    assert(update_display_water_turn(&hl, turn, E0470_TURN_TTB, true) == EPD_DRAW_SUCCESS);
+    assert(water_calls == 3 && clears == 1 && white_baseline && correct_target_at_draw);
+    for (unsigned i = 0; i < 8; ++i)
+        assert(update_display_water_turn(&hl, turn, E0470_TURN_TTB, true) == EPD_DRAW_SUCCESS);
+    assert(water_calls == 3 && clears == 1 && draws == 10 && full_draws == 1 && last_mode == MODE_GL16);
+    water_result = EPD_DRAW_SUCCESS;
+    assert(update_display_water_turn(&hl, turn, E0470_TURN_RTL, false) == EPD_DRAW_SUCCESS);
+    assert(water_calls == 4 && clears == 1);
+
+    draws = full_draws = clears = 0;
+    memset(back, 0x55, FB_BYTES);
+    assert(update_display_with(&hl, &E0470_FULL_WAVEFORM, MODE_GC16) == EPD_DRAW_SUCCESS);
+    assert(draws == 1 && !full_draws && !clears && !white_baseline);
+    assert(waveform_at_draw == &E0470_FULL_WAVEFORM && correct_target_at_draw);
+    assert(update_display_full(&hl) == EPD_DRAW_SUCCESS);
+    assert(draws == 2 && full_draws == 1 && !clears && last_mode == MODE_GC16);
     // 全区域包含导航；缺资源回退灰阶，中途失败重建完整目标。/ Include navigation; missing resources fall back and interrupted scans recover the target.
     for(int failure=0;failure<3;++failure){
         update_display_full(&hl);region_calls=0;clears=draws=0;

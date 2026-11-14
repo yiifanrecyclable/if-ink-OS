@@ -221,11 +221,20 @@ static app_redraw_t image_return(app_ctx_t *ctx){
     if(s_direct){app_files_request_image_return();ctx->request_return=true;return APP_REDRAW_NONE;}
     return APP_REDRAW_PAGE;
 }
-static app_redraw_t on_key(app_ctx_t *ctx, int key) {
-    if (key == UI_KEY_2) { ctx->request_app = app_home_page(); return APP_REDRAW_NONE; }
-    if(s_direct||s_viewing)return image_return(ctx);
+static app_redraw_t image_back(app_ctx_t *ctx) {
+    if (s_direct || s_viewing) return image_return(ctx);
     ctx->request_return = true;
     return APP_REDRAW_NONE;
+}
+static app_redraw_t on_key(app_ctx_t *ctx, int key) {
+    if (key == UI_KEY_2) return image_back(ctx);
+    if (s_direct) return APP_REDRAW_NONE;
+    int direction = key == UI_KEY_1 ? -1 : 1;
+    if (s_viewing) return move_image(direction);
+    int next = s_page + direction;
+    if (next < 0 || next * IMAGE_ROWS >= s_count) return APP_REDRAW_NONE;
+    s_page = next;
+    return APP_REDRAW_PAGE;
 }
 static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *event) {
     if(s_direct&&event->type==UI_GESTURE_TAP)return image_return(ctx);
@@ -244,7 +253,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *event) 
         return APP_REDRAW_PAGE;
     }
     if (event->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
-    if (event->y0 < UI_PAGE_Y(160) && event->x0 < 120) { ctx->request_return = true; return APP_REDRAW_NONE; }
+    if (event->y0 < UI_PAGE_Y(160) && event->x0 < 120) return image_back(ctx);
     int tab = ui_nav_hit(event->x0, event->y0);
     if (tab >= 0) { ui_nav_request(ctx, tab); return APP_REDRAW_NONE; }
     for (int row = 0; row < IMAGE_ROWS; ++row) {
@@ -262,6 +271,6 @@ const app_desc_t app_image = {
     .title = UI_MSG("图片对比 Images"), .detail = UI_MSG("灰阶测试图 / TF 卡 JPG PNG"), .enter_full = false,
     .owns_keys = true, .menu_handle_enabled = menu_handle_enabled,
     .on_enter = on_enter, .on_exit = image_on_exit, .on_media_lost = on_media_lost,
-    .render = render, .present = present, .on_key = on_key,
+    .render = render, .present = present, .on_key = on_key, .defer_middle_short = true,
     .on_gesture = on_gesture,
 };

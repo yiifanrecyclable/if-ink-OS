@@ -19,6 +19,11 @@ int main(void){
  assert(!strcmp(ui_message(UI_MSG("系统语言")),"System language"));
  assert(!strcmp(ui_message(UI_MSG("阅读打卡")),"Record"));
  assert(!strcmp(ui_message(UI_MSG("目标设定")),"Target"));
+ assert(!strcmp(ui_message(UI_MSG("书籍\n名称")),"Title"));
+ assert(!strcmp(ui_message(UI_MSG("文档\n名称")),"Title"));
+ assert(!strcmp(ui_message(UI_MSG("阅读\n进度")),"Progress"));
+ assert(!strcmp(ui_message(UI_MSG("加入\n日期")),"Add Date"));
+ assert(!strcmp(ui_message(UI_MSG("最近\n阅读")),"Recent"));
  const char *user="保存";assert(ui_message(user)==user);
  assert(ui_snprintf(out,sizeof(out),"%s",user)==6&&!strcmp(out,user));
  assert(ui_snprintf(out,sizeof(out),UI_MSG("阅读进度 %u%%"),37)==12&&!strcmp(out,"Progress 37%"));

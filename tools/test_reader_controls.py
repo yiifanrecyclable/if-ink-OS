@@ -15,6 +15,7 @@ with tempfile.TemporaryDirectory(prefix='reader-controls-',dir=ROOT/'build') as 
     base=Path(folder)
     (base/'build/simulator/vfs/flash/books').mkdir(parents=True)
     (base/'build/simulator/nvs').mkdir(parents=True)
+    (base/'card').mkdir()
     (base/'build/simulator/vfs/flash/books/controls.txt').write_text('阅读测试。字体变化后继续这一段，避免阅读位置跳动。\n'*1800)
     (base/'titles.txt').write_text('')
     env={**os.environ,'PICO_SIM_CARD_ROOT':str(base/'card')}
@@ -67,7 +68,8 @@ with tempfile.TemporaryDirectory(prefix='reader-controls-',dir=ROOT/'build') as 
     short=f'b,240,{sy},240,{sy};v,300,{sy},300,{sy};e,300,{sy},300,{sy}'
     state=frame(short,panel=3)
     assert state['reader_margin']<before_short and state['reader_margin']==int.from_bytes(margin_file.read_bytes(),'little')
-    state=frame(tap(625,sy+2*rowh),panel=3)
+    layout_rowh=frame(panel=3)['reader_controls_geometry'][1]
+    state=frame(tap(625,220+3*layout_rowh-40),panel=3)
     assert (base/'build/simulator/nvs/read_pico/bk_para').read_bytes()==bytes([51])
     # 恢复基线边距，后续定位断言使用相同布局。/ Restore baseline layout for later anchor checks.
     frame(tap(100,sy),panel=3)
@@ -155,15 +157,18 @@ with tempfile.TemporaryDirectory(prefix='reader-controls-',dir=ROOT/'build') as 
     for top,bottom in ((80,160),(1110,1216)):
         grays=[(pixels[y*342+x//2]>>(4*(x%2)))&15 for y in range(top,bottom,2) for x in range(0,684,2)]
         assert sum(gray==15 for gray in grays)/len(grays)>(.85 if top==80 else .65),(top,bottom)
-    # 底部保留淡色原文和分割线，按键提示作为白描边浮层。/ Prose and zone dividers continue behind the physical-key legend.
-    bottom_gray=[(pixels[y*342+x//2]>>(4*(x%2)))&15 for y in range(1080,1179) for x in range(36,648)]
-    assert sum(11<=gray<15 for gray in bottom_gray)>300
+    def tone(x,y):
+        return (pixels[y*342+x//2]>>(4*(x%2)))&15
+    assert any(11<=tone(x,y)<15 for y in range(1000,1080) for x in range(36,648))
     for x in (228,456):
-        assert ((pixels[1160*342+x//2]>>(4*(x%2)))&15)==0
-        assert ((pixels[1200*342+x//2]>>(4*(x%2)))&15)==15
-    # 引导的画面点击只作说明，不翻页；顶部关闭及不再显示有效。/ Guide regions explain rather than turn; header controls work.
-    state=frame(tap(550,500)+';'+tap(100,123)+';'+tap(610,123),panel=14)
+        assert tone(x,1080)==0 and tone(x,1200)==15
+    assert all(tone(x,1112)==5 for x in range(684))
+    assert all(tone(x,y)==15 for x in range(560,684) for y in range(1113,1216))
+    # The guide never turns the page. Its footer can opt out and close.
+    state=frame(tap(550,500)+';'+tap(115,1138)+';'+tap(56,1138),panel=14)
     assert state['reader_panel']==0 and state['reader_page']==1
     prefs=(base/'build/simulator/nvs/rp_input/preferences').read_bytes()
     assert len(prefs)==14 and prefs[-1]==1
+    state=frame(tap(300,220+2*rowh+rowh//2)+';'+tap(56,1138),panel=9)
+    assert state['reader_panel']==9 and state['reader_page']==1
 print('reader controls: fixed taps, unique native binding, 8px margin, bookmark toggle/list, drag/cancel/seek/return, panel actions and guide passed')

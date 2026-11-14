@@ -69,6 +69,15 @@ void ttf_draw_text_px_fitted(uint8_t* fb, int x, int y, int px, const char* text
 }
 int ttf_text_width_styled_px(int px,const char *text,unsigned flags){return ttf_text_width_px(px,text)+(flags&1?1:0)+(flags&2?px/5:0);}
 static unsigned rendered_styles;
+int ttf_vertical_advance_px(int px, uint32_t cp) {
+    return cp < 128 ? px / 2 : px;
+}
+void ttf_draw_vertical_px(uint8_t *fb, int x, int y, int height, int px, const char *text, int tracking) {
+    (void)fb; (void)y; (void)height; (void)px; (void)tracking;
+    if (!drawn[0]) first_draw_x = x;
+    last_draw_x = x;
+    strcat(drawn, text);
+}
 void ttf_draw_glyph_styled_px(uint8_t *fb,int x,int y,int px,const char *text,unsigned flags,uint8_t fg,uint8_t bg){
     rendered_styles|=flags;ttf_draw_text_px(fb,x,y,px,text,EPD_DRAW_ALIGN_LEFT,fg,bg);
 }
@@ -481,6 +490,75 @@ int main(void) {
     assert(book_layout_build("one\ntwo\nthree",13,r,20));assert_slice_text(&fb,0,r,20);
     book_layout_cursor_t stale={0};assert(book_layout_draw_slice(&fb,0,r,20,&stale)==0);
     assert(book_layout_build("other",5,r,20));assert(book_layout_draw_slice(&fb,0,r,20,&stale)==-1);
+    book_layout_free();
+    book_layout_set_vertical(true);
+    book_layout_set_spacing(110, 0);
+    r = (EpdRect){0,0,45,40};
+    const char *vertical = "甲乙丙丁戊己庚辛壬癸ABC123";
+    assert(book_layout_build(vertical, strlen(vertical), r, 10));
+    drawn[0] = 0;
+    book_layout_draw_page(&fb, 0, r, 10);
+    assert(first_draw_x > last_draw_x && !strcmp(drawn, vertical));
+    book_layout_cursor_t vertical_cursor = {0};
+    drawn[0] = 0;
+    assert(book_layout_draw_slice(&fb, 0, r, 10, &vertical_cursor) == 0);
+    assert(vertical_cursor.offset == strlen("甲乙丙丁"));
+    r.width = 22;
+    assert(book_layout_build(vertical, strlen(vertical), r, 10));
+    assert(book_layout_page_count() == 2);
+    assert(book_layout_page_for_offset(strlen("甲乙丙丁戊己庚辛")) == 1);
+    assert(book_layout_draw_slice(&fb, 0, r, 10, &vertical_cursor) == -1);
+    drawn[0] = 0;
+    for (size_t page = 0; page < book_layout_page_count(); ++page)
+        book_layout_draw_page(&fb, page, r, 10);
+    assert(!strcmp(drawn, vertical));
+
+    const char *vertical_illustrated = "甲乙\n\xef\xbf\xbc\n丙丁";
+    const blk_t illustrations[] = {
+        {.offset=0,.len=6,.image=-1}, {.offset=7,.len=3,.image=0},
+        {.offset=11,.len=6,.image=-1}
+    };
+    book_layout_set_images_visible(true);
+    assert(book_layout_build_blocks(vertical_illustrated, strlen(vertical_illustrated), illustrations, 3, r, 10));
+    assert(book_layout_page_count() == 3 && book_layout_page_image(1) == 0);
+    assert(book_layout_page_for_offset(7) == 1 && book_layout_page_for_offset(11) == 2);
+    book_layout_set_images_visible(false);
+    assert(book_layout_build_blocks(vertical_illustrated, strlen(vertical_illustrated), illustrations, 3, r, 10));
+    assert(book_layout_page_count() == 1 && book_layout_page_image(0) < 0);
+    drawn[0] = 0;
+    book_layout_draw_page(&fb, 0, r, 10);
+    assert(!strcmp(drawn, "甲乙丙丁"));
+    book_layout_set_images_visible(true);
+    book_layout_set_vertical(false);
+    book_layout_free();
+    book_layout_set_two_columns(true);
+    book_layout_set_spacing(110, 0);
+    r = (EpdRect){0,0,116,22};
+    const char *two_columns = "甲乙丙丁戊己庚辛壬癸子丑寅卯辰巳午未申酉戌亥";
+    assert(book_layout_build(two_columns, strlen(two_columns), r, 10));
+    assert(book_layout_page_count() == 2);
+    assert(book_layout_page_start_offset(1) == 16 * 3);
+    assert(book_layout_page_for_offset(12 * 3) == 0);
+    book_layout_cursor_t spread = {0};
+    drawn[0] = 0;
+    while (book_layout_draw_slice(&fb, 0, r, 10, &spread) == 0) {}
+    assert(spread.column == 1 && first_draw_x < last_draw_x);
+    book_layout_draw_page(&fb, 1, r, 10);
+    assert(!strcmp(drawn, two_columns));
+
+    assert(book_layout_build_blocks(vertical_illustrated, strlen(vertical_illustrated),
+                                    illustrations, 3, r, 10));
+    assert(book_layout_page_count() == 3 && book_layout_page_image(1) == 0);
+    assert(book_layout_page_for_offset(11) == 2);
+
+    book_layout_set_vertical(true);
+    r.height = 40;
+    assert(book_layout_build(two_columns, strlen(two_columns), r, 10));
+    drawn[0] = 0;
+    book_layout_draw_page(&fb, 0, r, 10);
+    assert(first_draw_x > last_draw_x && !strcmp(drawn, two_columns));
+    book_layout_set_two_columns(false);
+    book_layout_set_vertical(false);
     book_layout_free();
     puts("book_layout_host_test: PASS");
 }

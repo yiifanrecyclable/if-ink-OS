@@ -17,6 +17,8 @@ void app_files_request_folder(int folder);
 void app_files_request_image_return(void);
 void app_book_request_manage(void);
 bool app_book_reader_body_visible(void);
+bool app_book_reader_active(void);
+bool app_book_landscape_visible(void);
 /// 首页长按请求统一格言编辑；返回首页并独立于状态栏签名。/ Home requests quote editing, separate from the status signature.
 void app_device_settings_request_home_quote(void);
 bool app_device_settings_home_quote_requested(void);

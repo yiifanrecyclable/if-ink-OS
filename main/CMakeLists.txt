@@ -17,7 +17,6 @@ set(main_requires
     espressif__libpng
     espressif__zlib
     espressif__esp_tinyusb
-    continuous_du
     e0470_epaper_waveform
     e0470_page_turn
     read_pico_pmu
@@ -65,7 +64,6 @@ idf_component_register(
         "ui/ui_nav.c"
         "ui/ui_lunar.c"
         "ui/ui_banner.c"
-        "ui/ui_nav_icons.c"
         "ui/ui_image_dither.c"
         "ui/ui_wallpaper.c"
         "ui/ui_wallpaper_rotation.c"

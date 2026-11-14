@@ -6,7 +6,6 @@
  * English: Draw and hit-test compact four-tab navigation with Lucide home, contents, applications and settings icons.
  */
 #include "ui_nav.h"
-#include "ui_nav_icons.h"
 // Modified 2026-10-06: compact icon-only Lucide tabs and full local date/time in the status bar.
 // 中文：状态栏左侧统一显示完整本地日期与时间，签名按可用宽度避让。
 // 中文：选中导航与主体白底连接，阴影只落在较低的灰色未选中区。
@@ -22,8 +21,6 @@
 #include "ui_kit.h"
 #include "settings.h"
 #define UI_NAV_NETWORK_ICON_PX 28
-#define UI_STATUS_TIME_PX UI_STATUS_PERCENT_PX
-#define UI_STATUS_PERCENT_PX 28
 
 EpdRect ui_nav_rect(void) { return (EpdRect){0,UI_NAV_TOP,UI_LOCK_WIDTH,UI_NAV_HEIGHT}; }
 
@@ -170,36 +167,58 @@ bool ui_nav_notice_tick(int64_t now_ms){
     ui_nav_notice_clear();return true;
 }
 
-void ui_nav_status(uint8_t *fb) {
-    // 通知保持标题字号，不缩字；临时接管额头，避免与日期/电量叠字，到期原样恢复。
-    // Keep title-sized notices without shrinking; temporarily own the forehead to avoid clock/battery collisions.
+static void status_text(uint8_t *fb, const char *source, int x, int width, size_t capacity,
+                        enum EpdFontFlags align) {
+    if (!source || width <= 0) return;
+    char label[192];
+    size_t len = strlen(source);
+    if (len >= capacity) {
+        len = capacity - 1;
+        while (len && ((unsigned char)source[len] & 0xc0) == 0x80) --len;
+    }
+    for (size_t i = 0; i < len; ++i)
+        label[i] = (unsigned char)source[i] < 0x20 ? ' ' : source[i];
+    label[len] = 0;
+    while (len && ui_text_fixed_width_px(UI_STATUS_SIGNATURE_PX, label) > width) {
+        do { --len; } while (len && ((unsigned char)label[len] & 0xc0) == 0x80);
+        label[len] = 0;
+    }
+    if (len) ui_text_fixed_vc(fb, x, UI_STATUS_CENTER_Y, UI_STATUS_SIGNATURE_PX, label, align, false);
+}
+
+static void draw_status(uint8_t *fb, const char *title, bool landscape, bool reading) {
+    int width = landscape ? UI_LOCK_HEIGHT : UI_LOCK_WIDTH;
+    int right_offset = width - UI_LOCK_WIDTH;
+    // A notice owns the status strip until it expires. In the reader it shares the status text size.
     if(s_status_notice[0]){
-        int px=ui_text_effective_px(UI_TEXT_TITLE);char label[192];
+        int px=reading?UI_STATUS_SIGNATURE_PX:ui_text_effective_px(UI_TEXT_TITLE);char label[192];
         snprintf(label,sizeof(label),"%s",s_status_notice);
         bool shortened=false;
-        while(label[0]&&ui_text_fixed_width_px(px,label)>UI_LOCK_WIDTH-48){
+        while(label[0]&&ui_text_fixed_width_px(px,label)>width-48){
             size_t n=strlen(label)-1;while(n&&((unsigned char)label[n]&0xc0)==0x80)--n;
             label[n]=0;shortened=true;
         }
         if(shortened){
-            while(label[0]&&ui_text_fixed_width_px(px,label)+ui_text_fixed_width_px(px,"…")>UI_LOCK_WIDTH-48){
+            while(label[0]&&ui_text_fixed_width_px(px,label)+ui_text_fixed_width_px(px,"…")>width-48){
                 size_t n=strlen(label)-1;while(n&&((unsigned char)label[n]&0xc0)==0x80)--n;label[n]=0;
             }
             size_t n=strlen(label);if(n+4<sizeof(label))memcpy(label+n,"…",4);
         }
-        epd_fill_rect((EpdRect){0,0,UI_LOCK_WIDTH,UI_STATUS_HEIGHT},UI_GRAY_WHITE,fb);
-        ui_text_fixed_vc(fb,UI_LOCK_WIDTH/2,UI_STATUS_CENTER_Y,px,label,EPD_DRAW_ALIGN_CENTER,false);
+        epd_fill_rect((EpdRect){0,0,width,UI_STATUS_HEIGHT},UI_GRAY_WHITE,fb);
+        ui_text_fixed_vc(fb,width/2,UI_STATUS_CENTER_Y,px,label,EPD_DRAW_ALIGN_CENTER,false);
         return;
     }
     time_t now = time(NULL);
     const pmu_snapshot_t *pmu = read_pico_pmu_get();
     if (now < 1704067200 && pmu && pmu->time_synced && pmu->unix_sec >= 1704067200)
         now = pmu->unix_sec;
-    char clock[64];app_settings_format_status_clock(now,clock,sizeof(clock));
+    char clock[64];
+    if (landscape) app_settings_format_status_clock_with_date(now,clock,sizeof(clock));
+    else app_settings_format_status_clock(now,clock,sizeof(clock));
     const int status_center_y = UI_STATUS_CENTER_Y;
     // 固定状态栏字号，让系统字体缩放时文字仍与图标共用中心线。
     // Keep status type fixed so text and glyphs share one centerline at every system font scale.
-    ui_text_fixed_vc(fb, 36, status_center_y, UI_STATUS_TIME_PX, clock, EPD_DRAW_ALIGN_LEFT, false);
+    ui_text_fixed_vc(fb, 36, status_center_y, UI_STATUS_SIGNATURE_PX, clock, EPD_DRAW_ALIGN_LEFT, false);
     read_pico_transfer_status_t network = {0};
     read_pico_transfer_get_status(&network);
     const bool wifi_visible = network.network_ready && network.mode == READ_PICO_TRANSFER_MODE_STA;
@@ -208,41 +227,45 @@ void ui_nav_status(uint8_t *fb) {
     if (gauge_percent >= 0) snprintf(percent, sizeof(percent), "%u%%", (unsigned)gauge_percent);
     // 按实际百分比宽度排列网络图标，留 10 像素间隔；墨色与电池相同。
     // Place the network marks 10 px before the measured percentage, using the battery ink.
-    const int percent_left = 595 - ui_text_fixed_width_px(UI_STATUS_PERCENT_PX, percent);
+    const int percent_left = 595 + right_offset - ui_text_fixed_width_px(UI_STATUS_SIGNATURE_PX, percent);
     const int network_right = percent_left - 10;
     const int wifi_center = network_right - UI_NAV_NETWORK_ICON_PX / 2;
-    int signature_width = 280;
-    const int clock_right = 36 + ui_text_fixed_width_px(UI_STATUS_TIME_PX, clock);
-    int available = 2 * (UI_LOCK_WIDTH / 2 - clock_right - 12);
-    if (available < signature_width) signature_width = available > 0 ? available : 0;
-    int group_left = percent_left;
-    if (wifi_visible) {
-        group_left = wifi_center - UI_NAV_NETWORK_ICON_PX / 2;
+    int clock_right = 36 + ui_text_fixed_width_px(UI_STATUS_SIGNATURE_PX, clock);
+    int group_left = wifi_visible ? wifi_center - UI_NAV_NETWORK_ICON_PX / 2 : percent_left;
+    int center = width / 2;
+    const char *signature = app_settings_status_signature();
+    if (landscape && signature[0]) {
+        const int gap = 14, rule_height = 18;
+        epd_fill_rect((EpdRect){center, status_center_y - rule_height / 2, 1, rule_height},
+                      UI_GRAY_SECTION_LINE, fb);
+        status_text(fb, signature, center - gap, center - gap - clock_right - 12, 96, EPD_DRAW_ALIGN_RIGHT);
+        status_text(fb, title, center + gap, group_left - 12 - center - gap, 192, EPD_DRAW_ALIGN_LEFT);
+    } else {
+        int available = 2 * (center - clock_right - 12);
+        int right = 2 * (group_left - 12 - center);
+        if (right < available) available = right;
+        if (!landscape && available > 280) available = 280;
+        status_text(fb, title ? title : signature, center, available, title ? 192 : 96, EPD_DRAW_ALIGN_CENTER);
     }
-    available = 2 * (group_left - 12 - UI_LOCK_WIDTH / 2);
-    if (available < signature_width) signature_width = available > 0 ? available : 0;
-    char signature[96];
-    snprintf(signature, sizeof(signature), "%s", app_settings_status_signature());
-    while (signature[0] && ui_text_fixed_width_px(UI_STATUS_SIGNATURE_PX, signature) > signature_width) {
-        size_t n = strlen(signature) - 1;
-        while (n && ((unsigned char)signature[n] & 0xc0) == 0x80) --n;
-        signature[n] = 0;
-    }
-    if (signature[0]) ui_text_fixed_vc(fb, UI_LOCK_WIDTH / 2, status_center_y, UI_STATUS_SIGNATURE_PX,
-                                      signature, EPD_DRAW_ALIGN_CENTER, false);
     if (wifi_visible) ui_nav_wifi_icon(fb, wifi_center, status_center_y, UI_NAV_NETWORK_ICON_PX, UI_GRAY_BLACK);
-    EpdRect battery = {606, status_center_y - 11, 40, 22};
+    EpdRect battery = {606 + right_offset, status_center_y - 11, 40, 22};
     ui_fill_round_rect(fb,battery,6,UI_GRAY_WHITE);
     ui_draw_round_rect(fb, battery, 6, UI_GRAY_BLACK);
-    ui_fill_round_rect(fb, (EpdRect){648, status_center_y - 4, 5, 8}, 2, UI_GRAY_BLACK);
+    ui_fill_round_rect(fb, (EpdRect){648 + right_offset, status_center_y - 4, 5, 8}, 2, UI_GRAY_BLACK);
     bool charging = pmu_battery_charging(pmu);
     if (!charging && gauge_percent >= 0) {
         int width = (31 * gauge_percent + 50) / 100;
-        if (width > 0) ui_fill_round_rect(fb, (EpdRect){610, status_center_y - 7, width, 14}, 4, UI_GRAY_BLACK);
+        if (width > 0) ui_fill_round_rect(fb, (EpdRect){610 + right_offset, status_center_y - 7, width, 14}, 4, UI_GRAY_BLACK);
     }
-    if (charging) ui_nav_battery_bolt(fb,627,status_center_y);
-    ui_text_fixed_vc(fb, 595, status_center_y, UI_STATUS_PERCENT_PX, percent, EPD_DRAW_ALIGN_RIGHT, false);
+    if (charging) ui_nav_battery_bolt(fb,627 + right_offset,status_center_y);
+    ui_text_fixed_vc(fb, 595 + right_offset, status_center_y, UI_STATUS_SIGNATURE_PX, percent, EPD_DRAW_ALIGN_RIGHT, false);
 }
+
+void ui_nav_reader_status(uint8_t *fb, const char *title, bool landscape) {
+    draw_status(fb, title, landscape, true);
+}
+
+void ui_nav_status(uint8_t *fb) { draw_status(fb, NULL, false, false); }
 
 int ui_nav_hit(uint16_t x, uint16_t y) {
     if (x >= UI_LOCK_WIDTH || y < UI_NAV_TOP || y >= UI_LOCK_HEIGHT) return -1;

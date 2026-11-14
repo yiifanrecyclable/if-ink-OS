@@ -45,7 +45,8 @@ with tempfile.TemporaryDirectory(dir=ROOT / 'build', prefix='reader-fonts-') as 
     book = '/sdcard/books/Book.txt'
     doc = '/sdcard/markdown/Doc.md'
     _, row_height, rows = render(book)['reader_controls_geometry']
-    assert row_height == 73 and rows == 11
+    assert row_height == 88 and rows == 9
+    assert render(doc)["reader_controls_geometry"][1:] == [row_height,rows]
     last_page, last_row = divmod(65, rows)
     assert last_page >= 5
     next_page = ('t,620,1050,620,1050', 'u,340,900,340,350', 'k,2,0,0,0')

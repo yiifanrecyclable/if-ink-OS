@@ -24,7 +24,6 @@ enum EpdFontFlags { EPD_DRAW_ALIGN_LEFT, EPD_DRAW_ALIGN_CENTER, EPD_DRAW_ALIGN_R
 #define MODE_GL16 2
 #define MODE_GC16 3
 extern int E0470_WAVEFORM;
-bool continuous_du_init(void);
 int64_t esp_timer_get_time(void);
 void vTaskDelay(int);
 #define pdMS_TO_TICKS(x) (x)

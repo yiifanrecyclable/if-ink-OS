@@ -46,6 +46,7 @@ void display_flash_end(void) { xSemaphoreGiveRecursive(s_output_lock); }
 static const char* TAG = "read_pico";
 static bool s_bulk_io;
 static bool s_resume_clean;
+static bool s_landscape_water_interrupted;
 static int s_pclk_mhz = DISPLAY_PCLK_DEFAULT_MHZ;
 
 void display_resume_clean_next(void) { DISPLAY_GUARD; s_resume_clean=true; }
@@ -364,12 +365,15 @@ enum EpdDrawError update_display_area_full_with(
 }
 
 enum EpdDrawError update_display_water_turn(EpdiyHighlevelState* hl, EpdRect area,
-                                             e0470_turn_dir_t dir) {
+                                             e0470_turn_dir_t dir, bool landscape) {
     DISPLAY_GUARD;
+    if (s_resume_clean) return resume_clean(hl);
+    if (landscape && s_landscape_water_interrupted)
+        return update_display_area_diff_with(hl, &E0470_WAVEFORM, MODE_GL16, area);
     // 只在阅读页显式调用；普通页面仍走原刷新路径。
     // Only the reader calls this path; ordinary pages keep their existing refresh policy.
-    read_pico_epd_use_scan(READ_PICO_EPD_SCAN_FAST);
-    epd_lcd_set_prefill_lines(s_bulk_io ? 127 : 64);
+    read_pico_epd_use_scan(landscape ? READ_PICO_EPD_SCAN_FULL : READ_PICO_EPD_SCAN_FAST);
+    epd_lcd_set_prefill_lines(landscape || s_bulk_io ? 127 : 64);
     epd_poweron();
     enum EpdDrawError result = e0470_page_turn_with_waveform(hl, area, dir, display_text_waveform());
     use_scan_for(&E0470_WAVEFORM, MODE_GL16);
@@ -377,10 +381,12 @@ enum EpdDrawError update_display_water_turn(EpdiyHighlevelState* hl, EpdRect are
     if (result == EPD_DRAW_SUCCESS) return result;
     if (result == EPD_DRAW_NO_PHASES_AVAILABLE) {
         ESP_LOGW(TAG, "water turn phases unavailable; use regular GL16");
+        if (landscape) return update_display_area_diff_with(hl, &E0470_WAVEFORM, MODE_GL16, area);
         return update_display_area_with(hl, &E0470_WAVEFORM, MODE_GL16, area);
     }
     // 中断可能把物理屏留在半途。清屏后按目标 front 重建整屏基准。
     // An interrupted scan may leave intermediate pixels. Rebuild the whole baseline from white.
+    if (landscape) s_landscape_water_interrupted = true;
     if (result & EPD_DRAW_EMPTY_LINE_QUEUE) {
         s_pclk_mhz = DISPLAY_PCLK_SAFE_MHZ;
         read_pico_epd_set_pclk(DISPLAY_PCLK_SAFE_MHZ);
@@ -388,6 +394,7 @@ enum EpdDrawError update_display_water_turn(EpdiyHighlevelState* hl, EpdRect are
     use_scan_for(&E0470_WAVEFORM, MODE_GC16);
     epd_clear();
     enum EpdDrawError recovered = epd_hl_update_screen_from_white(hl, MODE_GC16, 25);
+    if (landscape && recovered != EPD_DRAW_SUCCESS) s_resume_clean = true;
     s_page_refreshes = 0;
     rails_keepalive();
     ESP_LOGW(TAG, "water turn failed (%d), recovery=%d", result, recovered);

@@ -325,7 +325,10 @@ static void du_mark_dot(int lx, int ly, int r, int phases) {
     continuous_du_mark_circle(cx, cy, r, phases);
 }
 
+static bool s_continuous_ready;
+
 static void on_enter(app_ctx_t* ctx) {
+    s_continuous_ready = continuous_du_init();
     s_continuous = false;
     s_stale_touch = true;
     memset(s_key_down, 0, sizeof(s_key_down));
@@ -339,6 +342,8 @@ static void on_leave(app_ctx_t* ctx) {
         continuous_du_reset();
         s_continuous = false;
     }
+    continuous_du_deinit();
+    s_continuous_ready = false;
     s_dot_count = 0;
 }
 
@@ -527,7 +532,7 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
         s_stale_touch = false;
     }
     if (ctx->consumed) return APP_REDRAW_NONE;
-    if (ctx->continuous_ready) {
+    if (s_continuous_ready) {
         if (ctx->touch->touched) return tick_follow_continuous(ctx);
         if (s_continuous) return tick_settle_continuous(ctx);
         return APP_REDRAW_NONE;

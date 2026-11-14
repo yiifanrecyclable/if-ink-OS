@@ -72,7 +72,7 @@ static void render(app_ctx_t *ctx,uint8_t *fb) {
         for(int i=0;i<(s_dialog==1?3:2);++i)ui_draw_button(fb,dialog_button(i),s_dialog==1?exit_labels[i]:clear_labels[i],false);
     }
 }
-static void leave(app_ctx_t *ctx) { extern const app_desc_t app_files;ctx->request_app=&app_files; }
+static void leave(app_ctx_t *ctx) { ui_nav_request(ctx,2); }
 static app_redraw_t request_exit(app_ctx_t *ctx) {
     if(s_board&&(cyber_beads_dirty(s_board)||s_board_save_pending)){s_dialog=1;return APP_REDRAW_PAGE;}
     leave(ctx);return APP_REDRAW_NONE;
@@ -114,7 +114,10 @@ static void on_enter(app_ctx_t *ctx) {
 // 仅保存可续作草稿，不隐式导出壁纸或改变用户的保存标记。/ Persist a resumable draft without exporting wallpaper or changing the user's saved marker.
 static esp_err_t prepare_sleep(app_ctx_t *ctx){(void)ctx;return !s_board||beads_board_save(s_board)?ESP_OK:ESP_FAIL;}
 static void beads_on_exit(app_ctx_t *ctx) { (void)ctx;free(s_board);s_board=NULL; }
-static app_redraw_t on_key(app_ctx_t *ctx,int key) { (void)key;return request_exit(ctx); }
+static app_redraw_t on_key(app_ctx_t *ctx,int key) {
+    (void)key;
+    return request_exit(ctx);
+}
 static app_redraw_t on_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev) {
     if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
     if(s_dialog) {

@@ -24,6 +24,7 @@ EpdRect ui_nav_rect(void);
 
 void ui_nav_draw(uint8_t *fb, int active);
 void ui_nav_status(uint8_t *fb);
+void ui_nav_reader_status(uint8_t *fb, const char *title, bool landscape);
 /// 状态栏短暂通知；到期由页面tick清除并仅重绘状态栏，避免整屏闪烁。
 /// Transient status notice; page ticks expire it and repaint only the status strip.
 void ui_nav_notice_show(const char *text, int64_t now_ms);

@@ -9,7 +9,7 @@
 #include <string.h>
 typedef struct {
     unsigned parts[3], number, revision, trial;
-    bool test, beta;
+    bool test, beta, local_trial;
 } version_t;
 static bool version_number(const char **cursor,unsigned *value){
     const char *s=*cursor,*start=s;unsigned n=0;
@@ -22,6 +22,7 @@ static bool version_revision(const char *s,version_t *v){
     if(*s=='t'){
         ++s;
         if(!version_number(&s,&v->trial)||!v->trial)return false;
+        v->local_trial=true;
     }
     return !*s;
 }
@@ -33,8 +34,7 @@ static bool version_parts(const char *s, version_t *v) {
         if(i<2&&*s++!='.')return false;
     }
     if(!*s)return true;
-    // 新测试版使用beta.N；本地试验版可追加tN，兼容已安装的beta、betaN及-rN后缀。
-    // New betas use beta.N; local trials may append tN, while installed beta, betaN and -rN remain compatible.
+    // Public beta.N and legacy names remain readable. New local builds use betaNt.
     if(!strncmp(s,"-beta",5)){
         s+=5;v->test=v->beta=true;
         if(!*s)return true;
@@ -43,19 +43,23 @@ static bool version_parts(const char *s, version_t *v) {
             if(*s=='t'){
                 ++s;
                 if(!version_number(&s,&v->trial)||!v->trial)return false;
+                v->local_trial=true;
             }
-            if(*s)return false;
-            return true;
+            return !*s;
         }
         if(*s>='1'&&*s<='9'){if(!version_number(&s,&v->number))return false;}
         else if(strncmp(s,"-r",2))return false;
         if(!strncmp(s,"-r",2))return version_revision(s+2,v);
+        if(v->number&&s[0]=='t'&&!s[1]){
+            v->local_trial=true;
+            return true;
+        }
         return !*s;
     }
     // 早期本地测试包使用 -rNtM，仍可作为在线更新的起点。/ Older local -rNtM builds can still start an online update.
     if(!strncmp(s,"-r",2)){
         v->test=true;
-        return version_revision(s+2,v)&&v->trial;
+        return version_revision(s+2,v)&&v->local_trial;
     }
     if(strncmp(s,"-test.",6))return false;
     s+=6;v->test=true;
@@ -79,11 +83,12 @@ static int compare_versions(const version_t *a,const version_t *b){
     if(a->beta!=b->beta)return a->beta?1:-1;
     if(a->number!=b->number)return a->number>b->number?1:-1;
     if(a->revision!=b->revision)return a->revision>b->revision?1:-1;
+    if(a->local_trial!=b->local_trial)return a->local_trial?1:-1;
     if(a->trial!=b->trial)return a->trial>b->trial?1:-1;
     return 0;
 }
 static bool version_in_channel(const version_t *v,if_update_channel_t channel){
-    if(v->trial)return false;
+    if(v->local_trial)return false;
     return channel==IF_UPDATE_BETA?v->beta:channel==IF_UPDATE_STABLE&&!v->test;
 }
 if_update_install_kind_t if_update_install_kind(const char *candidate,const char *current,if_update_channel_t channel){

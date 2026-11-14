@@ -13,6 +13,7 @@ void epd_fill_circle(int x,int y,int radius,uint8_t color,uint8_t *fb);
 void epd_fill_circle_helper(int x,int y,int radius,int corners,int delta,uint8_t color,uint8_t *fb);
 uint8_t epd_get_pixel(int x,int y,int width,int height,const uint8_t *fb);
 enum EpdRotation epd_get_rotation(void);
+void epd_set_rotation(enum EpdRotation rotation);
 int epd_width(void);
 int epd_height(void);
 int epd_rotated_display_width(void);

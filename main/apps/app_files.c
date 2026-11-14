@@ -1174,9 +1174,14 @@ static app_redraw_t action_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev)
     return APP_REDRAW_NONE;
 }
 
+static app_redraw_t cancel_rename(void) {
+    ui_text_input_clear(&s_text_input);
+    s_view=FILE_VIEW_ACTIONS;
+    return APP_REDRAW_PAGE;
+}
 static app_redraw_t rename_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev) {
     ui_input_result_t result=ui_text_input_gesture(&s_text_input,ev);
-    if(result==UI_INPUT_CANCEL){ui_text_input_clear(&s_text_input);s_view=FILE_VIEW_ACTIONS;return APP_REDRAW_PAGE;}
+    if(result==UI_INPUT_CANCEL)return cancel_rename();
     if(result==UI_INPUT_DONE)return save_rename();
     if(result==UI_INPUT_CHANGED){s_editor_notice[0]=0;render_rename(ctx->fb);return APP_REDRAW_AREA;}
     return APP_REDRAW_NONE;
@@ -1300,12 +1305,18 @@ static void picker_parent(void){
     if(!strcmp(s_dir,"/sdcard"))return;
     char *slash=strrchr(s_dir,'/');if(slash&&slash>s_dir+6)*slash=0;scan_folder(3);
 }
+static app_redraw_t file_turn(int direction) {
+    int next = s_page + direction;
+    if (s_folder < 0 || next < 0 || next * visible_rows() >= s_count) return APP_REDRAW_NONE;
+    s_page = next;
+    return APP_REDRAW_PAGE;
+}
+
 static app_redraw_t picker_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev){
     if(ev->type==UI_GESTURE_LONG_PRESS)return APP_REDRAW_NONE;
     if(ev->type==UI_GESTURE_SWIPE_L||ev->type==UI_GESTURE_SWIPE_U||ev->type==UI_GESTURE_SWIPE_R||ev->type==UI_GESTURE_SWIPE_D){
         if(s_view!=FILE_VIEW_LIST)return APP_REDRAW_NONE;
-        int direction=(ev->type==UI_GESTURE_SWIPE_L||ev->type==UI_GESTURE_SWIPE_U)?1:-1,next=s_page+direction;
-        if(next>=0&&next*visible_rows()<s_count){s_page=next;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;
+        return file_turn(ev->type==UI_GESTURE_SWIPE_L||ev->type==UI_GESTURE_SWIPE_U ? 1 : -1);
     }
     if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
     int x=ev->x0,y=ev->y0;
@@ -1338,7 +1349,7 @@ static app_redraw_t picker_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev){
         file_notice(UI_MSG("已启用壁纸轮播"));s_picker_done=true;return APP_REDRAW_PAGE;
     }
     if(s_count>visible_rows())for(int direction=-1;direction<=1;direction+=2)if(ui_rect_hit(file_pager_rect(direction),x,y)){
-        int next=s_page+direction;if(next>=0&&next*visible_rows()<s_count){s_page=next;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;
+        return file_turn(direction);
     }
     int row=(y-UI_PAGE_Y(214))/file_row_height();bool inside=x>=36&&x<648&&y>=UI_PAGE_Y(214)&&y<file_pager_top();
     if(grid_active()){EpdRect cell=grid_cell(0);inside=inside&&y<cell.y+cell.height*grid_rows();row=inside?(y-cell.y)/cell.height*grid_columns()+(x-36)/cell.width:-1;}
@@ -1373,14 +1384,12 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     if(ev->type==UI_GESTURE_TAP && (s_view==FILE_VIEW_LIST||s_view==FILE_VIEW_MOVE)) {
         int rows=visible_rows();
         if(s_folder>=0 && s_count>rows)for(int direction=-1;direction<=1;direction+=2)if(ui_rect_hit(ui_nav_pager_rect(direction),ev->x0,ev->y0)){
-            int next=s_page+direction;if(next>=0&&next*rows<s_count){s_page=next;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;
+            return file_turn(direction);
         }
     }
     if (s_view == FILE_VIEW_MOVE) {
-        if (ev->type == UI_GESTURE_SWIPE_L && (s_page + 1) * visible_rows() < s_count) {
-            ++s_page; return APP_REDRAW_PAGE;
-        }
-        if (ev->type == UI_GESTURE_SWIPE_R && s_page > 0) { --s_page; return APP_REDRAW_PAGE; }
+        if (ev->type == UI_GESTURE_SWIPE_L || ev->type == UI_GESTURE_SWIPE_R)
+            return file_turn(ev->type == UI_GESTURE_SWIPE_L ? 1 : -1);
         if (ev->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
         if (file_tapped(ui_nav_close_rect(),ev)) {
             if (strcmp(s_dir, move_root())) {
@@ -1404,8 +1413,8 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         }
         return APP_REDRAW_NONE;
     }
-    if (ev->type == UI_GESTURE_SWIPE_L && s_folder >= 0 && (s_page + 1) * visible_rows() < s_count) { ++s_page; return APP_REDRAW_PAGE; }
-    if (ev->type == UI_GESTURE_SWIPE_R && s_folder >= 0 && s_page > 0) { --s_page; return APP_REDRAW_PAGE; }
+    if (ev->type == UI_GESTURE_SWIPE_L || ev->type == UI_GESTURE_SWIPE_R)
+        return file_turn(ev->type == UI_GESTURE_SWIPE_L ? 1 : -1);
     if (ev->type != UI_GESTURE_TAP && ev->type != UI_GESTURE_LONG_PRESS) return APP_REDRAW_NONE;
     bool long_press = ev->type == UI_GESTURE_LONG_PRESS;
     if (long_press && (s_folder < 0 || ev->y0 < UI_PAGE_Y(214))) return APP_REDRAW_NONE;
@@ -1477,37 +1486,21 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
 }
 
 static app_redraw_t on_key(app_ctx_t *ctx, int key) {
-    s_now_ms=ctx->now_ms;
-    if(s_view==FILE_VIEW_FONT_PREVIEW){
-        if(key!=UI_KEY_2)return APP_REDRAW_NONE;
-        s_view=FILE_VIEW_LIST;return APP_REDRAW_PAGE;
+    if (key != UI_KEY_2)
+        return (s_view == FILE_VIEW_LIST || s_view == FILE_VIEW_MOVE)
+            ? file_turn(key == UI_KEY_1 ? -1 : 1) : APP_REDRAW_NONE;
+    if (s_view == FILE_VIEW_LIST && s_folder < 0) {
+        ui_nav_request(ctx, 0);
+        return APP_REDRAW_NONE;
     }
-    // 列表左右键共用屏幕分页，确认/编辑页保留原操作。/ List side keys share pagination; dialogs and editors retain their actions.
-    if(s_view==FILE_VIEW_LIST && key!=UI_KEY_2){
-        int rows=visible_rows();
-        if(s_folder>=0 && s_count>rows){int next=s_page+(key==UI_KEY_1?-1:1);if(next>=0&&next*rows<s_count){s_page=next;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;}
-    }
-    if (s_view == FILE_VIEW_MOVE) { leave_move(false); return APP_REDRAW_PAGE; }
-    if(s_view==FILE_VIEW_BATCH){
-        if(key!=UI_KEY_2)return APP_REDRAW_NONE;
-        if(s_batch_delete)s_batch_delete=false;else s_view=FILE_VIEW_LIST;
-        return APP_REDRAW_PAGE;
-    }
-    if (key == 1) { ui_nav_request(ctx, 0); return APP_REDRAW_NONE; }
-    if (s_view == FILE_VIEW_RENAME) { s_view = FILE_VIEW_ACTIONS; return APP_REDRAW_PAGE; }
-    if (s_view == FILE_VIEW_ACTIONS) {
-        s_view = FILE_VIEW_LIST; s_confirm = FILE_CONFIRM_NONE; rescan_current(); return APP_REDRAW_PAGE;
-    }
-    if (s_folder >= 0) {
-        batch_reset();
-        if (s_folder == 3 && strcmp(s_dir, "/sdcard")) {
-            char *slash = strrchr(s_dir, '/'); if (slash) *slash = 0;
-            scan_folder(3);
-        } else s_folder = -1;
-        return APP_REDRAW_PAGE;
-    }
-    ui_nav_request(ctx, 0);
-    return APP_REDRAW_NONE;
+    if (s_view == FILE_VIEW_RENAME) return cancel_rename();
+    EpdRect target = ui_nav_close_rect();
+    if (s_view == FILE_VIEW_ACTIONS)
+        target = s_confirm ? ui_nav_action_button(0,2) : file_card().close;
+    else if (s_view == FILE_VIEW_BATCH)
+        target = s_batch_delete ? ui_nav_action_button(0,2) : batch_card().close;
+    ui_gesture_event_t tap = ui_tap_at(target.x + target.width / 2, target.y + target.height / 2);
+    return on_gesture(ctx, &tap);
 }
 static EpdRect file_area_hint(app_ctx_t *ctx){(void)ctx;return s_status_area;}
 static bool files_present(app_ctx_t *ctx,app_redraw_t redraw){
@@ -1540,7 +1533,7 @@ const app_desc_t app_files = {
     .owns_keys = true, .menu_handle_enabled = no_menu_handle,
     .on_enter = on_enter, .on_exit=files_on_exit, .on_media_lost = on_media_lost, .on_media_ready = on_media_ready,
     .render = render, .on_tick = on_tick, .present = files_present, .area_hint=file_area_hint,
-    .on_gesture = on_gesture, .on_key = on_key,
+    .on_gesture = on_gesture, .on_key = on_key, .defer_middle_short = true,
 };
 
 void app_files_wallpaper_open(app_ctx_t *ctx,bool rotating){
@@ -1552,8 +1545,18 @@ void app_files_wallpaper_close(void){clear_thumbnails();picker_preview_clear();s
 void app_files_wallpaper_render(app_ctx_t *ctx,uint8_t *fb){render(ctx,fb);}
 app_redraw_t app_files_wallpaper_gesture(app_ctx_t *ctx,const ui_gesture_event_t *event){s_now_ms=ctx->now_ms;app_redraw_t r=picker_gesture(ctx,event);if(!s_picker_done)prepare_thumbnails();return r;}
 app_redraw_t app_files_wallpaper_key(app_ctx_t *ctx,int key){
-    s_now_ms=ctx->now_ms;if(key==UI_KEY_2){s_picker_done=true;ui_nav_request(ctx,0);return APP_REDRAW_NONE;}
-    picker_parent();prepare_thumbnails();return APP_REDRAW_PAGE;
+    s_now_ms = ctx->now_ms;
+    if (key != UI_KEY_2) {
+        if (s_view != FILE_VIEW_LIST) return APP_REDRAW_NONE;
+        app_redraw_t redraw = file_turn(key == UI_KEY_1 ? -1 : 1);
+        if (redraw != APP_REDRAW_NONE) prepare_thumbnails();
+        return redraw;
+    }
+    // Pictures is the entry directory. Other directories still use the on-screen parent action.
+    bool exit = s_view == FILE_VIEW_LIST && (!strcmp(s_dir,"/sdcard/pictures") || !strcmp(s_dir,"/sdcard"));
+    EpdRect target = exit ? picker_exit_rect() : picker_up_rect();
+    ui_gesture_event_t tap = ui_tap_at(target.x + target.width / 2, target.y + target.height / 2);
+    return app_files_wallpaper_gesture(ctx,&tap);
 }
 app_redraw_t app_files_wallpaper_tick(app_ctx_t *ctx){app_redraw_t r=on_tick(ctx);if(r==APP_REDRAW_PAGE)prepare_thumbnails();if(r==APP_REDRAW_AREA)s_status_area=(EpdRect){0};return r;}
 bool app_files_wallpaper_finished(void){return s_picker_done;}

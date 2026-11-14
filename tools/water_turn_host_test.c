@@ -25,6 +25,7 @@ static const EpdWaveformPhases full_phases = {.phases = 48, .luts = (const uint8
 static enum EpdRotation rotation;
 static e0470_turn_dir_t direction;
 static bool check_direction = true;
+static bool require_line_phase;
 static const uint8_t* const* staged_luts;
 static const int8_t* staged_lines;
 static const int *staged_x0, *staged_x1;
@@ -152,6 +153,7 @@ enum EpdDrawError epd_draw_base(EpdRect area, const uint8_t* data, EpdRect crop,
             if (px < 0) { px = WIDTH / 2; py = y; }
         }
     } else {
+        assert(!require_line_phase);
         assert(staged_count == 16);
         for (int b = 0; b < staged_count; ++b) {
             int p = staged_bands[b];
@@ -224,6 +226,31 @@ int main(void) {
         assert(scans == 13 && differences == 1);
         for (size_t i = 0; i < sizeof(back); ++i) assert(back[i] == 0xFF);
     }
+    // 实际横屏正文尺寸，双方向逐行驱动，页眉和页脚基准保持原样。
+    // Actual landscape body sizes use line phases in both directions and preserve the header/footer baseline.
+    require_line_phase = true;
+    check_direction = false;
+    const EpdRect landscape_bodies[] = {{0,56,1216,564}, {0,56,1216,619}, {0,0,1216,684}};
+    for (int inverted = 0; inverted < 2; ++inverted) {
+        rotation = inverted ? EPD_ROT_INVERTED_LANDSCAPE : EPD_ROT_LANDSCAPE;
+        for (int dir = E0470_TURN_TTB; dir <= E0470_TURN_BTT; ++dir) {
+            direction = (e0470_turn_dir_t)dir;
+            for (unsigned i = 0; i < sizeof(landscape_bodies) / sizeof(landscape_bodies[0]); ++i) {
+                EpdRect body = landscape_bodies[i];
+                memset(back, 0xff, sizeof(back));
+                scans = differences = fail_at = 0;
+                assert(e0470_page_turn(&hl, body, direction) == EPD_DRAW_SUCCESS);
+                assert(scans == 52 && differences == 1);
+                for (int y = 0; y < HEIGHT; ++y) {
+                    const int logical_y = inverted ? HEIGHT - 1 - y : y;
+                    const uint8_t expected = logical_y >= body.y && logical_y < body.y + body.height
+                        ? 0x24 : 0xff;
+                    for (int x = 0; x < WIDTH / 2; ++x) assert(back[y * WIDTH / 2 + x] == expected);
+                }
+            }
+        }
+    }
+    require_line_phase = false;
     region_test=true;rotation=EPD_ROT_INVERTED_PORTRAIT;
     for(int fail=0;fail<2;++fail){
         scans=differences=0;fail_at=fail?13:0;memset(back,0xff,sizeof(back));

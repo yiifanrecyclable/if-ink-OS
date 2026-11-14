@@ -28,6 +28,13 @@ with tempfile.TemporaryDirectory(prefix='settings-header-',dir=ROOT/'build') as 
         assert state['settings_page']==destinations.get(page,0),(page,state['settings_page'])
         state=frame(view,'t,58,83,115,83')
         assert state['settings_page']==page,(page,'release outside exit',state['settings_page'])
+        state=frame(view,'k,1,0,0,0')
+        assert state['settings_page']==destinations.get(page,0),(page,state['settings_page'])
+        for key in (0,2):
+            state=frame(view,f'k,{key},0,0,0')
+            assert state['settings_page']==page and state['route']==-1,(page,key,state['route'])
+    assert frame('settings-0','k,1,0,0,0')['route']==0
+    assert frame('settings-19','k,1,0,0,0')['settings_page']==0
     for x,y in ((342,83),(115,83),(30,30)):
         state=frame('settings-19',tap(x,y))
         assert state['settings_page']==19,state['settings_page']

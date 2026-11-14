@@ -42,6 +42,16 @@ with tempfile.TemporaryDirectory(prefix='wallpaper-',dir=R/'build') as tmp:
  s=frame('settings-30',choose);assert s['wallpaper_picker'][3:5]==[1,1] and s['settings_page']==30
  s=frame('settings-30',choose+';'+tap(342,1090));assert s['settings_page']==9 and s['wallpaper_path']=='/sdcard/pictures/a.png'
  assert frame('lock-wallpaper')['wallpaper_last']=='/sdcard/pictures/a.png'
+ # Physical keys stay in the browser on single-page lists, unwind the preview
+ # and nested folders individually, then return to Wallpaper from Pictures.
+ back='k,1,0,0,0'
+ assert frame('settings-30','k,0,0,0,0;k,2,0,0,0')['settings_page']==30
+ assert frame('settings-30',back)['settings_page']==9
+ s=frame('settings-30',choose+';'+back)
+ assert s['settings_page']==30 and s['wallpaper_directory']=='/sdcard/pictures' and not s['wallpaper_picker'][3]
+ s=frame('settings-30');album=item(s,'/sdcard/pictures/Albums')
+ s=frame('settings-30',album+';'+back)
+ assert s['settings_page']==30 and s['wallpaper_directory']=='/sdcard/pictures'
  # 本层只有宽图，子目录有合格竖图，应可启用且锁屏确实选择子目录图片。
  # A wide-only parent with a usable child image must enable rotation and select the child on lock.
  s=frame('settings-29');album=item(s,'/sdcard/pictures/Albums')
@@ -57,6 +67,12 @@ with tempfile.TemporaryDirectory(prefix='wallpaper-',dir=R/'build') as tmp:
  assert not frame('settings-30',tap(342,1090))['wallpaper_rotating']
  frame('settings-11',tap(300,720)+';'+tap(300,720));assert frame('settings-9')['wallpaper_path']=='/sdcard/pictures/Albums/'
  before=frame('settings-9')['wallpaper_path']
+ for n in range(24):
+  (card/'pictures'/f'page-{n:02}.png').write_bytes(png(8,8))
+ for start in ('','t,610,83,610,83;'):
+  s=frame('settings-30',start+'k,2,0,0,0')
+  assert s['wallpaper_picker'][5]==1 and s['settings_page']==30
+  assert frame('settings-30',start+'k,2,0,0,0;k,0,0,0,0')['wallpaper_picker'][5]==0
  slots={p.suffix:struct.unpack_from('<I',p.read_bytes(),8)[0] for p in (card/'.readpico/settings').glob('wallpaper.[ab]')}
  inactive='b' if slots.get('.a',0)>=slots.get('.b',0) else 'a'
  s=frame('settings-30',choose+';'+tap(342,1090),{'PICO_TEST_FOPEN_WRITE_FAIL':'/sdcard/.readpico/settings/wallpaper.'+inactive})

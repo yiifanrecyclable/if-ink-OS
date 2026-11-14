@@ -31,7 +31,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='system-text-') as tmp:
         else:assert frame[80*342:]==reader[80*342:],'UI text preset must not change reading body or controls'
         # 三分区绘制/点击在四档字号下保持一致。/ Three groups share paint/hit geometry at every preset.
         info,_=render('settings-0');g=info['settings_geometry']
-        for group,pages in ((1,(5,19,None,9,21)),(2,(2,None,14,24,11,27,33,13))):
+        for group,pages in ((1,(5,19,None,9,21)),(2,(2,None,14,24,11,27,13))):
             for row,page in enumerate(pages):
                 if page is None:continue  # 首页强刷为开关，不离开本页。 / Home refresh toggles in place.
                 y=g[group]+row*g[4]+g[4]//2;scroll=min(g[5],max(0,y-970))
@@ -45,7 +45,8 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='system-text-') as tmp:
     assert title_pixels[3]>title_pixels[0],title_pixels
     # 配网来源决定返回设置或传书选择，密码取消先回无线网络。/ Settings context survives password cancellation and returns to Settings.
     assert render('transfer-2','t,60,110,60,110',3)[0]['route']==3
-    assert render('transfer-2','k,0,0,0,0',3)[0]['route']==3
+    assert render('transfer-2','k,1,0,0,0',3)[0]['route']==3
+    assert render('transfer-2','k,0,0,0,0',3)[0]['route']==-1
     assert render('transfer-3','t,60,110,60,110',3)[0]['transfer_view']==2
     assert render('transfer-2','t,60,110,60,110',1)[0]['transfer_view']==0
     assert render('settings-7')[0]['settings_page']==0

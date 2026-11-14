@@ -58,7 +58,7 @@ This document is for **first-time human developers and AI agents**. After readin
 | TF 卡 | 1-bit SDMMC | CLK/CMD/D0 = 38/42/44 | 挂载点 `/sdcard`；字体目录 `/sdcard/assets/fonts`、`/sdcard/fonts` |
 | 蜂鸣器 | 无源，GPIO2 | PWM / 1-bit | 三种驱动路径 CLASSIC / HF / DIRECT_1BIT |
 | I2C 总线 | SCL 40 / SDA 39，400 kHz | Kconfig 菜单 "Read Pico board configuration" 可改 | |
-| 按键 | 屏下三个触摸键区 KEY1/KEY2/KEY3 + 电源键（PMU） | — | 产品系统页 = 返回／首页／返回；阅读正文 = 上一页／页面设置／下一页；电源键短按 = 锁屏。**没有 BOOT / RESET 物理键** |
+| 按键 | 屏下三个触摸键区 KEY1/KEY2/KEY3 + 电源键（PMU） | — | 产品系统页 = 上一页／返回（长按首页）／下一页；阅读正文 = 上一页／页面设置／下一页；电源键短按 = 锁屏。**没有 BOOT / RESET 物理键** |
 | 调试口 | USB Serial/JTAG（VID 303A, PID 1001） | Windows 显示为 "USB 串行设备 (COMx)" | 端口号因机器而异，记在 `docs/HANDOFF.local.md`。烧写由 esptool `--before default_reset` 自动进下载模式，不需要按键 |
 
 ---
@@ -260,11 +260,11 @@ flowchart TD
 每 5 ms 一轮（`LOOP_TICK_MS`）：
 
 1. 读 CST836U → 去抖 → 区分屏内触摸 / 屏下三键区（`ui_menu.h`：`UI_KEY_AREA_TOP` 1300，pitch 160，中心 x=80/240/400）。
-2. 按键路由（全局，不交给页面）：
-   - **KEY2**：除菜单关闭时 `owns_keys` 页面自行接管外，整屏 GC16 重画当前页或当前菜单页（复用页面 `render()`，所以 `render()` 必须纯）。
-   - **KEY3 / 右下"把手"**：KEY3 在菜单关闭且 `owns_keys` 时交给页面；其余情况与把手均切换全屏一级菜单（打开时定位到当前页所在的菜单叶）。
-   - **菜单打开时的 KEY1**：菜单上一叶；菜单里的"上一页/下一页"触摸区翻叶；点条目切页。
-   - **菜单关闭时的 KEY1** → 页面 `on_key(UI_KEY_1)`（页面自己决定含义，通常是翻页）；屏内触摸 → `on_touch()`。
+2. 主循环识别按键，再交给当前页：
+   - **KEY2**：普通页面松手后返回上一层，持续按住 500 ms 返回首页。阅读中短按开关控制面板。
+   - **KEY3**：下一页。系统菜单仍可由原有的屏幕把手打开。
+   - **菜单打开时**：左／右键翻菜单页，中键关闭菜单。
+   - **KEY1**：上一页。到达边界时留在原处。
 3. 手势页使用 `on_gesture` 替代 `on_touch`；主循环在全局中断/重绘边界发 CANCEL。菜单条目按下高亮、同项抬起切页，滑出取消。
 4. `request_app` / `request_menu` 在 `on_tick` 后统一消费（切页优先）；输入已有请求则跳过旧页 tick。`request_app` 非空 → `switch_to()`：`on_exit` → `on_enter` → `enter_full ? FULL : PAGE`。
 4. `rails_idle_check`：屏电源轨空闲 8 s（`RAILS_IDLE_TIMEOUT_MS`）断电。
@@ -279,7 +279,7 @@ flowchart TD
 
 | 回调 | 可以做 | 不可以做 |
 | --- | --- | --- |
-| `render(ctx)` | 只画 fb | I2C 写、蜂鸣、睡眠、改设置（KEY2 会随时复用它） |
+| `render(ctx)` | 只画 fb | I2C 写、蜂鸣、睡眠、改设置 |
 | `on_enter` / `on_exit` | 上电/掉电传感器、拉首帧数据 | — |
 | `on_touch` / `on_gesture` / `on_key` / `on_tick` | 任何副作用 | 直接推屏（用返回值让主循环推） |
 | `present` | 自定义推屏；返回 true = 已刷完 | — |
@@ -324,9 +324,7 @@ flowchart TD
 
 | 页 | 文件 | 标志 | Frozen 摘要 |
 | --- | --- | --- | --- |
-| 概览 | `app_home.c` | enter_full | — |
 | 墨水屏刷新 | `app_refresh.c` | — | GC16 / DU / 灰阶梯子与耗时矩阵 |
-| 阅读测试 | `app_reading.c` | enter_full | 后台排版任务跑在 core 1、结果放 PSRAM |
 | 触摸 | `app_touch.c` | — | 连续 DU 跟手；TAP_SLEEP 10 s 进深睡演示 |
 | 加速度 / 诊断 | `app_axis.c`（两个 `app_desc_t` 共享 `.user`） | — | 默认不跟手，点"监听"才 DU；敲击 200 Hz；FIFO 默认存满即停 |
 | 电源与电池 | `app_power.c` | — | 不关轨；**不写 SY7636A 任何寄存器**；只读条 |
@@ -334,7 +332,6 @@ flowchart TD
 | 电源按键 | `app_key.c` | holds_pmu, enter_full | 本页独占 PMU 事件，短按不锁屏；进页 GL16 后只刷变化块 |
 | 睡眠与唤醒 | `app_sleep.c` | enter_full | 底栏走 `ui_bar_rect`；拿起唤醒默认关；浅睡 350 mg / 3 拍 |
 | TF 卡与蜂鸣器 | `app_sd.c` | — | 无字体走 `ui_draw_no_font_page`；格式化两次确认（**会清空卡**）；探测 A/B/1b/4k |
-| 字体 | `app_font_pick.c` | enter_full | 列表行高 `UI_BTN_H`；行数由剩余高度解出；换字体/字重整屏 GC16 |
 | 扩展口 | `app_ioe.c` | — | CFG/INV 只读；不拨 SY_EN / VCOM_EN / MODE / XOE；只允许脉冲 TP_RST |
 | 设备功能自检 | `app_selftest.c` | holds_pmu | 底栏只留探测/清空；不等闹钟、不目视灯、不断电续跑 |
 | （出厂）VCOM 标定 | `factory/vcom_setup.c` | 非菜单页 | 副标题不写范围；数字带只用 FOLLOW DU；三位合法自动进确认；不写 ESP NVS |
@@ -351,7 +348,7 @@ flowchart TD
 4. 若用了新组件，`REQUIRES` 加上。
 5. UI 字串若含新汉字，运行 `python tools/gen_builtin_font.py` 重新生成 `builtin.ttf`，否则显示为缺字。
 6. **不要改 `app_loop.c`**。
-7. 编译 → 真机走一遍：进页、KEY2 强刷、菜单切走再切回、电源键锁屏回来。
+7. 编译 → 真机走一遍：进页、中键短按返回与长按回首页、电源键锁屏回来。
 
 ### 8.2 改一个页面的行为
 
@@ -596,8 +593,8 @@ Read AGENTS.md, then docs/ONBOARDING.md, then docs/HANDOFF.md. Do not duplicate 
 
 ### 图书与传书的契约扩展 / Book and transfer contract extensions
 
-`owns_keys` 只在菜单关闭时接管三键。产品系统页使用返回／首页／返回；阅读正文保留翻页、页面设置与中键长按回书架。图书工具条提供强刷。传书组件不依赖页面；由 `app_transfer` 注入存储根、限额、容量回调。文件提交、删除或进度清理重试后通过书源 revision 请求下次进图书时重扫；文件变更回调只清对应路径进度。传书与阅读互斥，停止HTTP并等待退出后才切图书页，进度API由调用端串行化。
-`owns_keys` captures three keys outside the menu. Product system pages use Back/Home/Back; reading retains page turns, settings and hold-to-shelf. Books offers toolbar refresh. Transfer receives storage policy from its page. File commits, deletions and metadata retries invalidate the shelf through a storage revision; an injected callback clears progress only for the affected path. Transfer and reading are exclusive; HTTP is stopped and joined before entering Books, serializing progress API callers.
+系统列表左右键翻页，中键短按返回上一层，长按回首页。阅读中保留原有键位。传书组件不依赖页面；由 `app_transfer` 注入存储根、限额、容量回调。文件提交、删除或进度清理重试后通过书源 revision 请求下次进图书时重扫；文件变更回调只清对应路径进度。传书与阅读互斥，停止HTTP并等待退出后才切图书页，进度API由调用端串行化。
+System lists use side keys for paging, a middle tap for Back and a middle hold for Home. Reading keeps its control shortcuts. Transfer receives storage policy from its page. File commits, deletions and metadata retries invalidate the shelf through a storage revision; an injected callback clears progress only for the affected path. Transfer and reading are exclusive; HTTP is stopped and joined before entering Books, serializing progress API callers.
 
 
 传书页通过 `display_set_bulk_io` 在页内提高扫描预填余量，退出恢复默认；大文件进度用低频FOLLOW DU，结束/离页清残影。欠载恢复必须保留目标前缓冲，不能调用 `epd_hl_set_all_white` 丢掉整页。相关回归：`tools/run_display_host_test.sh`。

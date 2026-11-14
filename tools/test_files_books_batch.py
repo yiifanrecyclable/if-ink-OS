@@ -69,6 +69,11 @@ with tempfile.TemporaryDirectory(prefix='books-batch-', dir=ROOT/'build') as tmp
     assert one_sheet['files_view']==1 and one_sheet['files_batch_count']==1
     cross_page,_=render(events(a,tap(626,1086),footer))
     assert cross_page['files_view']==1 and cross_page['files_page']==1 and cross_page['files_batch_count']==1
+    by_key,_=render(events(a,'k,2,0,0,0'))
+    assert by_key['files_page']==1 and by_key['files_batch_count']==1
+    assert render(events(a,'k,2,0,0,0','k,0,0,0,0'))[0]['files_page']==0
+    assert render(events(a,footer,'k,2,0,0,0'))[0]['files_view']==1
+    assert render(events(a,footer,'k,1,0,0,0'))[0]['files_view']==0
     selected=events(a,b)
     selection,background=render(selected)
     assert selection['files_batch_count']==2 and selection['files_batch_bytes']==6144

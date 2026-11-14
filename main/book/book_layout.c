@@ -60,8 +60,29 @@ static unsigned s_first_line_indent_em = 2;
 static unsigned s_reading_line;
 static int s_reading_line_offset;
 static bool s_images_visible = true;
-static size_t s_lead_skip;
+static bool s_vertical;
+static bool s_two_columns;
+#define BOOK_COLUMN_GAP 36
+
+void book_layout_set_two_columns(bool enabled) { s_two_columns = enabled && !s_markdown; }
+
+EpdRect book_layout_column_rect(EpdRect body, unsigned column) {
+    if (!s_two_columns) return body;
+    body.width = (body.width - BOOK_COLUMN_GAP) / 2;
+    if ((column != 0) != s_vertical) body.x += body.width + BOOK_COLUMN_GAP;
+    return body;
+}
+
+void book_layout_set_vertical(bool enabled) { s_vertical = enabled && !s_markdown; }
+
 static unsigned s_lead_height;
+
+static int page_lead(size_t page, EpdRect rect) {
+    if (page || !s_lead_height) return 0;
+    if (!s_vertical) return (int)s_lead_height;
+    return rect.width >= 300 ? BOOK_VERTICAL_HEADING_WIDTH : 0;
+}
+static size_t s_lead_skip;
 
 static const blk_t* s_blocks;
 static size_t s_block_count;
@@ -385,8 +406,9 @@ static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bo
         if (advance < 1) advance = 1;
         *indent = advance * (int)s_first_line_indent_em;
     }
-    if (*indent >= s_rect.width) *indent = s_rect.width > 1 ? s_rect.width - 1 : 0;
-    if (*indent + *px > s_rect.width) *indent = 0;
+    int extent = s_vertical ? s_rect.height : s_rect.width;
+    if (*indent >= extent) *indent = extent > 1 ? extent - 1 : 0;
+    if (*indent + *px > extent) *indent = 0;
     *margin_before = first_line && block ? (int)((unsigned)*px * block->margin_before_percent / 100) : 0;
     *margin_after = block ? (int)((unsigned)*px * block->margin_after_percent / 100) : 0;
     size_t limit = block ? block->offset + block->len : s_len;
@@ -405,7 +427,7 @@ static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bo
             }
             break;
         }
-        if (visible_off < limit && *indent > 0) {
+        if (!s_vertical && visible_off < limit && *indent > 0) {
             size_t n = codepoint_size(s_text + visible_off, limit - visible_off);
             if (!n) return false;
             uint32_t cp = codepoint_value(s_text + visible_off, n);
@@ -420,7 +442,7 @@ static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bo
         }
     }
     s_line_source = visible_off;
-    int available = s_rect.width - *indent;
+    int available = extent - *indent;
     size_t end = visible_off;
     size_t last_start = visible_off;
     uint32_t last_cp = 0;
@@ -439,8 +461,10 @@ static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bo
         char glyph[5];
         memcpy(glyph, s_text + end, n);
         glyph[n] = 0;
-        int64_t candidate = width + (s_markdown ? ttf_text_width_styled_px(*px, glyph, glyph_style(end, *heading)) : ttf_text_width_px(*px, glyph)) +
-                            (end > visible_off && !*heading ? s_tracking_px : 0);
+        int advance = s_vertical ? ttf_vertical_advance_px(*px, cp)
+            : s_markdown ? ttf_text_width_styled_px(*px, glyph, glyph_style(end, *heading))
+            : ttf_text_width_px(*px, glyph);
+        int64_t candidate = width + advance + (end > visible_off && !*heading ? s_tracking_px : 0);
         if (candidate < 0) return false;
         if (candidate > available) {
             if (end == visible_off) return false;
@@ -450,7 +474,7 @@ static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bo
                 int hang = s_rect.x > 4 ? *px / 3 : 0;
                 if (hang > s_rect.x - 4) hang = s_rect.x - 4;
                 int squeeze = glyph_count > 1 ? (glyph_count - 1) * 3 : 0;
-                if (candidate <= (int64_t)available + hang + squeeze) {
+                if (!s_vertical && candidate <= (int64_t)available + hang + squeeze) {
                     memcpy(s_line + end - visible_off, glyph, n);
                     s_line[end - visible_off + n] = 0;
                     width = candidate;
@@ -465,7 +489,7 @@ static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bo
                 }
                 // 极窄行容不下两个字时才保留悬挂，避免出现以标点开头的死循环。
                 // Only a one-glyph-wide line may hang punctuation to avoid a non-progressing wrap.
-                if (candidate <= (int64_t)available + *px * 2) {
+                if (!s_vertical && candidate <= (int64_t)available + *px * 2) {
                     memcpy(s_line + end - visible_off, glyph, n);
                     s_line[end - visible_off + n] = 0;
                     width = candidate;
@@ -480,7 +504,7 @@ static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bo
                     end = last_start;
                     s_line[end - visible_off] = 0;
                     width = last_width;
-                } else if (candidate <= (int64_t)available + *px * 2) {
+                } else if (!s_vertical && candidate <= (int64_t)available + *px * 2) {
                     memcpy(s_line + end - visible_off, glyph, n);
                     s_line[end - visible_off + n] = 0;
                     width = candidate;
@@ -576,7 +600,7 @@ bool book_layout_build_blocks(const char* utf8, size_t len, const blk_t* blocks,
     s_text = utf8;
     s_len = len;
     s_px = px;
-    s_rect = rect;
+    s_rect = book_layout_column_rect(rect, 0);
     if (s_markdown) markdown_table_configure(utf8, s_table_cells, s_styles, s_style_count,
                                             rect, px, s_line_percent, s_tracking_px);
     s_line_capacity=len+1<256?len+1:256;
@@ -592,7 +616,9 @@ bool book_layout_build_blocks(const char* utf8, size_t len, const blk_t* blocks,
             if (blocks[i].image >= 0 && blocks[i].offset >= off) { off = blocks[i].offset; break; }
     }
     if (!append_page(off)) goto fail;
-    int64_t used = s_lead_height;
+    if (s_rect.width <= 0) goto fail;
+    int64_t used = page_lead(0, s_rect);
+    unsigned column = 0;
     while (off < len) {
         size_t visible = skip_image_spacing(off);
         if (visible != off) { off = visible; continue; }
@@ -609,6 +635,16 @@ bool book_layout_build_blocks(const char* utf8, size_t len, const blk_t* blocks,
         }
         if (block && block->image >= 0 && off == block->offset) {
             int img_w = 0, img_h = 0;
+            if (s_vertical || s_two_columns) {
+                if (s_pages[s_count - 1] != off && !append_page(off)) goto fail;
+                off = block->offset + block->len;
+                if (off < len && utf8[off] == '\n') ++off;
+                off = skip_image_spacing(off);
+                if (off < len && !append_page(off)) goto fail;
+                used = 0;
+                column = 0;
+                continue;
+            }
             if (image_display_size(block->image, &img_w, &img_h)) {
                 // 图是页面流里的一个块：放得下就留在本页，文字接着图下面排；放不下才翻页。
                 // An image is one block in the page flow: keep it on this page when it fits and
@@ -638,10 +674,15 @@ bool book_layout_build_blocks(const char* utf8, size_t len, const blk_t* blocks,
                        &line_width, &indent, &align, &margin_before, &margin_after)) goto fail;
         (void)line_width; (void)indent; (void)align;
         line_height = line_height_for(line_px);
-        if (line_height > rect.height) goto fail;
+        int stack_extent = s_vertical ? s_rect.width : s_rect.height;
+        if (line_height > stack_extent) goto fail;
         int leading = used ? margin_before : 0;
-        if (used + leading + line_height > rect.height) {
-            if (!append_page(off)) goto fail;
+        if (used + leading + line_height > stack_extent) {
+            if (s_two_columns && column == 0) column = 1;
+            else {
+                if (!append_page(off)) goto fail;
+                column = 0;
+            }
             used = 0;
             leading = 0;
         }
@@ -716,7 +757,8 @@ static void draw_markdown_line(uint8_t *fb, int x, int baseline, int px, bool he
     }
 }
 
-int book_layout_draw_slice(uint8_t* fb,size_t page,EpdRect rect,int px,book_layout_cursor_t *cursor) {
+int book_layout_draw_slice(uint8_t* fb,size_t page,EpdRect body,int px,book_layout_cursor_t *cursor) {
+    EpdRect rect = book_layout_column_rect(body, cursor && cursor->started ? cursor->column : 0);
     if (!cursor || !fb || page >= s_count || px != s_px || rect.width != s_rect.width ||
         rect.height != s_rect.height || rect.x < 0 || rect.y < 0 ||
         rect.x > INT_MAX - rect.width || rect.y > INT_MAX - rect.height) return -1;
@@ -729,7 +771,7 @@ int book_layout_draw_slice(uint8_t* fb,size_t page,EpdRect rect,int px,book_layo
     if (book_layout_page_image(page) >= 0 && book_layout_page_image_count(page) == 0) return 1;
     size_t off = cursor->started?cursor->offset:s_pages[page];
     size_t end = page + 1 < s_count ? s_pages[page + 1] : s_len;
-    int64_t used = cursor->started?cursor->used:page == 0 ? s_lead_height : 0;
+    int64_t used = cursor->started ? cursor->used : page_lead(page, rect);
     // 本页插图按出现顺序排在池里，游标走到哪个块就用哪条记录，不必再查表。
     // This page's images sit in the pool in encounter order, so the walk just consumes them in
     // turn instead of looking each one up.
@@ -764,9 +806,32 @@ int book_layout_draw_slice(uint8_t* fb,size_t page,EpdRect rect,int px,book_layo
                        &line_width, &indent, &align, &margin_before, &margin_after)) return -1;
         int line_height = line_height_for(line_px);
         int leading = used ? margin_before : 0;
-        if (used + leading + line_height > rect.height) return -1;
+        int stack_extent = s_vertical ? rect.width : rect.height;
+        if (used + leading + line_height > stack_extent) {
+            if (!s_two_columns || cursor->column || line_height > stack_extent) return -1;
+            cursor->column = 1;
+            rect = book_layout_column_rect(body, 1);
+            used = 0;
+            leading = 0;
+        }
         used += leading;
-        if (s_line[0]) {
+        if (s_vertical && s_line[0]) {
+            int x = rect.x + rect.width - (int)used - line_height;
+            int y = rect.y + indent;
+            if (align == 1) y += (rect.height - indent - line_width) / 2;
+            else if (align == 2) y += rect.height - indent - line_width;
+            if (s_reading_line) {
+                int dash = s_reading_line == 1 ? 19 : 2;
+                int period = s_reading_line == 1 ? 31 : 13;
+                int guide = x + (line_height - line_px) / 2 - s_reading_line_offset;
+                if (guide < rect.x) guide = rect.x;
+                if (guide > rect.x + rect.width - 2) guide = rect.x + rect.width - 2;
+                for (int dy = 0; dy < line_width; dy += period)
+                    epd_fill_rect((EpdRect){guide, y + dy, 2, line_width - dy < dash ? line_width - dy : dash}, 0x50, fb);
+            }
+            ttf_draw_vertical_px(fb, x + line_height / 2, y, rect.y + rect.height - y, line_px, s_line,
+                                 heading ? 0 : s_tracking_px);
+        } else if (s_line[0]) {
             if (s_reading_line) {
                 int guide_y = rect.y + (int)used + line_px + (line_height - line_px) / 2 +
                               s_reading_line_offset;

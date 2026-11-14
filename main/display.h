@@ -93,10 +93,10 @@ enum EpdDrawError update_display_area_diff_with(
     EpdiyHighlevelState* hl, const EpdWaveform* waveform, enum EpdDrawMode mode,
     EpdRect area
 );
-/// 阅读页可选的真实错相 GL16 翻页；缺相位时回退现有 GL16，失败时恢复基准帧。
-/// Optional staggered GL16 reader turn; fall back on missing phases and recover the baseline after failure.
+/// 横屏错相使用普通扫描时序；中断后恢复基准并改用差分翻页，直至重启。
+/// Landscape turns use normal scan timing; after an interruption, rebuild the baseline and use differential turns until reboot.
 enum EpdDrawError update_display_water_turn(EpdiyHighlevelState* hl, EpdRect area,
-                                             e0470_turn_dir_t dir);
+                                             e0470_turn_dir_t dir, bool landscape);
 /// 动画中间帧使用灰阶波形，但不累计周期清屏计数；动画最终帧走普通刷新出口。
 /// Use grayscale for animation strips without advancing periodic cleanup; the final frame uses the normal path.
 

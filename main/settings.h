@@ -68,6 +68,7 @@ esp_err_t app_settings_set_status_show_date(bool show);
 app_status_date_format_t app_settings_status_date_format(void);
 esp_err_t app_settings_set_status_date_format(app_status_date_format_t format);
 void app_settings_format_status_clock(time_t now,char *out,size_t capacity);
+void app_settings_format_status_clock_with_date(time_t now,char *out,size_t capacity);
 /// 空路径表示固件内建字体；非空为 SD 上的 TTF。/ Empty path is the built-in font; non-empty is a TTF on the SD card.
 const char* app_settings_font_path(void);
 esp_err_t app_settings_set_font_path(const char* path);
@@ -123,6 +124,15 @@ esp_err_t app_settings_set_reader_fullscreen(bool on);
 bool app_settings_reader_immersive(void);
 esp_err_t app_settings_set_reader_immersive(bool on);
 /// 阅读时跳过书内插图页；原图仍保留在 EPUB 中。/ Skip inline illustrations while reading without changing the EPUB.
+typedef enum {
+    APP_BOOK_PORTRAIT,
+    APP_BOOK_LANDSCAPE,
+    APP_BOOK_LANDSCAPE_TWO_COLUMNS,
+} app_book_screen_t;
+app_book_screen_t app_settings_book_screen(void);
+esp_err_t app_settings_set_book_screen(app_book_screen_t screen);
+bool app_settings_book_vertical(void);
+esp_err_t app_settings_set_book_vertical(bool on);
 bool app_settings_reader_hide_images(void);
 esp_err_t app_settings_set_reader_hide_images(bool on);
 /// 阅读时长按中间圆圈键全刷；关闭时返回首页，默认关闭。

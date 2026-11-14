@@ -16,4 +16,6 @@ void ttf_draw_text_px_fitted(uint8_t* fb, int x, int y, int px, const char* text
                              int tracking_px, int target_width, uint8_t fg, uint8_t bg);
 
 int ttf_text_width_styled_px(int px,const char *text,unsigned flags);
+int ttf_vertical_advance_px(int px, uint32_t cp);
+void ttf_draw_vertical_px(uint8_t *fb, int center_x, int top, int height, int px, const char *text, int tracking);
 void ttf_draw_glyph_styled_px(uint8_t *fb,int x,int y,int px,const char *text,unsigned flags,uint8_t fg,uint8_t bg);

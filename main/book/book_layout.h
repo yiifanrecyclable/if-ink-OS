@@ -18,6 +18,10 @@
 /// 重排借用文本；空文一页，失败清空布局，超过 4096 页返回 false。/ Borrow and paginate; empty text has one page, failure clears layout, over 4096 pages fails.
 bool book_layout_build(const char* utf8, size_t len, EpdRect rect, int px);
 /// 借用块表；普通图书标题字号加8，块间单换行；原文与块表须存活至free。/ Borrow blocks; ordinary book headings add 8 px, with one newline between blocks; text and blocks must outlive layout.
+#define BOOK_VERTICAL_HEADING_WIDTH 144
+void book_layout_set_vertical(bool enabled);
+void book_layout_set_two_columns(bool enabled);
+EpdRect book_layout_column_rect(EpdRect body, unsigned column);
 bool book_layout_build_blocks(const char* utf8, size_t len, const blk_t* blocks, size_t count, EpdRect rect, int px);
 /// 设置行高百分比与段后距离百分比，重排时生效。/ Set line height and paragraph gap percentages for the next layout.
 void book_layout_set_spacing(unsigned line_percent, unsigned paragraph_percent);
@@ -76,6 +80,7 @@ typedef struct {
     size_t page,offset;
     int64_t used;
     uint32_t generation,image_at;
+    unsigned column;
     bool started;
 } book_layout_cursor_t;
 /// 画一个文字行或表格块；0未完成、1完成、-1失效/失败，调用方须持字体锁。/ Paint one row/table unit: 0 more, 1 done, -1 invalid/failure; caller holds the font lock.

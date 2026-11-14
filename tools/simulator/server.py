@@ -90,6 +90,7 @@ class Preview:
         inputs.extend([HERE/'nvs.c',HERE/'replay.h'])
         inputs.extend((ROOT/'main/ui').glob('*.c'))
         inputs.extend((ROOT/'main/ui').glob('*.h'))
+        inputs.extend((ROOT/'main/ui').glob('*.inc'))
         inputs.extend((ROOT/'main/apps').glob('*.c'))
         inputs.extend((ROOT/'main/apps').glob('*.h'))
         inputs.extend((ROOT/'main/cloud').glob('*.c'))

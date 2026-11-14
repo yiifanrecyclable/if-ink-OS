@@ -70,6 +70,12 @@ with tempfile.TemporaryDirectory(prefix='apps-beads-',dir=ROOT/'build') as tmp:
     assert render('cyber-beads',';'.join((tap(30,34),tap(36,1144))))['route']==-1
     render('cyber-beads',';'.join((tap(30,34),tap(576,1144),tap(342,598),tap(108,1144))))
     frame=(out/'frame.bin').read_bytes();assert ((frame[34*342+44//2]>>(4 if 44%2 else 0))&15)==13
+    # All hardware keys use the app's exit flow, including the unsaved-board prompt.
+    for key in range(3):
+        press=f'k,{key},0,0,0'
+        assert render('cyber-beads',press)['route']==2
+        assert render('cyber-beads',tap(30,34)+';'+press)['route']==-1
+        assert render('cyber-beads',tap(30,34)+';'+press+';'+tap(342,690))['route']==2
     # 浏览器服务层也必须把拼豆触控和底栏操作交给C，而不是通用导航。
     # The browser service must forward bead taps and tools to C rather than generic navigation.
     for slot in folder.glob('.board-*'):slot.unlink()
@@ -108,15 +114,15 @@ with tempfile.TemporaryDirectory(prefix='apps-beads-',dir=ROOT/'build') as tmp:
         assert gesture(342,690)['screen']=='files-home'
         assert gesture(180,714)['screen']=='cyber-beads'
         frame=(out/'frame.bin').read_bytes();assert frame[34*342+22]&15==13
-        # 应用入口返回路径：USB按钮/左上返回/实体左右键都回应用，Home回首页。
-        # USB button/header/side keys return to Apps; the physical Home key retains Home.
+        # 应用入口返回路径：USB 按钮、左上返回和中键回应用，左右键保持当前页。
+        # USB button, header and middle key return to Apps; side keys stay on USB.
         for event in ({'action':'gesture','type':'t','x':342,'y':990,'xx':342,'yy':990},
                       {'action':'gesture','type':'t','x':40,'y':90,'xx':40,'yy':90},
                       {'action':'key','key':0},{'action':'key','key':2},{'action':'key','key':1}):
             preview.action({'action':'files'})
             assert gesture(180,434)['screen']=='transfer-usb'
             state=preview.action(event)
-            assert state['screen']==('baseline-home' if event.get('key')==1 else 'files-home'),state
+            assert state['screen']==('transfer-usb' if event.get('key') in (0,2) else 'files-home'),state['screen']
         preview.action({'action':'files'})
         assert gesture(180,294)['screen']=='transfer-methods'
         assert gesture(40,90)['screen']=='files-home'

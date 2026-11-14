@@ -62,6 +62,8 @@
 #define NVS_KEY_POWER_TURN "rd_power"
 #define NVS_KEY_IMMERSIVE "rd_immersive"
 #define NVS_KEY_FULLSCREEN "rd_fullscreen"
+#define NVS_KEY_BOOK_SCREEN "book_screen"
+#define NVS_KEY_BOOK_VERTICAL "book_vertical"
 #define NVS_KEY_HIDE_IMAGES "rd_no_image"
 #define NVS_KEY_HOLD_REFRESH "rd_hold_full"
 #define NVS_KEY_VERTICAL_TURN "rd_vertical"
@@ -107,6 +109,8 @@ static uint8_t s_book_line = 130, s_book_para = 50, s_book_margin = 36;
 static bool s_reader_power_turn;
 static bool s_reader_immersive;
 static bool s_reader_fullscreen;
+static bool s_book_vertical;
+static app_book_screen_t s_book_screen;
 static bool s_reader_hide_images;
 static bool s_reader_hold_refresh;
 static bool s_reader_vertical_turn;
@@ -141,9 +145,10 @@ static bool settings_u8_valid(const char *key,uint8_t v){
     if(!strcmp(key,NVS_KEY_BOOK_LINE))return (v>=110&&v<=150)||v==180;
     if(!strcmp(key,NVS_KEY_BOOK_PARA))return v<=75;
     if(!strcmp(key,NVS_KEY_BOOK_MARGIN))return v>=8&&v<=60;
+    if (!strcmp(key, NVS_KEY_BOOK_SCREEN)) return v <= APP_BOOK_LANDSCAPE_TWO_COLUMNS;
     const char *flags[]={NVS_KEY_SHUTDOWN_MODE,NVS_KEY_HOME_FULL,NVS_KEY_LOCK_STYLE,NVS_KEY_PICKUP,
         NVS_KEY_FULLSCREEN,NVS_KEY_READER_TURN,NVS_KEY_POWER_TURN,NVS_KEY_IMMERSIVE,NVS_KEY_HOLD_REFRESH,
-        NVS_KEY_VERTICAL_TURN,NVS_KEY_HIDE_IMAGES,NVS_KEY_SHELF_RECENT};
+        NVS_KEY_VERTICAL_TURN,NVS_KEY_BOOK_VERTICAL,NVS_KEY_HIDE_IMAGES,NVS_KEY_SHELF_RECENT};
     for(unsigned i=0;i<sizeof(flags)/sizeof(flags[0]);++i)if(!strcmp(key,flags[i]))return v<=1;
     return true;
 }
@@ -300,6 +305,10 @@ void app_settings_init(void) {
     uint8_t vertical_turn = 0;
     if (settings_read_u8(h, NVS_KEY_VERTICAL_TURN, &vertical_turn) == ESP_OK) s_reader_vertical_turn = vertical_turn == 1;
     uint8_t hide_images = 0, recent_sort = 0;
+    uint8_t book_screen = 0;
+    if (settings_read_u8(h, NVS_KEY_BOOK_SCREEN, &book_screen) == ESP_OK) s_book_screen = (app_book_screen_t)book_screen;
+    uint8_t vertical_book = 0;
+    if (settings_read_u8(h, NVS_KEY_BOOK_VERTICAL, &vertical_book) == ESP_OK) s_book_vertical = vertical_book == 1;
     if (settings_read_u8(h, NVS_KEY_HIDE_IMAGES, &hide_images) == ESP_OK) s_reader_hide_images = hide_images == 1;
     if (settings_read_u8(h, NVS_KEY_SHELF_RECENT, &recent_sort) == ESP_OK) s_shelf_recent_sort = recent_sort == 1;
     uint8_t tracking = 2, reading_line = 0, rule_offset = 4, indent = 2;
@@ -422,13 +431,13 @@ esp_err_t app_settings_set_status_date_format(app_status_date_format_t format) {
     value=(value&0x80)|(uint8_t)format;
     err=nvs_put_u8(NVS_KEY_STATUS_DATE,value);if(err==ESP_OK)s_status_date=value;return err;
 }
-void app_settings_format_status_clock(time_t now,char *out,size_t capacity){
+static void format_status_clock(time_t now,char *out,size_t capacity,bool show_date){
     if(!out||!capacity)return;
     snprintf(out,capacity,"--:--");
     if(now<1704067200)return;
     time_t china=now+8*3600;struct tm date;
     if(!gmtime_r(&china,&date))return;
-    if(!app_settings_status_show_date()){strftime(out,capacity,"%H:%M",&date);return;}
+    if(!show_date){strftime(out,capacity,"%H:%M",&date);return;}
     switch(app_settings_status_date_format()){
         case APP_STATUS_DATE_SLASH:strftime(out,capacity,"%Y/%m/%d %H:%M",&date);break;
         case APP_STATUS_DATE_DOT:strftime(out,capacity,"%Y.%m.%d %H:%M",&date);break;
@@ -436,6 +445,13 @@ void app_settings_format_status_clock(time_t now,char *out,size_t capacity){
         case APP_STATUS_DATE_MONTH_DAY_SLASH:strftime(out,capacity,"%m/%d %H:%M",&date);break;
         default:strftime(out,capacity,"%Y-%m-%d %H:%M",&date);break;
     }
+}
+
+void app_settings_format_status_clock(time_t now,char *out,size_t capacity){
+    format_status_clock(now,out,capacity,app_settings_status_show_date());
+}
+void app_settings_format_status_clock_with_date(time_t now,char *out,size_t capacity){
+    format_status_clock(now,out,capacity,true);
 }
 
 const char* app_settings_font_path(void) {
@@ -662,6 +678,20 @@ esp_err_t app_settings_set_reader_immersive(bool on) {
     if(err==ESP_OK)s_reader_immersive=on;
     return err;
 }
+app_book_screen_t app_settings_book_screen(void) { return s_book_screen; }
+esp_err_t app_settings_set_book_screen(app_book_screen_t screen) {
+    if (screen < APP_BOOK_PORTRAIT || screen > APP_BOOK_LANDSCAPE_TWO_COLUMNS) return ESP_ERR_INVALID_ARG;
+    esp_err_t err = nvs_put_u8(NVS_KEY_BOOK_SCREEN, (uint8_t)screen);
+    if (err == ESP_OK) s_book_screen = screen;
+    return err;
+}
+bool app_settings_book_vertical(void) { return s_book_vertical; }
+esp_err_t app_settings_set_book_vertical(bool on) {
+    esp_err_t err = nvs_put_u8(NVS_KEY_BOOK_VERTICAL, on);
+    if (err == ESP_OK) s_book_vertical = on;
+    return err;
+}
+
 bool app_settings_reader_hide_images(void) { return s_reader_hide_images; }
 esp_err_t app_settings_set_reader_hide_images(bool on) {
     esp_err_t err=nvs_put_u8(NVS_KEY_HIDE_IMAGES,on?1:0);

@@ -126,6 +126,9 @@ void ttf_bench_end(ttf_bench_stats_t* out);
 
 /// Markdown 合成字形：1 加粗，2 倾斜；宽度含边缘留白，不切换全局字体。/ Synthetic Markdown glyphs: 1 bold, 2 italic; reserve edge space without changing the global face.
 int ttf_text_width_styled_px(int px, const char *text, unsigned flags);
+int ttf_vertical_advance_px(int px, uint32_t cp);
+void ttf_draw_vertical_px(uint8_t *fb, int center_x, int top, int height, int px,
+                          const char *text, int tracking);
 void ttf_draw_glyph_styled_px(uint8_t *fb, int x, int baseline, int px, const char *glyph, unsigned flags, uint8_t fg, uint8_t bg);
 
 /// 回收双槽字形位图，保留字体；调用方持绘制锁。/ Reclaim both glyph caches, retaining loaded faces under the draw lock.

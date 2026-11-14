@@ -8,13 +8,18 @@ static app_redraw_t reader_show_panel(reader_panel_t panel){
         ttf_font_scan();
         ttf_name_preview_revision(book_store_revision());
     }
+    if(panel==READER_PANEL_HELP)s_help_return_panel=s_reader_panel;
     s_reader_panel=panel;s_control_page=0;s_reader_slider=-1;s_progress_drag=false;s_pressed_control=-1;
     s_reader_multi=(reader_multi_t){.blocked=true};invalidate_prep();return APP_REDRAW_PAGE;
+}
+static app_redraw_t reader_open_tools(app_ctx_t *ctx) {
+    reader_sample_landscape_direction(ctx);
+    return reader_show_panel(READER_PANEL_TOOLS);
 }
 static void reader_remember_jump(void){s_jump_back_valid=true;s_jump_back_chapter=s_chapter;s_jump_back_offset=reader_page_offset(s_page);}
 static app_redraw_t reader_show_tab(app_ctx_t *ctx,int tab){
     s_control_page=0;s_reader_slider=-1;s_progress_drag=false;
-    if(tab==0){save_progress();s_reader_panel=READER_PANEL_NONE;set_reader_view(TOC);s_message[0]=0;s_toc_jump_open=s_toc_jump_drag=false;size_t at=current_toc_position();ctx->leaf=at==SIZE_MAX?0:(int)(at/BOOK_TOC_ROWS);return APP_REDRAW_PAGE;}
+    if(tab==0){save_progress();s_reader_panel=READER_PANEL_NONE;set_reader_view(TOC);s_message[0]=0;s_toc_jump_open=s_toc_jump_drag=false;size_t at=current_toc_position();ctx->leaf=at==SIZE_MAX?0:(int)(at/(reader_landscape()?WIDE_TOC_ROWS:BOOK_TOC_ROWS));return APP_REDRAW_PAGE;}
     if(s_view==TOC)set_reader_view(READING);
     if(tab==1){s_bookmark_edit=s_bookmark_delete_confirm=s_bookmark_delete_error=false;s_bookmark_selected=0;return reader_show_panel(READER_PANEL_BOOKMARKS);}
     return reader_show_panel(tab==2?READER_PANEL_FONT_SETTINGS:tab==3?READER_PANEL_LAYOUT_SETTINGS:READER_PANEL_REFRESH_SETTINGS);
@@ -34,7 +39,7 @@ static app_redraw_t reader_execute_shortcut(app_ctx_t *ctx,int slot){
     case READER_ACTION_NEXT:return turn_page(ctx,1);
     case READER_ACTION_TOC:return reader_show_tab(ctx,0);
     case READER_ACTION_BOOKMARKS:s_bookmark_edit=s_bookmark_delete_confirm=s_bookmark_delete_error=false;return reader_show_panel(READER_PANEL_BOOKMARKS);
-    case READER_ACTION_PANEL:return reader_show_panel(READER_PANEL_TOOLS);
+    case READER_ACTION_PANEL:return reader_open_tools(ctx);
     case READER_ACTION_FULLSCREEN:return toggle_reader_fullscreen(ctx);
     case READER_ACTION_SMALLER:return reader_change_size(ctx,-1);
     case READER_ACTION_LARGER:return reader_change_size(ctx,1);
@@ -46,69 +51,53 @@ static app_redraw_t reader_execute_shortcut(app_ctx_t *ctx,int slot){
 static app_redraw_t reader_help_close(void){
     esp_err_t err=reader_input_ack_help(s_path,s_help_hide);
     if(err!=ESP_OK){copy_text(s_reader_notice,sizeof(s_reader_notice),UI_MSG("操作说明偏好保存失败，请重试"));s_reader_notice_until=esp_timer_get_time()/1000+2500;return APP_REDRAW_PAGE;}
-    return reader_show_panel(READER_PANEL_NONE);
+    return reader_show_panel(s_help_return_panel);
 }
-static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
-    if(s_reader_panel==READER_PANEL_HELP){
-        if(y>=UI_STATUS_HEIGHT&&y<UI_PAGE_Y(160)){if(x>530)return reader_help_close();if(x<460){s_help_hide=!s_help_hide;return APP_REDRAW_PAGE;}}
-        return APP_REDRAW_NONE;
-    }
-    if(s_bookmark_delete_confirm){
-        if(y>=590&&y<700){if(x<342)s_bookmark_delete_confirm=s_bookmark_delete_error=false;
-            else if(bookmark_delete_selected()){s_bookmark_delete_confirm=s_bookmark_delete_error=false;int pages=(bookmark_count()+1)/reader_control_rows()+1;if(s_control_page>=pages)s_control_page=pages-1;}
-            else s_bookmark_delete_error=true;
-            return APP_REDRAW_PAGE;}
-        return APP_REDRAW_NONE;
-    }
-    if(y>=1096){int tab=x*5/684;return reader_show_tab(ctx,tab);}
-    if(s_reader_panel==READER_PANEL_TOOLS){
-        int top=reader_control_top();if(y<top)return reader_show_panel(READER_PANEL_NONE);
-        int ay=reader_actions_y(),height=reader_actions_height();
-        if(y>=ay&&y<ay+height){int button=x*4/684;
-            if(button==0)return reader_return(ctx,false);
-            if(button==1)return toggle_reader_fullscreen(ctx);
-            if(button==2){(void)bookmark_toggle();return APP_REDRAW_PAGE;}
-            return reader_manual_refresh(ctx);
+static app_redraw_t reader_help_tap(uint16_t x,uint16_t y,int center_y){
+    if(ui_rect_hit(reader_help_exit_rect(center_y),x,y))return reader_help_close();
+    if(!ui_rect_hit(reader_help_toggle_rect(center_y),x,y))return APP_REDRAW_NONE;
+    s_help_hide=!s_help_hide;
+    return APP_REDRAW_PAGE;
+}
+static app_redraw_t reader_quick_action(app_ctx_t *ctx, int button) {
+    if (button == 0) return reader_return(ctx, false);
+    if (button == 1) {
+        if (s_view == TOC) {
+            s_toc_jump_open = s_toc_jump_drag = false;
+            set_reader_view(READING);
+            reader_show_panel(READER_PANEL_TOOLS);
         }
-        if(s_jump_back_valid&&ui_rect_hit(reader_jump_back_rect(),x,y)){size_t chapter=s_jump_back_chapter,offset=s_jump_back_offset;if(load_chapter(ctx,chapter,offset,false)){s_jump_back_valid=false;s_reader_panel=READER_PANEL_NONE;save_progress();}return APP_REDRAW_PAGE;}
-        return APP_REDRAW_NONE;
+        return toggle_reader_fullscreen(ctx);
     }
-    if(y<UI_PAGE_Y(180)){
-        if(x>570)return reader_show_panel(READER_PANEL_NONE);
-        if(x<110){
-            if(s_reader_panel==READER_PANEL_BINDING)return reader_show_panel(READER_PANEL_SHORTCUTS);
-            if(s_reader_panel==READER_PANEL_FONT_PICKER||s_reader_panel==READER_PANEL_MARKDOWN_SIZES)return reader_show_panel(READER_PANEL_FONT_SETTINGS);
-            if(s_reader_panel==READER_PANEL_RULE_SETTINGS)return reader_show_panel(READER_PANEL_LAYOUT_SETTINGS);
-            if(s_reader_panel==READER_PANEL_BASIC)return reader_show_panel(READER_PANEL_REFRESH_SETTINGS);
-            return reader_show_panel(READER_PANEL_TOOLS);
-        }
-        return APP_REDRAW_NONE;
+    if (button == 2) { (void)bookmark_toggle(); return APP_REDRAW_PAGE; }
+    if (s_view == TOC) {
+        s_toc_jump_open = s_toc_jump_drag = false;
+        set_reader_view(READING);
     }
-    if(s_reader_panel==READER_PANEL_BASIC){
-        for(int mode=0;mode<2;++mode)if(ui_rect_hit(reader_basic_option(mode),x,y)){
-            if(reader_input_set_tap_layout((reader_tap_layout_t)mode)!=ESP_OK){copy_text(s_reader_notice,sizeof(s_reader_notice),UI_MSG("操作区域保存失败，请重试"));s_reader_notice_until=esp_timer_get_time()/1000+2500;}
-            return APP_REDRAW_PAGE;}
-        return APP_REDRAW_NONE;
-    }
-    if(reader_markdown_font_panel()){
-        if(ui_rect_hit((EpdRect){36,UI_PAGE_Y(210),612,80},x,y))return reader_show_panel(READER_PANEL_FONT_PICKER);
-        return APP_REDRAW_NONE;
-    }
-    int count=reader_control_count(),rows=reader_control_rows();
-    if(y>=1018&&y<1096&&count>rows){int next=s_control_page+(x<342?-1:1);if(next>=0&&next<1+(count-1)/rows)reader_set_control_page(next);return APP_REDRAW_PAGE;}
-    if(y<UI_PAGE_Y(220)||y>=UI_PAGE_Y(220)+rows*reader_row_height())return APP_REDRAW_NONE;
-    int row=(y-UI_PAGE_Y(220))/reader_row_height(),i=s_control_page*rows+row;
+    return reader_manual_refresh(ctx);
+}
+static app_redraw_t reader_panel_item(app_ctx_t *ctx,int i,uint16_t x,uint16_t y) {
     if(s_reader_panel==READER_PANEL_FONT_SETTINGS){
-        if(row==1)return reader_show_panel(READER_PANEL_FONT_PICKER);
-        if(row==2&&book_kind()==BOOK_KIND_MARKDOWN)return reader_show_panel(READER_PANEL_MARKDOWN_SIZES);
+        if(i==1)return reader_show_panel(READER_PANEL_FONT_PICKER);
+        if(i==2&&book_kind()==BOOK_KIND_MARKDOWN)return reader_show_panel(READER_PANEL_MARKDOWN_SIZES);
     }else if(s_reader_panel==READER_PANEL_FONT_PICKER){
         return select_reading_font_item(ctx,ttf_font_item(i));
     }else if(s_reader_panel==READER_PANEL_LAYOUT_SETTINGS){
         if(i==4)return apply_reader_indent(ctx,(app_settings_book_indent()+1)%4);
         if(i==5)return reader_show_panel(READER_PANEL_RULE_SETTINGS);
+        if(i==6 && book_kind()!=BOOK_KIND_MARKDOWN) {
+            bool vertical = reader_book_vertical();
+            if (ui_rect_hit(reader_layout_mode_rect(0), x, y))
+                return apply_book_presentation(!vertical, s_reader_screen);
+            if (ui_rect_hit(reader_layout_mode_rect(1), x, y))
+                return apply_book_presentation(vertical, reader_landscape() ? APP_BOOK_PORTRAIT : APP_BOOK_LANDSCAPE);
+            if (reader_landscape() && ui_rect_hit(reader_layout_mode_rect(2), x, y))
+                return apply_book_presentation(vertical, s_reader_screen == APP_BOOK_LANDSCAPE
+                    ? APP_BOOK_LANDSCAPE_TWO_COLUMNS : APP_BOOK_LANDSCAPE);
+        }
     }else if(s_reader_panel==READER_PANEL_RULE_SETTINGS){
         if(i<3){int style=i;app_settings_set_book_reading_line(style);book_layout_set_reading_line(style);}
-        else if(i==3||i==4){int dir=ui_rect_hit(reader_rule_offset_rect(-1),x,y)?-1:ui_rect_hit(reader_rule_offset_rect(1),x,y)?1:0;if(i==3&&!dir)return APP_REDRAW_NONE;int offset=i==4?0:app_settings_book_reading_line_offset()+dir*2;if(offset< -8)offset=-8;if(offset>8)offset=8;app_settings_set_book_reading_line_offset(offset);book_layout_set_reading_line_offset(offset);}
+        else if(i==3||i==4){int dir=ui_rect_hit(reader_landscape()?wide_rule_adjust(-1):reader_rule_offset_rect(-1),x,y)?-1:ui_rect_hit(reader_landscape()?wide_rule_adjust(1):reader_rule_offset_rect(1),x,y)?1:0;if(i==3&&!dir)return APP_REDRAW_NONE;int offset=i==4?0:app_settings_book_reading_line_offset()+dir*2;if(offset< -8)offset=-8;if(offset>8)offset=8;app_settings_set_book_reading_line_offset(offset);book_layout_set_reading_line_offset(offset);}
         else return APP_REDRAW_NONE;
         invalidate_prep();return APP_REDRAW_PAGE;
     }else if(s_reader_panel==READER_PANEL_SHORTCUTS){
@@ -139,6 +128,51 @@ static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
     return APP_REDRAW_NONE;
 }
 
+static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
+    if(s_reader_panel==READER_PANEL_HELP)return reader_help_tap(x,y,progress_rect().y+22);
+    if(s_bookmark_delete_confirm){
+        if(y>=590&&y<700){if(x<342)s_bookmark_delete_confirm=s_bookmark_delete_error=false;
+            else if(bookmark_delete_selected()){s_bookmark_delete_confirm=s_bookmark_delete_error=false;int pages=(bookmark_count()+1)/reader_control_rows()+1;if(s_control_page>=pages)s_control_page=pages-1;}
+            else s_bookmark_delete_error=true;
+            return APP_REDRAW_PAGE;}
+        return APP_REDRAW_NONE;
+    }
+    if(y>=1096){int tab=x*5/684;return reader_show_tab(ctx,tab);}
+    if(s_reader_panel==READER_PANEL_TOOLS){
+        int top=reader_control_top();if(y<top)return reader_show_panel(READER_PANEL_NONE);
+        int ay=reader_actions_y(),height=reader_actions_height();
+        if(y>=ay&&y<ay+height)return reader_quick_action(ctx,x*4/684);
+        if(s_jump_back_valid&&ui_rect_hit(reader_jump_back_rect(),x,y)){size_t chapter=s_jump_back_chapter,offset=s_jump_back_offset;if(load_chapter(ctx,chapter,offset,false)){s_jump_back_valid=false;s_reader_panel=READER_PANEL_NONE;save_progress();}return APP_REDRAW_PAGE;}
+        return APP_REDRAW_NONE;
+    }
+    if(y<UI_PAGE_Y(180)){
+        if(ui_rect_hit(reader_portrait_close_rect(), x, y)){
+            if(s_reader_panel==READER_PANEL_BINDING)return reader_show_panel(READER_PANEL_SHORTCUTS);
+            if(s_reader_panel==READER_PANEL_FONT_PICKER||s_reader_panel==READER_PANEL_MARKDOWN_SIZES)return reader_show_panel(READER_PANEL_FONT_SETTINGS);
+            if(s_reader_panel==READER_PANEL_RULE_SETTINGS)return reader_show_panel(READER_PANEL_LAYOUT_SETTINGS);
+            if(s_reader_panel==READER_PANEL_BASIC)return reader_show_panel(READER_PANEL_REFRESH_SETTINGS);
+            return reader_show_panel(READER_PANEL_TOOLS);
+        }
+        return APP_REDRAW_NONE;
+    }
+    if(s_reader_panel==READER_PANEL_BASIC){
+        for(int mode=0;mode<2;++mode)if(ui_rect_hit(reader_basic_option(mode),x,y)){
+            if(reader_input_set_tap_layout((reader_tap_layout_t)mode)!=ESP_OK){copy_text(s_reader_notice,sizeof(s_reader_notice),UI_MSG("操作区域保存失败，请重试"));s_reader_notice_until=esp_timer_get_time()/1000+2500;}
+            return APP_REDRAW_PAGE;}
+        return APP_REDRAW_NONE;
+    }
+    if(reader_markdown_font_panel()){
+        if(ui_rect_hit((EpdRect){36,UI_PAGE_Y(210),612,80},x,y))return reader_show_panel(READER_PANEL_FONT_PICKER);
+        return APP_REDRAW_NONE;
+    }
+    int count=reader_control_count(),rows=reader_control_rows();
+    if(y>=1018&&y<1096&&count>rows){int next=s_control_page+(x<342?-1:1);if(next>=0&&next<1+(count-1)/rows)reader_set_control_page(next);return APP_REDRAW_PAGE;}
+    int row=reader_control_row_at(y);
+    if(row<0)return APP_REDRAW_NONE;
+    int i=s_control_page*rows+row;
+    return reader_panel_item(ctx,i,x,y);
+}
+
 // 使用与进度显示相同的源字节比例映射；只在松手时加载章节。/ Invert displayed source-byte progress, loading only on release.
 static app_redraw_t reader_progress_jump(app_ctx_t *ctx,int progress){
     uint32_t total=book_total_bytes();size_t count=book_chapter_count();
@@ -162,7 +196,8 @@ static app_redraw_t reader_progress_jump(app_ctx_t *ctx,int progress){
 }
 static app_redraw_t reader_progress_preview(app_ctx_t *ctx,int x){
     int next=reader_progress_from_x(x);if(next==s_progress_percent)return APP_REDRAW_NONE;
-    s_progress_percent=next;lock_draw();s_area=reader_control_preview(ctx->fb,-1);unlock_draw();s_mode=MODE_GL16;return APP_REDRAW_AREA;
+    s_progress_percent=next;if(reader_landscape())return reader_wide_preview(ctx);
+    lock_draw();s_area=reader_control_preview(ctx->fb,-1);unlock_draw();s_mode=MODE_GL16;return APP_REDRAW_AREA;
 }
 static app_redraw_t reader_style_preview(app_ctx_t *ctx,int x){
     if(s_reader_slider_endpoint){EpdRect r=reader_slider_rect(s_reader_slider);if(x<r.x+64||x>=r.x+r.width-64)return APP_REDRAW_NONE;}
@@ -170,53 +205,100 @@ static app_redraw_t reader_style_preview(app_ctx_t *ctx,int x){
     reader_slider_move(x);
     int now[]={s_reader_preview_px,s_reader_preview_margin,s_reader_preview_line,s_reader_preview_para,s_reader_preview_tracking,s_md_draft[0],s_md_draft[1],s_md_draft[2],s_md_draft[3]};
     if(!memcmp(old,now,sizeof(old)))return APP_REDRAW_NONE;
+    if(reader_landscape())return reader_wide_preview(ctx);
     lock_draw();s_area=reader_control_preview(ctx->fb,s_reader_slider);unlock_draw();s_mode=MODE_GL16;return APP_REDRAW_AREA;
 }
 static app_redraw_t reader_toc_preview(app_ctx_t *ctx,int x,bool force){
     int next=book_toc_jump_percent((uint16_t)x);if(!force&&next==s_toc_jump_percent)return APP_REDRAW_NONE;
-    s_toc_jump_percent=next;lock_draw();book_toc_render_jump_preview(ctx->fb,book_navigation_count(),next);unlock_draw();s_area=book_toc_jump_preview_area();s_mode=MODE_GL16;return APP_REDRAW_AREA;
+    s_toc_jump_percent=next;if(reader_landscape())return reader_wide_preview(ctx);
+    lock_draw();book_toc_render_jump_preview(ctx->fb,book_navigation_count(),next);unlock_draw();s_area=book_toc_jump_preview_area();s_mode=MODE_GL16;return APP_REDRAW_AREA;
+}
+static bool reader_progress_event(const ui_gesture_event_t *ev) {
+    int y = reader_progress_y();
+    return s_progress_drag || (ev->type == UI_GESTURE_PRESS && ev->x0 >= 16 && ev->x0 <= 668 &&
+                               (int)ev->y0 >= y - 28 && (int)ev->y0 < y + 16);
+}
+static app_redraw_t reader_progress_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
+    switch (ev->type) {
+    case UI_GESTURE_PRESS:
+        s_progress_drag = true;
+        s_progress_percent = -1;
+        return reader_progress_preview(ctx, ev->x0);
+    case UI_GESTURE_MOVE:
+        return reader_progress_preview(ctx, ev->x);
+    case UI_GESTURE_CANCEL:
+        // A short drag or held release can also arrive as CANCEL from the shared recognizer.
+        s_progress_drag = false;
+        if (!ctx->released || !ctx->touch || ctx->consumed) return APP_REDRAW_PAGE;
+        break;
+    case UI_GESTURE_TAP:
+    case UI_GESTURE_SWIPE_L:
+    case UI_GESTURE_SWIPE_R:
+    case UI_GESTURE_SWIPE_U:
+    case UI_GESTURE_SWIPE_D:
+        s_progress_drag = false;
+        break;
+    default:
+        return APP_REDRAW_NONE;
+    }
+    if (s_view == TOC) {
+        s_toc_jump_open = s_toc_jump_drag = false;
+        set_reader_view(READING);
+    }
+    return reader_progress_jump(ctx, reader_progress_from_x(ev->x));
+}
+static app_redraw_t reader_style_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev) {
+    if(ev->type==UI_GESTURE_MOVE)return reader_style_preview(ctx,ev->x);
+    if(ev->type==UI_GESTURE_CANCEL){
+        if(ctx->released&&ctx->touch&&!ctx->consumed){if(!s_reader_slider_endpoint)reader_slider_move(ev->x);return reader_slider_commit(ctx);}
+        s_reader_slider=-1;return APP_REDRAW_PAGE;
+    }
+    if(ev->type==UI_GESTURE_TAP||ev->type==UI_GESTURE_SWIPE_L||ev->type==UI_GESTURE_SWIPE_R||ev->type==UI_GESTURE_SWIPE_U||ev->type==UI_GESTURE_SWIPE_D){if(!s_reader_slider_endpoint)reader_slider_move(ev->x);return reader_slider_commit(ctx);}
+    return APP_REDRAW_NONE;
 }
 static app_redraw_t reader_controls_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev){
     if(ctx->touch&&ctx->touch->count>1){s_pressed_control=-1;if(s_progress_drag){s_progress_drag=false;return APP_REDRAW_PAGE;}if(s_reader_slider>=0){s_reader_slider=-1;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;}
     if(!s_toolbar&&(s_reader_multi.active||(s_reader_multi.blocked&&ctx->touch)))return APP_REDRAW_NONE;
     if(s_toolbar){
-        if(s_reader_panel==READER_PANEL_TOOLS&&ev->type==UI_GESTURE_PRESS&&ev->x0>=16&&ev->x0<=668&&(int)ev->y0>=reader_progress_y()-28&&(int)ev->y0<reader_progress_y()+16){
-            s_progress_drag=true;s_progress_percent=-1;return reader_progress_preview(ctx,ev->x0);
-        }
-        if(s_progress_drag){
-            if(ev->type==UI_GESTURE_CANCEL){
-                // 正常短拖/长按松手在通用识别器中也叫CANCEL；失焦和多点仍取消。/ Normal short/held releases share CANCEL with invalid sequences.
-                s_progress_drag=false;
-                if(ctx->released&&ctx->touch&&!ctx->consumed)return reader_progress_jump(ctx,reader_progress_from_x(ev->x));
-                return APP_REDRAW_PAGE;
-            }
-            if(ev->type==UI_GESTURE_MOVE)return reader_progress_preview(ctx,ev->x);
-            if(ev->type==UI_GESTURE_TAP||ev->type==UI_GESTURE_SWIPE_L||ev->type==UI_GESTURE_SWIPE_R||ev->type==UI_GESTURE_SWIPE_U||ev->type==UI_GESTURE_SWIPE_D){s_progress_drag=false;return reader_progress_jump(ctx,reader_progress_from_x(ev->x));}
-            return APP_REDRAW_NONE;
-        }
+        if(s_reader_panel==READER_PANEL_TOOLS && reader_progress_event(ev))
+            return reader_progress_gesture(ctx,ev);
         bool sliders=s_reader_panel==READER_PANEL_FONT_SETTINGS||s_reader_panel==READER_PANEL_LAYOUT_SETTINGS||s_reader_panel==READER_PANEL_MARKDOWN_SIZES;
-        if(sliders&&ev->type==UI_GESTURE_PRESS){int slider=reader_slider_at(ev->x0,ev->y0);if(slider>=0){reader_slider_begin(slider,ev->x0);lock_draw();s_area=reader_control_preview(ctx->fb,slider);unlock_draw();s_mode=MODE_GL16;return APP_REDRAW_AREA;}}
-        if(s_reader_slider>=0){
-            if(ev->type==UI_GESTURE_MOVE)return reader_style_preview(ctx,ev->x);
-            if(ev->type==UI_GESTURE_CANCEL){
-                if(ctx->released&&ctx->touch&&!ctx->consumed){if(!s_reader_slider_endpoint)reader_slider_move(ev->x);return reader_slider_commit(ctx);}
-                s_reader_slider=-1;return APP_REDRAW_PAGE;
-            }
-            if(ev->type==UI_GESTURE_TAP||ev->type==UI_GESTURE_SWIPE_L||ev->type==UI_GESTURE_SWIPE_R||ev->type==UI_GESTURE_SWIPE_U||ev->type==UI_GESTURE_SWIPE_D){if(!s_reader_slider_endpoint)reader_slider_move(ev->x);return reader_slider_commit(ctx);}
-            return APP_REDRAW_NONE;
-        }
+        if(sliders&&ev->type==UI_GESTURE_PRESS){int slider=reader_slider_at(ev->x0,ev->y0);if(slider>=0){reader_slider_begin(slider,ev->x0);if(reader_landscape())return reader_wide_preview(ctx);lock_draw();s_area=reader_control_preview(ctx->fb,slider);unlock_draw();s_mode=MODE_GL16;return APP_REDRAW_AREA;}}
+        if(s_reader_slider>=0)return reader_style_gesture(ctx,ev);
         if(ev->type==UI_GESTURE_TAP)return reader_panel_action(ctx,ev->x0,ev->y0);
         if(ev->type==UI_GESTURE_SWIPE_U||ev->type==UI_GESTURE_SWIPE_D){int count=reader_control_count(),next=s_control_page+(ev->type==UI_GESTURE_SWIPE_U?1:-1);if(next>=0&&next*reader_control_rows()<count){reader_set_control_page(next);return APP_REDRAW_PAGE;}}
         return APP_REDRAW_NONE;
     }
-    if(ev->type==UI_GESTURE_TAP){
-        if(!s_reader_fullscreen&&ui_rect_hit(reader_close_rect(),ev->x0,ev->y0))return reader_return(ctx,false);
-        if(!ui_rect_hit(reader_area(),ev->x0,ev->y0))return APP_REDRAW_NONE;
-        for(unsigned zone=0;zone<3;++zone)if(ui_rect_hit(reader_tap_rect(reader_area(),reader_input_tap_layout(),zone),ev->x0,ev->y0))
-            return zone==1?reader_show_panel(READER_PANEL_TOOLS):turn_page(ctx,zone==0?-1:1);
+    EpdRect area = reader_area();
+    uint16_t x = ev->x0, y = ev->y0;
+    ui_gesture_type_t type = ev->type;
+    if (reader_landscape()) {
+        if (x >= UI_LOCK_WIDTH || y >= UI_LOCK_HEIGHT) return APP_REDRAW_NONE;
+        reader_landscape_point(&x, &y);
+        area = landscape_reader_area();
+        switch (type) {
+        case UI_GESTURE_SWIPE_L: type = s_reader_landscape_reverse ? UI_GESTURE_SWIPE_U : UI_GESTURE_SWIPE_D; break;
+        case UI_GESTURE_SWIPE_R: type = s_reader_landscape_reverse ? UI_GESTURE_SWIPE_D : UI_GESTURE_SWIPE_U; break;
+        case UI_GESTURE_SWIPE_U: type = s_reader_landscape_reverse ? UI_GESTURE_SWIPE_R : UI_GESTURE_SWIPE_L; break;
+        case UI_GESTURE_SWIPE_D: type = s_reader_landscape_reverse ? UI_GESTURE_SWIPE_L : UI_GESTURE_SWIPE_R; break;
+        default: break;
+        }
+    }
+    if (type == UI_GESTURE_TAP) {
+        if (reader_landscape()) {
+            for(int zone=0;zone<3;++zone)
+                if(ui_rect_hit(wide_tap_rect(zone),x,y))
+                    return zone==1?reader_open_tools(ctx):turn_page(ctx,zone==0?-1:1);
+            return APP_REDRAW_NONE;
+        }
+        if (!s_reader_fullscreen && ui_rect_hit(reader_close_rect(), x, y)) return reader_return(ctx,false);
+        if (!ui_rect_hit(area, x, y)) return APP_REDRAW_NONE;
+        for (unsigned zone = 0; zone < 3; ++zone)
+            if (ui_rect_hit(reader_tap_rect(area, reader_input_tap_layout(), zone), x, y))
+                return zone == 1 ? reader_open_tools(ctx) : turn_page(ctx, zone == 0 ? -1 : 1);
         return APP_REDRAW_NONE;
     }
-    int slot=ev->type==UI_GESTURE_LONG_PRESS?READER_HOLD:ev->type==UI_GESTURE_SWIPE_L?READER_SWIPE_LEFT:ev->type==UI_GESTURE_SWIPE_R?READER_SWIPE_RIGHT:ev->type==UI_GESTURE_SWIPE_U?READER_SWIPE_UP:ev->type==UI_GESTURE_SWIPE_D?READER_SWIPE_DOWN:-1;
-    if(slot>=0&&ui_rect_hit(reader_area(),ev->x0,ev->y0))return reader_execute_shortcut(ctx,slot);
+    int slot=type==UI_GESTURE_LONG_PRESS?READER_HOLD:type==UI_GESTURE_SWIPE_L?READER_SWIPE_LEFT:type==UI_GESTURE_SWIPE_R?READER_SWIPE_RIGHT:type==UI_GESTURE_SWIPE_U?READER_SWIPE_UP:type==UI_GESTURE_SWIPE_D?READER_SWIPE_DOWN:-1;
+    if(slot>=0&&ui_rect_hit(area,x,y))return reader_execute_shortcut(ctx,slot);
     return APP_REDRAW_NONE;
 }

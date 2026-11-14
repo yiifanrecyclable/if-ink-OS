@@ -10,9 +10,8 @@
  * Draw, hit-test, poll and page state stay there. app_loop.c only dispatches
  * these callbacks; adding a page does not touch the loop.
  *
- * 冻结：手势回调替代旧触摸回调；三键接管页须保留强刷与菜单出口。
- * Frozen: Gesture callbacks replace legacy touch callbacks. Pages owning keys
- * must retain full refresh and menu exits.
+ * 冻结：手势回调替代旧触摸回调；普通页面中键在松手时处理返回。
+ * Frozen: Gesture callbacks replace legacy touch callbacks. Standard pages handle Back on middle-key release.
  * 冻结：返回恢复最近切页来源，菜单来源保留菜单位置。
  * Frozen: Return restores the latest page origin, preserving its menu position.
  */
@@ -60,7 +59,6 @@ typedef struct {
     sc7a20h_handle_t acc;
     cst836u_handle_t tp;
     bool sensor_ready;
-    bool continuous_ready;
     int64_t now_ms;
     /// 去抖后的触摸快照：空槽已清零，抬手后保留最后一次坐标。
     /// / Debounced touch: empty slots cleared; last coords kept after lift.
@@ -96,8 +94,7 @@ struct app_desc_s {
     /// true = 进页走 APP_REDRAW_FULL（均衡配置下整屏 GC16）。内容和上一页差别大的页面用，避免差分刷留边。
     /// / true = enter with APP_REDRAW_FULL so a differential update does not leave a seam.
     bool enter_full;
-    /// 菜单关闭时接管三键，页面必须提供强刷和菜单入口。
-    /// Own all three keys outside the menu; provide full refresh and menu exits.
+    /// 保留专用页面的按下派发及独立长按回调。/ Allows specialized press and hold callbacks.
     bool owns_keys;
     /// 中键短按在抬起时执行，便于长按触发不同动作。/ Fire middle-key short action on release so a hold can differ.
     bool defer_middle_short;
@@ -132,11 +129,10 @@ struct app_desc_s {
     /// 设置后独占触摸派发，替代 on_touch。/ Exclusive gesture dispatch replaces on_touch.
     app_redraw_t (*on_gesture)(app_ctx_t* ctx, const ui_gesture_event_t* event);
     app_redraw_t (*on_touch)(app_ctx_t* ctx, const cst836u_touch_t* touch);
-    /// 默认只收 UI_KEY_1；owns_keys 页面在菜单外接收三键。
-    /// / Only KEY1 normally; owns_keys pages receive all three keys outside the menu.
+    /// 菜单关闭时接收实体键。/ Receives physical keys while the menu is closed.
     app_redraw_t (*on_key)(app_ctx_t* ctx, int key);
-    /// 可选：owns_keys 页面同键持续按住500ms触发一次；defer_middle_short 时中键短按只在抬起执行。
-    /// Optional: fire after a 500ms hold; with defer_middle_short, the middle short action runs only on release.
+    /// 可选：同键持续按住 500ms 触发一次；普通页面默认长按中键回首页。
+    /// Optional: fire after a 500ms hold. A deferred middle key defaults to returning Home.
     app_redraw_t (*on_key_long)(app_ctx_t* ctx, int key);
     /// 每轮都调，页面自己判断到不到刷新间隔。
     /// / Called every tick; the page decides if its interval has elapsed.

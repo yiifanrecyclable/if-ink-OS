@@ -8,7 +8,16 @@
 #include <math.h>
 #define WIDTH 684
 #define HEIGHT 1216
+static enum EpdRotation s_rotation = EPD_ROT_LANDSCAPE;
+
 void epd_draw_pixel(int x, int y, uint8_t color, uint8_t *fb) {
+    int input_x = x;
+    switch (s_rotation) {
+        case EPD_ROT_PORTRAIT: x = WIDTH - 1 - y; y = input_x; break;
+        case EPD_ROT_INVERTED_PORTRAIT: x = y; y = HEIGHT - 1 - input_x; break;
+        case EPD_ROT_INVERTED_LANDSCAPE: x = WIDTH - 1 - x; y = HEIGHT - 1 - y; break;
+        default: break;
+    }
     if (!fb || x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) return;
     size_t offset = (size_t)y * (WIDTH / 2) + (size_t)x / 2;
     // epdiy偶数列在低半字节。/ epdiy stores even columns in the low nibble.
@@ -19,16 +28,18 @@ void epd_draw_pixel(int x, int y, uint8_t color, uint8_t *fb) {
 void epd_fill_rect(EpdRect rect, uint8_t color, uint8_t *fb) {
     int left = rect.x < 0 ? 0 : rect.x;
     int top = rect.y < 0 ? 0 : rect.y;
-    int right = rect.x + rect.width < WIDTH ? rect.x + rect.width : WIDTH;
-    int bottom = rect.y + rect.height < HEIGHT ? rect.y + rect.height : HEIGHT;
+    int w = epd_rotated_display_width(), h = epd_rotated_display_height();
+    int right = rect.x + rect.width < w ? rect.x + rect.width : w;
+    int bottom = rect.y + rect.height < h ? rect.y + rect.height : h;
     for (int y = top; y < bottom; ++y)
         for (int x = left; x < right; ++x) epd_draw_pixel(x, y, color, fb);
 }
 int epd_width(void){return WIDTH;}
 int epd_height(void){return HEIGHT;}
-int epd_rotated_display_width(void){return WIDTH;}
-int epd_rotated_display_height(void){return HEIGHT;}
-enum EpdRotation epd_get_rotation(void){return EPD_ROT_LANDSCAPE;}
+int epd_rotated_display_width(void){return s_rotation & 1 ? HEIGHT : WIDTH;}
+int epd_rotated_display_height(void){return s_rotation & 1 ? WIDTH : HEIGHT;}
+enum EpdRotation epd_get_rotation(void){return s_rotation;}
+void epd_set_rotation(enum EpdRotation rotation){s_rotation = rotation;}
 uint8_t epd_get_pixel(int x,int y,int w,int h,const uint8_t *fb){
     if(x<0||y<0||x>=w||y>=h)return 0xf0;
     uint8_t b=fb[(size_t)y*w/2+x/2];return(x&1)?(b&0xf0):(b<<4);

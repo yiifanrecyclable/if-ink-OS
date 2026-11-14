@@ -26,5 +26,12 @@ with tempfile.TemporaryDirectory(dir=root/'build',prefix='online-ui-') as tmp:
     state=render(28,'t,342,1034,342,1034;t,500,1034,500,1034',True)
     assert state['update_state']==7 and not state['update_confirmation']
     assert render(28,'t,60,105,60,105')['settings_page']==27
-    assert render(28,'k,0,0,0,0')['settings_page']==27
+    assert render(28,'k,1,0,0,0')['settings_page']==27
+    for key in (0,2):
+        assert render(28,f'k,{key},0,0,0')['settings_page']==28
+    for events in ('k,1,0,0,0','t,60,105,60,105'):
+        state=render(28,events,mode='busy')
+        assert state['settings_page']==28 and state['update_state']==4
+    state=render(28,'t,342,1034,342,1034;k,1,0,0,0',True)
+    assert state['settings_page']==28 and not state['update_confirmation']
 print('PASS: online entry, explicit two-step installation/cancel, return routing and simulator no-install guard')

@@ -129,6 +129,11 @@ static void policy(void){
   {"0.2.2-beta.3","0.2.2-beta.3t1",IF_UPDATE_BETA,IF_UPDATE_INSTALL_DOWNGRADE},
   {"0.2.2-beta.3t1","0.2.2-beta.3",IF_UPDATE_BETA,IF_UPDATE_INSTALL_NONE},
   {"0.2.2-beta.3t2","0.2.2-beta.3",IF_UPDATE_BETA,IF_UPDATE_INSTALL_NONE},
+  {"0.2.3-beta3t","0.2.3-beta.2",IF_UPDATE_BETA,IF_UPDATE_INSTALL_NONE},
+  {"0.2.3-beta.2","0.2.3-beta3t",IF_UPDATE_BETA,IF_UPDATE_INSTALL_DOWNGRADE},
+  {"0.2.3-beta.3","0.2.3-beta3t",IF_UPDATE_BETA,IF_UPDATE_INSTALL_DOWNGRADE},
+  {"0.2.3-beta.4","0.2.3-beta3t",IF_UPDATE_BETA,IF_UPDATE_INSTALL_UPGRADE},
+  {"0.2.3","0.2.3-beta3t",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_UPGRADE},
   {"0.2.1-beta.1","0.2.0-r9t7",IF_UPDATE_BETA,IF_UPDATE_INSTALL_UPGRADE},
   {"0.1.7","0.1.8-beta.1",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_DOWNGRADE},
   {"0.1.7","0.1.8",IF_UPDATE_STABLE,IF_UPDATE_INSTALL_DOWNGRADE},
@@ -151,6 +156,7 @@ static void policy(void){
  assert(if_update_install_kind("0.1.8-test.2","0.1.7",IF_UPDATE_BETA)==IF_UPDATE_INSTALL_NONE);
  const char *invalid_versions[]={"0.1.8-beta.0","0.1.8-beta.01","0.1.8-beta.1junk","0.1.8-beta.100000",
   "0.1.8-alpha.1","0.1.8-beta-r0","0.1.8-beta3-r2junk","0.1.8-beta0",
+  "0.2.3-beta3t1","0.2.3-beta0t","0.2.3-beta03t","0.2.3-betat",
   "0.2.2-beta.3t0","0.2.2-beta.3t01","0.2.2-beta.3t1junk"};
  for(unsigned i=0;i<sizeof(invalid_versions)/sizeof(*invalid_versions);++i){
   assert(if_update_install_kind(invalid_versions[i],"0.1.7",IF_UPDATE_BETA)==IF_UPDATE_INSTALL_NONE);
@@ -180,6 +186,8 @@ static void channels(void){
  prepare_for("stable","0.1.8-beta.1");assert(!if_update_parse_manifest_channel(manifest,strlen(manifest),IF_UPDATE_STABLE,&candidate));
  prepare_for("beta","0.1.8");assert(!if_update_parse_manifest_channel(manifest,strlen(manifest),IF_UPDATE_BETA,&candidate));
  prepare_for("beta","0.2.1-beta-r2t2");
+ assert(!if_update_parse_manifest_channel(manifest,strlen(manifest),IF_UPDATE_BETA,&candidate));
+ prepare_for("beta","0.2.3-beta3t");
  assert(!if_update_parse_manifest_channel(manifest,strlen(manifest),IF_UPDATE_BETA,&candidate));
  prepare_for("beta","0.2.2-beta.3t1");
  assert(!if_update_parse_manifest_channel(manifest,strlen(manifest),IF_UPDATE_BETA,&candidate));

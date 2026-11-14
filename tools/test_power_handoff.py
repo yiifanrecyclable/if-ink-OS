@@ -59,6 +59,7 @@ static void vTaskDelay(int ms){now+=ms;}
 static void read_pico_pmu_suppress_key_until_release(void){}
 static void display_resume_clean_next(void){}
 static void sleep_resume_set_target(unsigned tab,const char *path){(void)tab;(void)path;}
+static void ttf_name_preview_stop(void){}
 static esp_err_t sleep_resume_clear(void){clears++;return clear_error;}
 static const app_desc_t *app_at(unsigned tab){return tab==0?&current:NULL;}
 static void storage_notice(const char *message){assert(message&&*message);}

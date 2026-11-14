@@ -68,7 +68,6 @@ int cst836u_get_info(void* h,cst836u_info_t* i) {(void)h;(void)i;return 0;}
 const char* esp_err_to_name(int e) {(void)e;return "test";}
 int64_t esp_timer_get_time(void) {return time_offset+(int64_t)(step+1)*time_step;}
 void vTaskDelay(int ms) {(void)ms;if (++step>=sample_count) longjmp(done,1);}
-bool continuous_du_init(void) {return true;}
 void guard_draw_result(EpdiyHighlevelState* h,enum EpdDrawError e) {(void)h;assert(e==0);}
 enum EpdDrawError update_display_area_with(EpdiyHighlevelState*h,const void*w,int m,EpdRect a) {(void)h;(void)w;(void)a;if(m==MODE_DU)du_areas++;else if(m==MODE_GL16)gl_areas++;return 0;}
 enum EpdDrawError update_display_full(EpdiyHighlevelState*h) {(void)h;fulls++;resume_pending=false;return 0;}
@@ -208,7 +207,7 @@ int main(void) {
     reset();menu_on_tick=true;add(0,0,0,0);add(0,0,0,0);run();assert(menus==1&&ticks==1);
     reset();first.owns_keys=true;for(int k=0;k<3;k++){add(k*160+80,1500,1,0);add(0,0,0,0);}run();
     assert(keys[0]==1&&keys[1]==1&&keys[2]==1&&!menus&&fulls==1);
-    reset();add(240,1500,1,0);add(0,0,0,0);add(400,1500,1,0);run();assert(!keys[1]&&!keys[2]&&menus==1&&fulls==2);
+    reset();add(240,1500,1,0);add(0,0,0,0);add(400,1500,1,0);run();assert(keys[1]==1&&keys[2]==1&&!menus&&fulls==1);
     reset();add(650,1150,1,0);add(0,0,0,0);add(100,220,1,0);add(0,0,0,0);run();
     assert(highlights==1&&restores==1&&enters==2&&exits==1);
     reset();add(650,1150,1,0);add(0,0,0,0);add(100,220,1,0);add(550,220,1,0);add(100,220,1,0);add(0,0,0,0);run();
@@ -221,7 +220,7 @@ int main(void) {
     // The saved font is ready before the first frame, so the first gesture is no longer cancelled.
     assert(events[UI_GESTURE_PRESS]==1&&events[UI_GESTURE_TAP]==1&&font_opens==1);
     reset();first.owns_keys=true;add(650,1150,1,0);add(0,0,0,0);add(240,1500,1,0);add(0,0,0,0);add(400,1500,1,0);run();
-    assert(!keys[1]&&!keys[2]&&fulls==2&&menus==2);
+    assert(!keys[1]&&keys[2]==1&&fulls==1&&menus==1);
     reset();add(650,1150,1,0);add(0,0,0,0);
     for(int i=0;i<3;i++){add(100,220,1,0);add(550,220,1,0);add(0,0,0,0);}run();
     assert(du_areas==6&&gl_areas==1);
@@ -230,6 +229,20 @@ int main(void) {
     reset();first.on_gesture=gesture;time_step=1000000;lock_due=true;
     add(100,400,1,0);add(100,400,1,0);add(100,400,1,0);add(0,0,0,0);run();
     assert(!lock_due&&events[UI_GESTURE_CANCEL]==1&&!events[UI_GESTURE_TAP]&&tick_consumed[2]);
+    // Ordinary pages defer back until release and default a hold to Home.
+    reset();first.defer_middle_short=true;add(240,1500,1,0);run();assert(!keys[1]);
+    reset();first.defer_middle_short=true;add(240,1500,1,0);add(0,0,0,0);run();assert(keys[1]==1);
+    reset();first.defer_middle_short=true;full_tick=true;
+    add(240,1500,1,0);add(240,1500,1,0);add(0,0,0,0);run();assert(keys[1]==1);
+    home_case();second.defer_middle_short=true;time_step=200000;
+    for(int i=0;i<5;++i)add(240,1500,1,0);
+    add(0,0,0,0);run();assert(!keys[1]&&home_enters==1);
+    home_case();second.defer_middle_short=true;time_step=600000;
+    add(240,1500,1,0);add(0,0,0,0);run();assert(!keys[1]&&home_enters==1);
+    reset();first.defer_middle_short=true;time_step=200000;
+    add(240,1500,1,0);add(80,1500,1,0);add(0,0,0,0);run();assert(!keys[0]&&!keys[1]);
+    reset();first.defer_middle_short=true;
+    add(240,1500,1,0);add(240,1500,2,0);add(0,0,0,0);run();assert(!keys[1]);
     reset();first.owns_keys=true;first.on_key_long=long_key;time_step=200000;
     add(240,1500,1,0);add(240,1500,1,0);add(240,1500,1,0);add(240,1500,1,0);add(240,1500,1,0);add(0,0,0,0);run();
     assert(keys[1]==1&&long_keys==1&&menus==1);
@@ -259,7 +272,7 @@ int main(void) {
     assert(exits==2&&enters==3&&last_menu_leaf==1&&menu_background==&first&&home_renders==1);
     reset();first.render=home_render;first.on_tick=origin_tick;second.on_tick=return_tick;second.on_exit=leave;
     add(0,0,0,0);add(650,1150,1,0);add(0,0,0,0);add(550,500,1,0);add(0,0,0,0);
-    add(100,220,1,0);add(0,0,0,0);add(0,0,0,0);add(400,1500,1,0);run();
+    add(100,220,1,0);add(0,0,0,0);add(0,0,0,0);add(240,1500,1,0);add(0,0,0,0);run();
     assert(exits==2&&enters==3&&rendered_leaf==7&&home_renders==2);
     reset();request_on_tick=true;first.render=home_render;first.on_tick=origin_tick;second.on_tick=return_tick;second.on_exit=leave;
     add(0,0,0,0);add(0,0,0,0);run();
@@ -267,10 +280,10 @@ int main(void) {
     reset();first.render=home_render;first.on_enter=home_enter;first.on_tick=origin_tick;second.on_tick=return_tick;second.on_exit=leave;
     add(0,0,0,0);add(650,1150,1,0);add(0,0,0,0);add(550,500,1,0);add(0,0,0,0);
     add(100,220,1,0);add(0,0,0,0);add(0,0,0,0);
-    add(100,220,1,0);add(0,0,0,0);add(0,0,0,0);add(400,1500,1,0);run();
+    add(100,220,1,0);add(0,0,0,0);add(0,0,0,0);add(240,1500,1,0);add(0,0,0,0);run();
     assert(exits==4&&enters==5&&last_menu_leaf==1&&menu_background==&first&&home_renders==2&&rendered_leaf==7);
     reset();start_second=true;second.on_tick=origin_tick;second.on_exit=leave;second.on_enter=home_enter;second.render=home_render;first.on_tick=return_tick;
-    add(0,0,0,0);add(650,1150,1,0);add(0,0,0,0);add(100,120,1,0);add(0,0,0,0);add(0,0,0,0);add(400,1500,1,0);run();
+    add(0,0,0,0);add(650,1150,1,0);add(0,0,0,0);add(100,120,1,0);add(0,0,0,0);add(0,0,0,0);add(240,1500,1,0);add(0,0,0,0);run();
     assert(exits==2&&enters==3&&last_menu_leaf==1&&menu_background==&second&&home_renders==2&&rendered_leaf==7);
     reset();first.on_tick=consumed_return_tick;second.on_tick=return_tick;second.on_exit=leave;
     add(0,0,0,0);add(0,0,0,0);add(0,0,0,0);run();

@@ -47,6 +47,7 @@
 #include "ui_gesture.h"
 #include "ui_kit.h"
 #include "ui_nav.h"
+#include "ui_menu.h"
 
 typedef struct {
     char path[BOOK_STORE_PATH_MAX];
@@ -805,10 +806,10 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
 }
 static app_redraw_t on_key(app_ctx_t *ctx, int key) {
     if(s_history_open){
-        if(s_history_target_open)return key==0||key==1?history_back():APP_REDRAW_NONE;
-        if(key==0)return history_turn(-1);
-        if(key==2)return history_turn(1);
-        if(key==1){s_history_open=false;return APP_REDRAW_PAGE;}
+        if(s_history_target_open)return key==UI_KEY_2?history_back():APP_REDRAW_NONE;
+        if(key==UI_KEY_1)return history_turn(-1);
+        if(key==UI_KEY_3)return history_turn(1);
+        if(key==UI_KEY_2)return history_back();
     }
     // 首页是导航根页，返回停留在首页。/ Home is the navigation root; Back stays here.
     (void)ctx;
@@ -817,7 +818,9 @@ static app_redraw_t on_key(app_ctx_t *ctx, int key) {
 }
 static app_redraw_t on_key_long(app_ctx_t *ctx,int key) {
     (void)ctx;
-    return key==2?APP_REDRAW_FULL:APP_REDRAW_NONE;
+    if (key != UI_KEY_2 || !s_history_open) return APP_REDRAW_NONE;
+    s_history_target_open = s_history_open = false;
+    return APP_REDRAW_PAGE;
 }
 static bool no_menu_handle(app_ctx_t *ctx) { (void)ctx; return false; }
 static EpdRect area_hint(app_ctx_t *ctx) { (void)ctx; return s_area; }

@@ -174,11 +174,17 @@ static app_redraw_t banner_picker_gesture(app_ctx_t *ctx,const ui_gesture_event_
     }
     return APP_REDRAW_NONE;
 }
+static app_redraw_t banner_editor_cancel(app_ctx_t *ctx){
+    if (s_banner_from_home) { ui_nav_request(ctx,0); return APP_REDRAW_NONE; }
+    quote_preview_clear();
+    s_page=SETTINGS_MAIN;
+    return APP_REDRAW_PAGE;
+}
 static app_redraw_t banner_editor_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev){
     bool handled;app_redraw_t redraw=banner_height_gesture(ev,&handled);if(handled)return redraw;
     if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
     int nav=ui_nav_hit(ev->x0,ev->y0);if(nav>=0){ui_nav_request(ctx,nav);return APP_REDRAW_NONE;}
-    if(ui_rect_hit(banner_footer(0),ev->x0,ev->y0)){ui_nav_request(ctx,0);return APP_REDRAW_NONE;}
+    if(ui_rect_hit(banner_footer(0),ev->x0,ev->y0))return banner_editor_cancel(ctx);
     if(ui_rect_hit(banner_footer(1),ev->x0,ev->y0)){
         if(!banner_preview_apply(&s_banner_draft,true))return APP_REDRAW_PAGE;
         if(content_banner_save(&s_banner_draft)!=ESP_OK){strlcpy(s_notice,UI_MSG("保存失败，请重试"),sizeof(s_notice));return APP_REDRAW_PAGE;}

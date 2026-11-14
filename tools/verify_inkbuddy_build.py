@@ -36,11 +36,12 @@ mapped = bool(re.search(r"(?:app_inkbuddy|inkbuddy_wire)\.c\.(?:o|obj)\b",
 markers = any(mark in image for mark in (b"inkbuddy", b"\x49\x4e\x4b\x31\0",
                                         "终端模式".encode(), b"/frame?v=1&dev="))
 feature = bool(compiled or flags or symbols_present or mapped or markers)
+local_version = bool(re.search(r"(?:-r[1-9]\d*t[1-9]\d*|-beta(?:\.[1-9]\d*t[1-9]\d*|[1-9]\d*t))$", version))
 if args.expect == "public":
     assert not feature, "inkbuddy reached a public artifact"
-    assert not re.search(r"(?:-r\d+t\d+|-beta\.\d+t\d+)$", version), "A local test version cannot be published"
+    assert not local_version, "A local test version cannot be published"
 else:
-    assert version == "0.2.1-beta-r2t2" or re.fullmatch(r"0\.2\.2-beta\.\d+t\d+", version)
+    assert local_version, "Expected a local test version"
     assert compiled == names and flags and symbols_present and mapped and markers
 
 receipt = dict(version=version, features={"inkbuddy": feature}, app_size=len(image),

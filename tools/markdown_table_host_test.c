@@ -15,6 +15,15 @@ uint8_t test_guide_gray;
 static unsigned letters[128],style_flags;
 static EpdRect bounds;
 static int glyph_count;
+int ttf_vertical_advance_px(int px, uint32_t cp) {
+    (void)cp;
+    assert(!"Markdown must use horizontal layout");
+    return px;
+}
+void ttf_draw_vertical_px(uint8_t *fb, int x, int y, int height, int px, const char *text, int tracking) {
+    (void)fb; (void)x; (void)y; (void)height; (void)px; (void)text; (void)tracking;
+    assert(!"Markdown must use horizontal drawing");
+}
 int ttf_ascender_px(int px){return px;}
 int ttf_text_left_bearing_px(int px,const char *text){(void)px;(void)text;return 0;}
 int ttf_text_width_px(int px,const char *text){int n=0;for(;*text;++text)if(((unsigned char)*text&0xc0)!=0x80)++n;return n*px;}
@@ -34,6 +43,7 @@ static html_text_t parse(const char *md){html_text_t t={0};assert(markdown_to_bl
 static bool build(const html_text_t *t,int width,int height,int px){
     bounds=(EpdRect){10,20,width,height};uint8_t sizes[]={24,24,24};
     book_layout_set_markdown(true,sizes,t->styles,t->style_count);
+    book_layout_set_vertical(true);
     book_layout_set_markdown_tables(t->cells,t->cell_count);
     book_layout_set_spacing(150,50);book_layout_set_first_line_indent(0);
     book_layout_set_chapter_lead(0,0);book_layout_set_typography(0);
