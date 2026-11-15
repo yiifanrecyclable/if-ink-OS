@@ -622,6 +622,11 @@ static bool s_scan_pending, s_clear_confirm;
 static reader_panel_t s_reader_panel;
 static app_book_screen_t s_reader_screen;
 static bool s_reader_landscape_reverse;
+#ifndef PICO_HOST_SIMULATOR
+static bool s_reader_sensor_owned;
+static int64_t s_reader_sensor_next_ms;
+static unsigned s_reader_opposite_samples;
+#endif
 enum { WIDE_SPLIT_GAP = 12, WIDE_PANE_WIDTH = (UI_LOCK_HEIGHT - WIDE_SPLIT_GAP) / 2,
        WIDE_PAGER_Y = 616, WIDE_TOC_ROWS = 9, WIDE_LIST_STEP = 64,
        WIDE_PROGRESS_Y = 222, WIDE_ACTIONS_Y = 340, WIDE_TABS_Y = 530 };
@@ -3553,25 +3558,44 @@ static app_redraw_t reader_wide_preview(app_ctx_t *ctx) {
     return APP_REDRAW_AREA;
 }
 
-static void reader_sample_landscape_direction(app_ctx_t *ctx) {
+static void reader_stop_landscape_sensor(app_ctx_t *ctx) {
 #ifndef PICO_HOST_SIMULATOR
-    if (!reader_landscape() || !ctx->acc) return;
-    const bool already_powered = sc7a20h_powered(ctx->acc);
-    if (!already_powered) {
-        read_pico_sensor_wake(ctx->acc);
-        if (!sc7a20h_powered(ctx->acc)) return;
-        // 等待 12.5 Hz 传感器完成上电后的转换。/ Allow the 12.5 Hz sensor one conversion after startup.
-        vTaskDelay(pdMS_TO_TICKS(85));
-    }
+    if (s_reader_sensor_owned) read_pico_sensor_sleep(ctx->acc);
+    s_reader_sensor_owned = false;
+    s_reader_sensor_next_ms = 0;
+    s_reader_opposite_samples = 0;
+#else
+    (void)ctx;
+#endif
+}
 
-    sc7a20h_sample_t sample;
-    bool valid = read_pico_accel_read(ctx->acc, &sample) == ESP_OK;
-    if (valid && !sc7a20h_sample_fresh(&sample)) {
-        vTaskDelay(pdMS_TO_TICKS(80));
-        valid = read_pico_accel_read(ctx->acc, &sample) == ESP_OK;
+static bool reader_poll_landscape_direction(app_ctx_t *ctx) {
+#ifndef PICO_HOST_SIMULATOR
+    if (!reader_landscape() || (s_view != READING && s_view != TOC) || !s_text) {
+        reader_stop_landscape_sensor(ctx);
+        return false;
     }
-    if (!already_powered) read_pico_sensor_sleep(ctx->acc);
-    if (!valid || !sc7a20h_sample_fresh(&sample)) return;
+    // 手势松开前画面与触控映射必须保持同一个方向。/ Keep the image and touch mapping in one orientation until release.
+    if (ctx->consumed || ctx->released || (ctx->touch && ctx->touch->touched) ||
+        s_reader_slider >= 0 || s_progress_drag || s_toc_jump_drag) {
+        s_reader_opposite_samples = 0;
+        return false;
+    }
+    if (!ctx->acc || ctx->now_ms < s_reader_sensor_next_ms) return false;
+    if (!sc7a20h_powered(ctx->acc)) {
+        read_pico_sensor_wake(ctx->acc);
+        s_reader_sensor_owned = sc7a20h_powered(ctx->acc);
+        // 传感器以 12.5 Hz 采样，下一次轮询再取新值。/ Let the 12.5 Hz sensor finish conversion before the next poll.
+        s_reader_sensor_next_ms = ctx->now_ms + (s_reader_sensor_owned ? 120 : 1000);
+        s_reader_opposite_samples = 0;
+        return false;
+    }
+    s_reader_sensor_next_ms = ctx->now_ms + 160;
+    sc7a20h_sample_t sample;
+    if (read_pico_accel_read(ctx->acc, &sample) != ESP_OK || !sc7a20h_sample_fresh(&sample)) {
+        s_reader_opposite_samples = 0;
+        return false;
+    }
 
     // 平放、握持方向不明确或加速度偏离 1g 时保持原方向。
     // Preserve orientation when flat, ambiguous, or far from 1g.
@@ -3579,15 +3603,21 @@ static void reader_sample_landscape_direction(app_ctx_t *ctx) {
     // Tilting around the short-edge midpoints puts landscape up/down on device Y.
     const int vertical = abs(sample.y_mg), lateral = abs(sample.x_mg), normal = abs(sample.z_mg);
     const int64_t total_sq = (int64_t)vertical*vertical + (int64_t)lateral*lateral + (int64_t)normal*normal;
-    if (vertical < 220 || vertical < lateral + 100 || total_sq < 750*750 || total_sq > 1250*1250)
-        return;
-    const bool reverse = sample.y_mg < 0;
-    if (reverse == s_reader_landscape_reverse) return;
+    const bool reverse = sample.y_mg > 0;
+    if (vertical < 220 || vertical < lateral + 100 || total_sq < 750*750 || total_sq > 1250*1250 ||
+        reverse == s_reader_landscape_reverse) {
+        s_reader_opposite_samples = 0;
+        return false;
+    }
+    if (++s_reader_opposite_samples < 2) return false;
+    s_reader_opposite_samples = 0;
     s_reader_landscape_reverse = reverse;
     ESP_LOGI(TAG, "landscape orientation=%s gravity=%d/%d/%d mg",
              reverse ? "reversed" : "normal", sample.x_mg, sample.y_mg, sample.z_mg);
+    return true;
 #else
     (void)ctx;
+    return false;
 #endif
 }
 #include "reader_controls_actions.h"
@@ -4170,6 +4200,7 @@ static void on_enter(app_ctx_t* ctx) {
     }
 }
 static void book_on_exit(app_ctx_t* ctx) {
+    reader_stop_landscape_sensor(ctx);
     ttf_name_preview_pause();
     track_ticket_stats(ctx);
     s_document_scan_pending=false;
@@ -4193,6 +4224,7 @@ static void book_on_exit(app_ctx_t* ctx) {
 // 先停止使用旧卡句柄与字体预渲染，主循环随后切换内置字体。
 // Stop old-card handles and font preparation before the loop switches to the builtin font.
 static void book_on_media_lost(app_ctx_t* ctx) {
+    reader_stop_landscape_sensor(ctx);
     lock_draw();
     save_progress();
     free_book();
@@ -4543,7 +4575,7 @@ static app_redraw_t on_key(app_ctx_t* ctx, int key) {
         return APP_REDRAW_PAGE;
     }
     if (s_scan_pending || s_clear_confirm) return APP_REDRAW_NONE;
-    if (key == UI_KEY_2) return reader_open_tools(ctx);
+    if (key == UI_KEY_2) return reader_show_panel(READER_PANEL_TOOLS);
     if (!direction) return APP_REDRAW_NONE;
     if (s_view == READING) { s_stats_activity_ms = ctx->now_ms; return turn_page(ctx, direction); }
     int next = ctx->leaf + direction;
@@ -4585,6 +4617,7 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
     if(multi>=0||was_multi_active!=s_reader_multi.active||was_multi_blocked!=s_reader_multi.blocked)operation_log_event(OPLOG_MULTI,s_reader_multi.active,s_reader_multi.blocked,touch?touch->count:0,multi_enabled,multi);
     if(multi>=0){s_stats_activity_ms=ctx->now_ms;return reader_execute_shortcut(ctx,multi);}
 
+    if (reader_poll_landscape_direction(ctx)) return APP_REDRAW_PAGE;
     if (ctx->consumed) return APP_REDRAW_NONE;
     reader_prefetch_idle(ctx);
     if(!reader_landscape()&&s_view==TOC&&s_toc_jump_open&&s_toc_jump_drag&&touch&&touch->touched&&touch->count==1)return reader_toc_preview(ctx,touch->x,false);
@@ -4672,6 +4705,7 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
     return APP_REDRAW_NONE;
 }
 static void before_lock(app_ctx_t* ctx) {
+    reader_stop_landscape_sensor(ctx);
     s_progress_drag=false;
     s_reader_slider=-1;
     s_toc_jump_drag=false;

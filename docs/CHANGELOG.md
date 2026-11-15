@@ -4,6 +4,10 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.3 beta 2 / 2026-11-15
+
+- 修正横屏转向颠倒。横屏阅读中自动跟随持握方向，手指离开后再应用转向。 / Fix reversed landscape orientation. Follow the device during landscape reading and defer rotation until touch is released.
+
 ## 0.2.3 beta 1 / 2026-11-14
 
 - 系统列表用左右实体键翻页。中键短按退回上一层，长按直达首页。/ Side keys page through system lists. Tap the middle key to go back one level, or hold it to go Home.

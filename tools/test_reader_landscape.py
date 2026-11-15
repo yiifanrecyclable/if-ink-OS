@@ -279,10 +279,8 @@ with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="reader-landscape-")
     source = (ROOT / "main/apps/app_book.c").read_text()
     sensor = (ROOT / "components/sc7a20h/include/sc7a20h.h").read_text()
     fresh = sensor.split("static inline bool sc7a20h_sample_fresh",1)[1].split("}\n",1)[0]+"}\n"
-    direction = source.split("static void reader_sample_landscape_direction", 1)[1].split(
+    gravity = source.split("static void reader_stop_landscape_sensor", 1)[1].split(
         '\n#include "reader_controls_actions.h"', 1)[0]
-    actions = (ROOT / "main/apps/reader_controls_actions.h").read_text()
-    open_tools = actions.split("static app_redraw_t reader_open_tools", 1)[1].split("\n}", 1)[0] + "\n}\n"
     harness = work / "gravity.c"
     harness.write_text(r"""
 #include <assert.h>
@@ -290,14 +288,17 @@ with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="reader-landscape-")
 #include <stdint.h>
 #include <stdlib.h>
 #define ESP_LOGI(...) ((void)0)
-#define pdMS_TO_TICKS(ms) (ms)
-enum { ESP_OK, READER_PANEL_TOOLS, APP_REDRAW_PAGE };
-typedef int app_redraw_t;
-typedef struct { void *acc; } app_ctx_t;
+enum { ESP_OK, READING, TOC, SHELF };
+typedef struct { bool touched; } touch_t;
+typedef struct { void *acc; int64_t now_ms; bool consumed, released; touch_t *touch; } app_ctx_t;
 typedef struct { int16_t x_mg, y_mg, z_mg; uint8_t status; } sc7a20h_sample_t;
 static bool landscape = true, s_reader_landscape_reverse, powered, fail_wake, fail_read;
-static unsigned wake_calls, read_calls, sleep_calls, stale_reads, elapsed_ms;
-static sc7a20h_sample_t input = {20, -230, 974, 0x08};
+static bool s_reader_sensor_owned, s_progress_drag, s_toc_jump_drag;
+static int s_view = READING, s_reader_slider = -1;
+static const char *s_text = "book";
+static int64_t s_reader_sensor_next_ms;
+static unsigned s_reader_opposite_samples, wake_calls, read_calls, sleep_calls;
+static sc7a20h_sample_t input = {20, 230, 974, 0x08};
 static bool reader_landscape(void) { return landscape; }
 static bool sc7a20h_powered(void *sensor) { assert(sensor); return powered; }
 static void read_pico_sensor_wake(void *sensor) {
@@ -310,66 +311,76 @@ static void read_pico_sensor_sleep(void *sensor) {
     ++sleep_calls;
     powered = false;
 }
-static void vTaskDelay(unsigned ms) { elapsed_ms += ms; }
 static int read_pico_accel_read(void *sensor, sc7a20h_sample_t *sample) {
     assert(sensor && powered);
     ++read_calls;
     *sample = input;
-    if (stale_reads) {
-        --stale_reads;
-        sample->status = 0;
-    }
     return fail_read ? 1 : ESP_OK;
 }
-static bool drawn_reverse;
-static app_redraw_t reader_show_panel(int panel) {
-    assert(panel == READER_PANEL_TOOLS);
-    drawn_reverse = s_reader_landscape_reverse;
-    return APP_REDRAW_PAGE;
-}
 """ + "static inline bool sc7a20h_sample_fresh" + fresh +
-        "static void reader_sample_landscape_direction" + direction +
-        "static app_redraw_t reader_open_tools" + open_tools + r"""
+        "static void reader_stop_landscape_sensor" + gravity + r"""
+static bool poll(app_ctx_t *ctx, unsigned elapsed_ms) {
+    ctx->now_ms += elapsed_ms;
+    return reader_poll_landscape_direction(ctx);
+}
+
 int main(void) {
-    app_ctx_t ctx = {.acc = &ctx};
+    touch_t touch = {0};
+    app_ctx_t ctx = {.acc = &ctx, .touch = &touch};
     landscape = false;
-    assert(reader_open_tools(&ctx) == APP_REDRAW_PAGE && !drawn_reverse);
-    assert(!wake_calls && !read_calls && !elapsed_ms);
+    assert(!poll(&ctx, 0) && !wake_calls);
     landscape = true;
     fail_wake = true;
-    assert(reader_open_tools(&ctx) == APP_REDRAW_PAGE && !drawn_reverse);
-    assert(wake_calls == 1 && !powered && !read_calls && !elapsed_ms);
+    assert(!poll(&ctx, 0) && wake_calls == 1 && !powered);
+    assert(!poll(&ctx, 999) && wake_calls == 1);
     fail_wake = false;
-
-    assert(reader_open_tools(&ctx) == APP_REDRAW_PAGE && drawn_reverse);
-    assert(wake_calls == 2 && sleep_calls == 1 && !powered && read_calls == 1 && elapsed_ms == 85);
+    assert(!poll(&ctx, 1) && wake_calls == 2 && powered);
+    assert(!poll(&ctx, 119) && !read_calls);
+    assert(!poll(&ctx, 1) && read_calls == 1 && !s_reader_landscape_reverse);
+    assert(!poll(&ctx, 159) && read_calls == 1);
+    assert(poll(&ctx, 1) && read_calls == 2 && s_reader_landscape_reverse);
+    assert(!poll(&ctx, 160) && s_reader_landscape_reverse);
     const sc7a20h_sample_t rejects[] = {
-        {0,100,995,0x08}, {660,750,0,0x08}, {0,1600,0,0x08}, {0,300,0,0x08}, {0,990,0,0},
-        {980,0,200,0x08}, {-980,0,200,0x08}
+        {0,-100,995,0x08}, {660,-750,0,0x08}, {0,-1600,0,0x08}, {0,-300,0,0x08},
+        {0,-990,0,0}, {980,0,200,0x08}, {-980,0,200,0x08}
     };
     for (unsigned i=0; i<sizeof(rejects)/sizeof(rejects[0]); ++i) {
         input = rejects[i];
-        assert(reader_open_tools(&ctx) == APP_REDRAW_PAGE && drawn_reverse && !powered);
+        assert(!poll(&ctx, 160) && !poll(&ctx, 160) && s_reader_landscape_reverse);
     }
-    input = (sc7a20h_sample_t){100, 980, 40, 0x08};
-    fail_read = true;
-    assert(reader_open_tools(&ctx) == APP_REDRAW_PAGE && drawn_reverse && !powered);
-    fail_read = false;
-
-    stale_reads = 1;
-    const unsigned before_read = read_calls, before_delay = elapsed_ms;
-    assert(reader_open_tools(&ctx) == APP_REDRAW_PAGE && !drawn_reverse && !powered);
-    assert(read_calls == before_read + 2 && elapsed_ms == before_delay + 165);
-    assert(wake_calls == sleep_calls + 1);
-
-    input = (sc7a20h_sample_t){-980, 0, 200, 0x08};
-    assert(reader_open_tools(&ctx) == APP_REDRAW_PAGE && !drawn_reverse && !powered);
-    powered = true;
     input = (sc7a20h_sample_t){100, -980, 40, 0x08};
-    assert(reader_open_tools(&ctx) == APP_REDRAW_PAGE && drawn_reverse && powered);
-    assert(wake_calls == sleep_calls + 1);
-    ctx.acc = NULL;
-    assert(reader_open_tools(&ctx) == APP_REDRAW_PAGE && drawn_reverse);
+    assert(!poll(&ctx, 160));
+    fail_read = true;
+    assert(!poll(&ctx, 160));
+    fail_read = false;
+    assert(!poll(&ctx, 160));
+    touch.touched = true;
+    unsigned before = read_calls;
+    assert(!poll(&ctx, 160) && read_calls == before);
+    touch.touched = false;
+    ctx.released = true;
+    assert(!poll(&ctx, 160) && read_calls == before);
+    ctx.released = false;
+    assert(!poll(&ctx, 160) && s_reader_landscape_reverse);
+    assert(poll(&ctx, 160) && !s_reader_landscape_reverse);
+    s_view = TOC;
+    input.y_mg = 980;
+    assert(!poll(&ctx, 160));
+    s_reader_slider = 1;
+    assert(!poll(&ctx, 160) && !s_reader_landscape_reverse);
+    s_reader_slider = -1;
+    assert(!poll(&ctx, 160));
+    assert(poll(&ctx, 160) && s_reader_landscape_reverse);
+    s_view = SHELF;
+    assert(!poll(&ctx, 1) && !powered && sleep_calls == 1);
+    s_view = READING;
+    assert(!poll(&ctx, 0) && powered && wake_calls == 3);
+    reader_stop_landscape_sensor(&ctx);
+    assert(!powered && sleep_calls == 2 && !s_reader_sensor_owned);
+    powered = true;
+    assert(!poll(&ctx, 1) && !s_reader_sensor_owned);
+    landscape = false;
+    assert(!poll(&ctx, 1) && powered && sleep_calls == 2);
 }
 """)
     executable = harness.with_suffix("")

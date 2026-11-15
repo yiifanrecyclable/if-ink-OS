@@ -12,10 +12,6 @@ static app_redraw_t reader_show_panel(reader_panel_t panel){
     s_reader_panel=panel;s_control_page=0;s_reader_slider=-1;s_progress_drag=false;s_pressed_control=-1;
     s_reader_multi=(reader_multi_t){.blocked=true};invalidate_prep();return APP_REDRAW_PAGE;
 }
-static app_redraw_t reader_open_tools(app_ctx_t *ctx) {
-    reader_sample_landscape_direction(ctx);
-    return reader_show_panel(READER_PANEL_TOOLS);
-}
 static void reader_remember_jump(void){s_jump_back_valid=true;s_jump_back_chapter=s_chapter;s_jump_back_offset=reader_page_offset(s_page);}
 static app_redraw_t reader_show_tab(app_ctx_t *ctx,int tab){
     s_control_page=0;s_reader_slider=-1;s_progress_drag=false;
@@ -39,7 +35,7 @@ static app_redraw_t reader_execute_shortcut(app_ctx_t *ctx,int slot){
     case READER_ACTION_NEXT:return turn_page(ctx,1);
     case READER_ACTION_TOC:return reader_show_tab(ctx,0);
     case READER_ACTION_BOOKMARKS:s_bookmark_edit=s_bookmark_delete_confirm=s_bookmark_delete_error=false;return reader_show_panel(READER_PANEL_BOOKMARKS);
-    case READER_ACTION_PANEL:return reader_open_tools(ctx);
+    case READER_ACTION_PANEL:return reader_show_panel(READER_PANEL_TOOLS);
     case READER_ACTION_FULLSCREEN:return toggle_reader_fullscreen(ctx);
     case READER_ACTION_SMALLER:return reader_change_size(ctx,-1);
     case READER_ACTION_LARGER:return reader_change_size(ctx,1);
@@ -288,14 +284,14 @@ static app_redraw_t reader_controls_gesture(app_ctx_t *ctx,const ui_gesture_even
         if (reader_landscape()) {
             for(int zone=0;zone<3;++zone)
                 if(ui_rect_hit(wide_tap_rect(zone),x,y))
-                    return zone==1?reader_open_tools(ctx):turn_page(ctx,zone==0?-1:1);
+                    return zone==1?reader_show_panel(READER_PANEL_TOOLS):turn_page(ctx,zone==0?-1:1);
             return APP_REDRAW_NONE;
         }
         if (!s_reader_fullscreen && ui_rect_hit(reader_close_rect(), x, y)) return reader_return(ctx,false);
         if (!ui_rect_hit(area, x, y)) return APP_REDRAW_NONE;
         for (unsigned zone = 0; zone < 3; ++zone)
             if (ui_rect_hit(reader_tap_rect(area, reader_input_tap_layout(), zone), x, y))
-                return zone == 1 ? reader_open_tools(ctx) : turn_page(ctx, zone == 0 ? -1 : 1);
+                return zone == 1 ? reader_show_panel(READER_PANEL_TOOLS) : turn_page(ctx, zone == 0 ? -1 : 1);
         return APP_REDRAW_NONE;
     }
     int slot=type==UI_GESTURE_LONG_PRESS?READER_HOLD:type==UI_GESTURE_SWIPE_L?READER_SWIPE_LEFT:type==UI_GESTURE_SWIPE_R?READER_SWIPE_RIGHT:type==UI_GESTURE_SWIPE_U?READER_SWIPE_UP:type==UI_GESTURE_SWIPE_D?READER_SWIPE_DOWN:-1;
