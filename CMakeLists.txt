@@ -9,7 +9,7 @@ option(IFINK_INKBUDDY "Enable inkbuddy in local test firmware" OFF)
 option(IFINK_LANDSCAPE_READER_TEST "Build the local 0.2.3-beta3t reader test firmware" OFF)
 option(IFINK_DOCUMENT_TIMING "Build the local document timing test firmware" OFF)
 option(IFINK_VERTICAL_LAYOUT_TEST "Build the local 0.2.3-beta.1t1 test firmware" OFF)
-set(PROJECT_VER "0.2.3-beta.2")
+set(PROJECT_VER "0.2.3")
 # 由同一开关派生版本和功能。/ Derive both the version and the feature from the same option.
 if((IFINK_DOCUMENT_TIMING AND IFINK_INKBUDDY) OR
    (IFINK_VERTICAL_LAYOUT_TEST AND (IFINK_DOCUMENT_TIMING OR IFINK_INKBUDDY)))
