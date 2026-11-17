@@ -32,6 +32,9 @@ static bool s_markdown;
 static uint8_t s_heading_px[3] = {72, 64, 56};
 static const text_style_t *s_styles;
 static size_t s_style_count, s_line_source;
+static const html_link_t *s_links;
+static size_t s_link_count;
+static bool s_has_image_notes;
 static const markdown_cell_t *s_table_cells;
 static size_t s_table_cell_count;
 void book_layout_set_markdown_tables(const markdown_cell_t *cells, size_t count) {
@@ -383,6 +386,54 @@ static bool line_reserve(size_t need) {
     if(!next)return false;
     s_line=next;s_line_capacity=capacity;return true;
 }
+
+static size_t first_link_ending_after(size_t offset) {
+    size_t low = 0, high = s_link_count;
+    while (low < high) {
+        size_t mid = low + (high - low) / 2;
+        if (s_links[mid].end <= offset) low = mid + 1;
+        else high = mid;
+    }
+    return low;
+}
+
+static const html_link_t *image_note_at(size_t offset) {
+    size_t i = first_link_ending_after(offset);
+    return i < s_link_count && s_links[i].start == offset && s_links[i].image_label[0] ? &s_links[i] : NULL;
+}
+
+static bool image_note_is_badge(const html_link_t *link) {
+    return link->image_label[0] == '*';
+}
+
+static int image_note_px(int px, const html_link_t *link, int *badge_top) {
+    if (image_note_is_badge(link)) {
+        int above = 0, below = 0;
+        ttf_measure_line_px(px, ttf_font_has_text("中") ? "中" : "H", &above, &below);
+        if (above + below < 2) { above = px; below = 0; }
+        int height = above + below;
+        int diameter = ((height * 9 / 10) - 1) | 1;
+        if (badge_top) *badge_top = -above + (height - diameter) / 2;
+        return diameter;
+    }
+    int size = px * 2 / 3;
+    if (s_vertical) {
+        int width = ttf_text_width_px(size, link->image_label);
+        if (width > px) size = size * px / width;
+    }
+    return size > 0 ? size : 1;
+}
+
+// Leave room even at the tightest tracking setting. The larger trailing space groups the note with its source text.
+static int image_note_leading(int px) { return px / 24 + 6; }
+static int image_note_trailing(int px) { return px / 5 + 6; }
+
+static int image_note_advance(int px, const html_link_t *link) {
+    int size = image_note_px(px, link, NULL);
+    int extent = s_vertical || image_note_is_badge(link) ? size : ttf_text_width_px(size, link->image_label);
+    return image_note_leading(px) + extent + image_note_trailing(px);
+}
+
 static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bool* heading,
                       int* line_width, int* indent, uint8_t* align,
                       int* margin_before, int* margin_after) {
@@ -461,7 +512,8 @@ static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bo
         char glyph[5];
         memcpy(glyph, s_text + end, n);
         glyph[n] = 0;
-        int advance = s_vertical ? ttf_vertical_advance_px(*px, cp)
+        const html_link_t *image_note = cp == HTML_NOTE_IMAGE_CP && s_has_image_notes ? image_note_at(end) : NULL;
+        int advance = image_note ? image_note_advance(*px, image_note) : s_vertical ? ttf_vertical_advance_px(*px, cp)
             : s_markdown ? ttf_text_width_styled_px(*px, glyph, glyph_style(end, *heading))
             : ttf_text_width_px(*px, glyph);
         int64_t candidate = width + advance + (end > visible_off && !*heading ? s_tracking_px : 0);
@@ -470,7 +522,7 @@ static bool take_line(size_t off, size_t* next, bool* paragraph_end, int* px, bo
             if (end == visible_off) return false;
             // 优先让行尾正文对齐，再允许右标点小幅悬挂到留白；超出安全宽度才回退前一字。
             // Align the text edge first, hang a closing mark slightly into the margin, then roll back only if needed.
-            if (prohibited_line_start(cp)) {
+            if (prohibited_line_start(cp) || image_note) {
                 int hang = s_rect.x > 4 ? *px / 3 : 0;
                 if (hang > s_rect.x - 4) hang = s_rect.x - 4;
                 int squeeze = glyph_count > 1 ? (glyph_count - 1) * 3 : 0;
@@ -713,17 +765,31 @@ size_t book_layout_page_for_offset(size_t off) {
 }
 
 static bool md_cjk(uint32_t cp) { return (cp >= 0x2e80 && cp <= 0xffef) || (cp >= 0x2018 && cp <= 0x201d); }
-static void draw_markdown_line(uint8_t *fb, int x, int baseline, int px, bool heading,
-                               int natural, int target, int top, int height, EpdRect clip) {
-    size_t len = strlen(s_line); int glyphs = 0, cjk_gaps = 0; uint32_t previous = 0;
+
+static bool justify_cjk_gap(uint32_t previous, uint32_t next, bool image_notes) {
+    if (image_notes && next == HTML_NOTE_IMAGE_CP) return false;
+    return (image_notes && previous == HTML_NOTE_IMAGE_CP) || md_cjk(previous) || md_cjk(next);
+}
+
+static int line_delta(size_t len, int natural, int target, int *adjustable, bool image_notes) {
+    int glyphs = 0, cjk_gaps = 0;
+    uint32_t previous = 0;
     for (size_t at = 0; at < len;) {
         size_t n = codepoint_size(s_line+at, len-at); uint32_t cp = codepoint_value(s_line+at,n);
-        if (glyphs && (md_cjk(previous) || md_cjk(cp))) ++cjk_gaps;
+        if (glyphs && justify_cjk_gap(previous, cp, image_notes)) ++cjk_gaps;
         previous = cp; ++glyphs; at += n;
     }
     int delta = target ? target - natural : 0;
-    int adjustable = delta < 0 ? glyphs-1 : cjk_gaps;
-    if (adjustable < 2 || (delta < 0 && -delta > adjustable*3) || (delta > 0 && delta > adjustable*12)) delta = 0;
+    *adjustable = delta < 0 ? glyphs - 1 : cjk_gaps;
+    if (*adjustable < 2 || (delta < 0 && -delta > *adjustable * 3) || (delta > 0 && delta > *adjustable * 12)) return 0;
+    return delta;
+}
+
+static void draw_markdown_line(uint8_t *fb, int x, int baseline, int px, bool heading,
+                               int natural, int target, int top, int height, EpdRect clip) {
+    size_t len = strlen(s_line);
+    int adjustable = 0;
+    int delta = line_delta(len, natural, target, &adjustable, false);
     int quotient = adjustable > 0 ? delta/adjustable : 0;
     int remainder = adjustable > 0 ? delta%adjustable : 0;
     // 背景先整行画完，再画字形，防止负字距或倾斜的笔画被后一个底色覆盖。
@@ -757,9 +823,204 @@ static void draw_markdown_line(uint8_t *fb, int x, int baseline, int px, bool he
     }
 }
 
-int book_layout_draw_slice(uint8_t* fb,size_t page,EpdRect body,int px,book_layout_cursor_t *cursor) {
+void book_layout_set_links(const html_link_t *links, size_t count) {
+    s_links = links;
+    s_link_count = count;
+    s_has_image_notes = false;
+    for (size_t i = 0; i < count && !s_has_image_notes; ++i)
+        s_has_image_notes = links[i].image_label[0] != 0;
+}
+
+typedef struct {
+    int x, y, distance;
+    const html_link_t *link;
+    bool ambiguous;
+} link_probe_t;
+
+static bool number_link(const html_link_t *link) {
+    const char *start = s_text + link->start;
+    const char *end = s_text + link->end;
+    if (end - start > 10) return false;
+    if (end - start >= 2 && ((*start == '[' && end[-1] == ']') || (*start == '(' && end[-1] == ')'))) {
+        ++start;
+        --end;
+    }
+    if (start == end) return false;
+    while (start < end && *start >= '0' && *start <= '9') ++start;
+    return start == end;
+}
+
+static void present_link_span(uint8_t *fb, link_probe_t *probe, const html_link_t *link,
+                              EpdRect line, int px, int first, int last, int ink_y, int baseline) {
+    int extent = s_vertical ? line.height : line.width;
+    if (last > extent) last = extent;
+    if (first >= last) return;
+    EpdRect hit = s_vertical ? (EpdRect){line.x,line.y+first,line.width,last-first} :
+        (EpdRect){line.x+first,line.y,last-first,line.height};
+    if (fb) {
+        const int thickness = 3;
+        EpdRect rule;
+        if (s_vertical) {
+            rule = (EpdRect){hit.x+hit.width-thickness,hit.y,thickness,hit.height};
+        } else {
+            if (link->image_label[0] || number_link(link)) {
+                int below;
+                ttf_measure_line_px(px, ttf_font_has_text("中") ? "中[0]" : "H[0]", NULL, &below);
+                ink_y = baseline + below;
+            }
+            int bottom = line.y + line.height;
+            if (s_reading_line && !s_reading_line_offset) {
+                int guide = line.y + px + (line.height - px) / 2;
+                if (guide - 2 < bottom) bottom = guide - 2;
+            }
+            int y = ink_y + 2;
+            if (y + thickness > bottom) y = bottom - thickness;
+            rule = (EpdRect){hit.x,y,hit.width,thickness};
+        }
+        epd_fill_rect(rule, 0x60, fb);
+    }
+    if (!probe) return;
+    int dx = probe->x < hit.x ? hit.x-probe->x :
+        probe->x >= hit.x+hit.width ? probe->x-hit.x-hit.width+1 : 0;
+    int dy = probe->y < hit.y ? hit.y-probe->y :
+        probe->y >= hit.y+hit.height ? probe->y-hit.y-hit.height+1 : 0;
+    const int slop = image_note_is_badge(link) ? 15 : 9;
+    if (dx > slop || dy > slop) return;
+    int distance = dx*dx + dy*dy;
+    if (distance < probe->distance) {
+        probe->distance = distance; probe->link = link; probe->ambiguous = false;
+    } else if (distance == probe->distance &&
+               (probe->link->backlink != link->backlink || probe->link->noteref != link->noteref ||
+                strcmp(probe->link->href, link->href))) {
+        probe->ambiguous = true;
+    }
+}
+
+static void link_line(uint8_t *fb, link_probe_t *probe, EpdRect line, int px, int tracking, int target,
+                      int baseline) {
+    if (!s_link_count) return;
+    if (probe && (probe->x < line.x - 9 || probe->y < line.y - 9 ||
+                  probe->x >= line.x + line.width + 9 || probe->y >= line.y + line.height + 9)) return;
+    const size_t len = strlen(s_line);
+    size_t i = first_link_ending_after(s_line_source);
+    for (; i < s_link_count && s_links[i].start < s_line_source + len; ++i) {
+        const html_link_t *link = &s_links[i];
+        size_t start = link->start > s_line_source ? link->start - s_line_source : 0;
+        size_t end = link->end - s_line_source;
+        if (end > len) end = len;
+        int first = 0, last = 0, ink_bottom = 0;
+        if (s_vertical) {
+            for (size_t at = 0; at < end;) {
+                if (at == start) first = last;
+                size_t n = codepoint_size(s_line + at, len - at);
+                if (!n) return;
+                last += ttf_vertical_advance_px(px, codepoint_value(s_line + at, n));
+                at += n;
+                if (at < end) last += tracking;
+            }
+        } else if (!ttf_text_range_px(px, s_line, tracking, target, start, end, &first, &last,
+                                      fb ? &ink_bottom : NULL)) continue;
+        present_link_span(fb, probe, link, line, px, first, last, baseline + ink_bottom, baseline);
+    }
+}
+
+static void draw_note_badge(uint8_t *fb, int x, int y, int diameter) {
+    // 16px monochrome 注 from PicoSans. Keep this UI glyph available with any reading font.
+    static const uint16_t glyph[16] = {
+        0x2060, 0x7060, 0x1830, 0x07fe, 0x07ff, 0xc020, 0xf020, 0x3020,
+        0x03fe, 0x03fe, 0x1820, 0x1820, 0x3020, 0x6060, 0x67ff, 0x47ff,
+    };
+    int radius = diameter / 2;
+    epd_fill_circle(x + radius, y + radius, radius, 0x70, fb);
+    int size = diameter * 2 / 3;
+    int inset = (diameter - size) / 2;
+    for (int row = 0; row < size; ++row) {
+        uint16_t pattern = glyph[row * 16 / size];
+        int start = -1;
+        for (int col = 0; col <= size; ++col) {
+            bool white = col < size && (pattern & (0x8000u >> (col * 16 / size)));
+            if (white && start < 0) start = col;
+            if (!white && start >= 0) {
+                epd_fill_rect((EpdRect){x + inset + start,y + inset + row,col - start,1}, 0xf0, fb);
+                start = -1;
+            }
+        }
+    }
+}
+
+// Lines containing a replacement marker share one walk for painting and link hit geometry.
+static void draw_image_note_line(uint8_t *fb, link_probe_t *probe, EpdRect line, int px,
+                                 int baseline, int tracking, int natural, int target) {
+    size_t len = strlen(s_line), index = first_link_ending_after(s_line_source);
+    int adjustable = 0;
+    int delta = target ? line_delta(len, natural, target, &adjustable, true) : 0;
+    int gap = delta ? delta / adjustable : 0, remainder = delta ? delta % adjustable : 0;
+    int cursor = 0, adjusted = 0, link_first = 0, link_ink = 0;
+    for (size_t at = 0; at < len;) {
+        size_t n = codepoint_size(s_line + at, len - at);
+        if (!n) return;
+        uint32_t cp = codepoint_value(s_line + at, n);
+        char glyph[5];
+        memcpy(glyph, s_line + at, n);
+        glyph[n] = 0;
+        size_t offset = s_line_source + at;
+        while (index < s_link_count && s_links[index].end <= offset) ++index;
+        const html_link_t *link = index < s_link_count && s_links[index].start <= offset ? &s_links[index] : NULL;
+        bool image_note = link && cp == HTML_NOTE_IMAGE_CP && link->image_label[0] && link->start == offset;
+        int advance, ink_y = baseline;
+        int center = line.x + line.width / 2;
+        if (image_note) {
+            bool badge = image_note_is_badge(link);
+            int badge_top = 0;
+            int size = image_note_px(px, link, &badge_top);
+            int width = badge ? size : ttf_text_width_px(size, link->image_label);
+            int extent = s_vertical ? size : width;
+            int start = cursor + image_note_leading(px);
+            advance = image_note_leading(px) + extent + image_note_trailing(px);
+            int x = s_vertical ? center - width / 2 : line.x + start;
+            if (fb && badge) {
+                draw_note_badge(fb, x, s_vertical ? line.y + start : baseline + badge_top, size);
+            } else if (fb && !badge) {
+                ink_y = s_vertical ? line.y + start + ttf_ascender_px(size) : baseline - px / 4;
+                ttf_draw_text_px(fb, x, ink_y, size, link->image_label, EPD_DRAW_ALIGN_LEFT, 0, 15);
+            }
+            present_link_span(fb, probe, link, line, px, start, start + extent, baseline, baseline);
+        } else if (s_vertical) {
+            advance = ttf_vertical_advance_px(px, cp);
+            if (fb && cursor + advance <= line.height)
+                ttf_draw_vertical_px(fb, center, line.y + cursor, advance, px, glyph, 0);
+        } else {
+            advance = ttf_text_width_px(px, glyph);
+            if (fb) ttf_draw_text_px(fb, line.x + cursor, baseline, px, glyph, EPD_DRAW_ALIGN_LEFT, 0, 15);
+        }
+        if (link && !image_note) {
+            if (!at || link->start == offset) { link_first = cursor; link_ink = ink_y; }
+            if (fb && !s_vertical) {
+                int first, last, bottom;
+                if (ttf_text_range_px(px, glyph, 0, 0, 0, n, &first, &last, &bottom)) ink_y += bottom;
+            }
+            if (ink_y > link_ink) link_ink = ink_y;
+            if (offset + n >= link->end || at + n == len)
+                present_link_span(fb, probe, link, line, px, link_first, cursor + advance, link_ink, baseline);
+        }
+        at += n;
+        cursor += advance;
+        if (at < len) {
+            cursor += tracking;
+            size_t next_len = codepoint_size(s_line + at, len - at);
+            if (delta && (delta < 0 || justify_cjk_gap(cp, codepoint_value(s_line + at, next_len), true))) {
+                cursor += gap + (remainder > 0 && adjusted < remainder ? 1 :
+                                 remainder < 0 && adjusted < -remainder ? -1 : 0);
+                ++adjusted;
+            }
+        }
+    }
+}
+
+static int draw_slice(uint8_t* fb,size_t page,EpdRect body,int px,book_layout_cursor_t *cursor,
+                      link_probe_t *probe) {
     EpdRect rect = book_layout_column_rect(body, cursor && cursor->started ? cursor->column : 0);
-    if (!cursor || !fb || page >= s_count || px != s_px || rect.width != s_rect.width ||
+    if (!cursor || (!fb && !probe) || page >= s_count || px != s_px || rect.width != s_rect.width ||
         rect.height != s_rect.height || rect.x < 0 || rect.y < 0 ||
         rect.x > INT_MAX - rect.width || rect.y > INT_MAX - rect.height) return -1;
     // 走回退路径的"整页插图"没有图片记录：这里没有文字可画，那张图由调用方绘制，直接返回。
@@ -815,12 +1076,13 @@ int book_layout_draw_slice(uint8_t* fb,size_t page,EpdRect body,int px,book_layo
             leading = 0;
         }
         used += leading;
+        bool image_notes = s_has_image_notes && strstr(s_line, "\xef\xbf\xbc");
         if (s_vertical && s_line[0]) {
             int x = rect.x + rect.width - (int)used - line_height;
             int y = rect.y + indent;
             if (align == 1) y += (rect.height - indent - line_width) / 2;
             else if (align == 2) y += rect.height - indent - line_width;
-            if (s_reading_line) {
+            if (fb && s_reading_line) {
                 int dash = s_reading_line == 1 ? 19 : 2;
                 int period = s_reading_line == 1 ? 31 : 13;
                 int guide = x + (line_height - line_px) / 2 - s_reading_line_offset;
@@ -829,10 +1091,15 @@ int book_layout_draw_slice(uint8_t* fb,size_t page,EpdRect body,int px,book_layo
                 for (int dy = 0; dy < line_width; dy += period)
                     epd_fill_rect((EpdRect){guide, y + dy, 2, line_width - dy < dash ? line_width - dy : dash}, 0x50, fb);
             }
-            ttf_draw_vertical_px(fb, x + line_height / 2, y, rect.y + rect.height - y, line_px, s_line,
-                                 heading ? 0 : s_tracking_px);
+            EpdRect line = {x,y,line_height,rect.y+rect.height-y};
+            int tracking = heading ? 0 : s_tracking_px;
+            if (image_notes) draw_image_note_line(fb, probe, line, line_px, 0, tracking, line_width, 0);
+            else {
+                if (fb) ttf_draw_vertical_px(fb, x + line_height / 2, y, line.height, line_px, s_line, tracking);
+                if (s_link_count) link_line(fb, probe, line, line_px, tracking, 0, 0);
+            }
         } else if (s_line[0]) {
-            if (s_reading_line) {
+            if (fb && s_reading_line) {
                 int guide_y = rect.y + (int)used + line_px + (line_height - line_px) / 2 +
                               s_reading_line_offset;
                 int dash = s_reading_line == 1 ? 19 : 2;
@@ -858,18 +1125,24 @@ int book_layout_draw_slice(uint8_t* fb,size_t page,EpdRect body,int px,book_layo
                 draw_markdown_line(fb,x,baseline,line_px,heading,line_width,
                                    justify ? available+(line_width > available ? hang : 0) : 0,
                                    rect.y+(int)used,line_height,rect);
-            } else if (!heading && !align && !(line_block && line_block->literal) && (!final_line || line_width > available)) {
-                // 完整正文行对齐到统一右边界；悬挂标点最多使用少量右侧留白。
-                // Justify complete body lines; a hanging closer may use a small part of the right margin.
-                int hang = s_rect.x > 4 ? line_px / 3 : 0;
-                if (hang > s_rect.x - 4) hang = s_rect.x - 4;
-                int target = line_width > available ? available + hang : available;
-                ttf_draw_text_px_fitted(fb, x, baseline, line_px, s_line, s_tracking_px,
-                                        target, 0, 15);
-            } else if (s_tracking_px && !heading)
-                ttf_draw_text_px_spaced(fb, x, baseline, line_px, s_line, s_tracking_px, 0, 15);
-            else
-                ttf_draw_text_px(fb, x, baseline, line_px, s_line, EPD_DRAW_ALIGN_LEFT, 0, 15);
+            } else {
+                int target = 0;
+                if (!heading && !align && !(line_block && line_block->literal) && (!final_line || line_width > available)) {
+                    // Justify complete lines and allow hanging punctuation in the right margin.
+                    int hang = s_rect.x > 4 ? line_px / 3 : 0;
+                    if (hang > s_rect.x - 4) hang = s_rect.x - 4;
+                    target = line_width > available ? available + hang : available;
+                }
+                EpdRect line = {x,rect.y+(int)used,rect.x+rect.width-x,line_height};
+                int tracking = heading ? 0 : s_tracking_px;
+                if (image_notes) draw_image_note_line(fb, probe, line, line_px, baseline, tracking, line_width, target);
+                else {
+                    if (fb && target) ttf_draw_text_px_fitted(fb, x, baseline, line_px, s_line, tracking, target, 0, 15);
+                    else if (fb && tracking) ttf_draw_text_px_spaced(fb, x, baseline, line_px, s_line, tracking, 0, 15);
+                    else if (fb) ttf_draw_text_px(fb, x, baseline, line_px, s_line, EPD_DRAW_ALIGN_LEFT, 0, 15);
+                    if (s_link_count) link_line(fb, probe, line, line_px, tracking, target, baseline);
+                }
+            }
         }
         used += line_height;
         if (paragraph_end) used += gap_for(line_height, heading) + margin_after;
@@ -877,6 +1150,22 @@ int book_layout_draw_slice(uint8_t* fb,size_t page,EpdRect body,int px,book_layo
         cursor->offset=off;cursor->used=used;cursor->image_at=img_at;return off>=end?1:0;
     }
     cursor->offset=off;cursor->used=used;cursor->image_at=img_at;return 1;
+}
+
+int book_layout_draw_slice(uint8_t *fb, size_t page, EpdRect rect, int px, book_layout_cursor_t *cursor) {
+    return draw_slice(fb, page, rect, px, cursor, NULL);
+}
+
+const html_link_t *book_layout_link_at(size_t page, EpdRect rect, int px, int x, int y, bool *ambiguous) {
+    *ambiguous = false;
+    if (!s_link_count || s_markdown || page >= s_count) return NULL;
+    size_t low = first_link_ending_after(s_pages[page]);
+    if (low == s_link_count || s_links[low].start >= (page + 1 < s_count ? s_pages[page+1] : s_len)) return NULL;
+    link_probe_t probe = {.x=x,.y=y,.distance=INT_MAX};
+    book_layout_cursor_t cursor = {0};
+    while (draw_slice(NULL, page, rect, px, &cursor, &probe) == 0) {}
+    *ambiguous = probe.ambiguous;
+    return probe.link;
 }
 
 void book_layout_draw_page(uint8_t* fb,size_t page,EpdRect rect,int px) {

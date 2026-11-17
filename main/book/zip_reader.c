@@ -205,6 +205,10 @@ size_t zip_entry_size(const zip_reader_t* z, int index) {
     return z && index >= 0 && index < z->count ? z->entries[index].unpacked : 0;
 }
 
+size_t zip_entry_packed_size(const zip_reader_t *z, int index) {
+    return z && index >= 0 && index < z->count ? z->entries[index].packed : 0;
+}
+
 esp_err_t zip_extract(zip_reader_t* z, int index, void* dst, size_t cap) {
     if (!z || index < 0 || index >= z->count) return ESP_ERR_INVALID_ARG;
     const zip_entry_t* entry = &z->entries[index];

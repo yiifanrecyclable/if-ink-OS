@@ -65,6 +65,9 @@ void book_layout_free(void);
 size_t book_layout_page_count(void);
 /// 使用建立布局时的宽高与字号绘图；不匹配或越界时不绘制。/ Draw with the built dimensions and size; mismatches or invalid pages do nothing.
 void book_layout_draw_page(uint8_t* fb, size_t page, EpdRect rect, int px);
+void book_layout_set_links(const html_link_t *links, size_t count);
+/// 返回借用的目标；同距离的重叠命中标为歧义。/ Return a borrowed target and flag equidistant overlaps.
+const html_link_t *book_layout_link_at(size_t page, EpdRect rect, int px, int x, int y, bool *ambiguous);
 /// 查找字节偏移所属页，越界偏移夹到末页。/ Find page containing a byte offset; excessive offsets clamp to the last page.
 size_t book_layout_page_for_offset(size_t off);
 /// 返回页首原文字节偏移；越界页返回文本长度。/ Return source byte offset at page start; invalid pages return text length.

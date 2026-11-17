@@ -90,14 +90,7 @@ static app_redraw_t wide_detail_action(app_ctx_t *ctx, uint16_t x,uint16_t y) {
     if(s_reader_panel==READER_PANEL_BASIC)return APP_REDRAW_NONE;
     if(s_reader_panel==READER_PANEL_LAYOUT_SETTINGS){
         if(s_control_page)return APP_REDRAW_NONE;
-        if(y>=26&&y<94){
-            int button=x*3/WIDE_PANE_WIDTH;
-            bool vertical=reader_book_vertical();
-            if(button==0)return apply_book_presentation(!vertical,s_reader_screen);
-            if(button==1)return apply_book_presentation(vertical,APP_BOOK_PORTRAIT);
-            return apply_book_presentation(vertical,s_reader_screen==APP_BOOK_LANDSCAPE?
-                      APP_BOOK_LANDSCAPE_TWO_COLUMNS:APP_BOOK_LANDSCAPE);
-        }
+        if(ui_rect_hit(wide_layout_modes(),x,y))return reader_layout_mode_action(wide_layout_modes(),x,y);
         if(ui_rect_hit(wide_detail_row(0),x,y))return apply_reader_indent(ctx,(app_settings_book_indent()+1)%4);
         if(ui_rect_hit(wide_detail_row(1),x,y))return reader_show_panel(READER_PANEL_RULE_SETTINGS);
         return APP_REDRAW_NONE;

@@ -39,10 +39,33 @@ with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="reader-landscape-")
     def tap(x, y):
         return f"t,{x},{y},{x},{y}"
 
-    orientation, columns = tap(342, 1049), tap(546, 1049)
+    orientation, columns = tap(342, 1052), tap(546, 1052)
     assert not preference.exists()
-    render(columns, panel=3)
+    system_size = nvs / "sys_size"
+    system_size.write_bytes(bytes([200]))
+    portrait_panel, frame = render(columns, tap(342, 988), tap(546, 988), panel=3)
+    assert portrait_panel["reader_detail_page"] == 0 and portrait_panel["reader_controls_geometry"][2] == 7
     assert not preference.exists()
+
+    def raw_pixel(frame, x, y):
+        return (frame[y * 342 + x // 2] >> (4 * (x % 2))) & 15
+
+    assert all(raw_pixel(frame, x, 1020) == (11 if x in (240, 444) else 15)
+               for x in range(36, 648))
+    for x in (240, 444):
+        assert all(raw_pixel(frame, x, y) == 11 for y in range(956, 1084))
+    for x, inactive_ink in ((138, 8), (342, 8), (546, 10)):
+        assert min(raw_pixel(frame, px, y) for px in range(x-55, x+55) for y in range(956, 1020)) == 0
+        assert min(raw_pixel(frame, px, y) for px in range(x-55, x+55) for y in range(1021, 1084)) == inactive_ink
+    system_size.unlink()
+
+    vertical = nvs / "book_vertical"
+    render(tap(138, 988), panel=3)
+    assert not vertical.exists()
+    render(tap(138, 1052), panel=3)
+    assert vertical.read_bytes() == b"\x01" and not preference.exists()
+    render(tap(138, 988), panel=3)
+    assert vertical.read_bytes() == b"\x00"
     render(orientation, panel=3, fail_save=True)
     assert not preference.exists()
     render(tap(530, 500))
@@ -64,11 +87,17 @@ with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="reader-landscape-")
         ex, ey = raw(x, 200, reverse)
         return f"u,{sx},{sy},{ex},{ey}"
 
-    def layout_button(x, reverse=False):
-        return wide_tap((614 if reverse else 0) + x, 60, reverse)
+    def layout_button(x, alternate=False, reverse=False):
+        return wide_tap((614 if reverse else 0) + x, 120 if alternate else 56, reverse)
 
-    dual, _ = render(layout_button(501), panel=3)
+    dual, _ = render(layout_button(501, alternate=True), panel=3)
     assert dual["reader_offset"] == anchor and preference.read_bytes() == b"\x02"
+    render(layout_button(301, alternate=True), layout_button(501, alternate=True), panel=3)
+    assert preference.read_bytes() == b"\x02"
+    render(layout_button(501, reverse=True), panel=3, reverse=True)
+    assert preference.read_bytes() == b"\x01"
+    render(layout_button(501, alternate=True, reverse=True), panel=3, reverse=True)
+    assert preference.read_bytes() == b"\x02"
     assert render()[0]["reader_offset"] == anchor
 
     # Old installs may still have the handedness key. Direction alone drives the UI.
@@ -108,7 +137,7 @@ with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="reader-landscape-")
 
     def pixel(frame, x, y, reverse=False):
         px, py = raw(x, y, reverse)
-        return (frame[py * 342 + px // 2] >> (4 * (px % 2))) & 15
+        return raw_pixel(frame, px, py)
 
     def ink(frame, x0, x1, y0, y1):
         return {(x,y) for y in range(y0,y1) for x in range(x0,x1)

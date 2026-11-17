@@ -16,7 +16,7 @@ python tools/test_zip_reader.py
 python tools/test_book_epub.py
 
 flags=(-std=c11 -D_DEFAULT_SOURCE -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-omit-frame-pointer)
-includes=(-Itools/book_epub_stubs -Itools/zip_host_stubs -Imain/book -Icomponents/md4c)
+includes=(-Itools/book_epub_stubs -Itools/zip_host_stubs -Imain -Imain/book -Icomponents/md4c)
 cc "${flags[@]}" -Itools/html_text_stubs -Imain/book tools/html_text_host_test.c main/book/html_text.c -o build/book-tests/epub-html
 build/book-tests/epub-html
 

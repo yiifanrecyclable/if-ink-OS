@@ -38,6 +38,13 @@ void ttf_draw_glyph_styled_px(uint8_t *fb,int x,int y,int px,const char *text,un
     style_flags|=flags;ttf_draw_text_px(fb,x,y,px,text,EPD_DRAW_ALIGN_LEFT,fg,bg);
 }
 void ttf_draw_text_px_spaced(uint8_t *fb,int x,int y,int px,const char *text,int tracking,uint8_t fg,uint8_t bg){(void)tracking;ttf_draw_text_px(fb,x,y,px,text,0,fg,bg);}
+bool ttf_text_range_px(int px, const char *text, int tracking, int target,
+                       size_t start, size_t end, int *first, int *last, int *ink_bottom) {
+    (void)px; (void)text; (void)tracking; (void)target;
+    (void)start; (void)end; (void)first; (void)last; (void)ink_bottom;
+    assert(!"These layout fixtures do not render links");
+    return false;
+}
 void ttf_draw_text_px_fitted(uint8_t *fb,int x,int y,int px,const char *text,int tracking,int target,uint8_t fg,uint8_t bg){(void)target;ttf_draw_text_px_spaced(fb,x,y,px,text,tracking,fg,bg);}
 static html_text_t parse(const char *md){html_text_t t={0};assert(markdown_to_blocks(md,strlen(md),&t)==ESP_OK);return t;}
 static bool build(const html_text_t *t,int width,int height,int px){

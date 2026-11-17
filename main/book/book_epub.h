@@ -33,6 +33,8 @@ size_t book_epub_navigation_source_offset(book_epub_t *book, size_t position);
 esp_err_t book_epub_chapter_title(book_epub_t *book, size_t index, char *buf, size_t cap);
 /// 加载 UTF-8 与标题/段落块；调用方 html_text_free。/ Load UTF-8 and heading/paragraph blocks; caller uses html_text_free.
 esp_err_t book_epub_load(book_epub_t *book, size_t index, html_text_t *out);
+bool book_epub_link_target(book_epub_t *book, size_t from, const char *href,
+                          size_t *chapter, char *anchor, size_t capacity);
 esp_err_t book_epub_load_anchor(book_epub_t *book, size_t index, const char *anchor,
                                  size_t *anchor_offset, html_text_t *out);
 esp_err_t book_epub_load_target(book_epub_t *book, size_t index, const char *anchor,

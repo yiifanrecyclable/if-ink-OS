@@ -709,6 +709,22 @@ static bool s_progress_drag;
 static int s_progress_percent;
 static bool s_jump_back_valid;
 static size_t s_jump_back_chapter, s_jump_back_offset;
+static bool s_note_open;
+static bool s_note_origin_is_annotation;
+static book_progress_t s_note_origin;
+static size_t s_note_source;
+enum { NOTE_CARD_HEADER = 64, NOTE_CARD_TITLE_PAD = 12, NOTE_CARD_MARGIN = 36, NOTE_CARD_PADDING = 22,
+       NOTE_CARD_WIDE_RAIL = 176, NOTE_CARD_WIDE_GAP = 24, NOTE_CARD_WIDE_TOP = 18, NOTE_CARD_DIVIDER_PAD = 14 };
+typedef struct { size_t offset, len; int x, baseline; } reader_note_line_t;
+typedef struct {
+    reader_note_line_t *lines;
+    size_t body_offset, count;
+    int px, height;
+    char text[]; // Title, NUL, then the note body.
+} reader_note_card_t;
+static reader_note_card_t *s_note_card;
+static html_link_t *s_chapter_links;
+static size_t s_chapter_link_count;
 static EpdRect s_area;
 static enum EpdDrawMode s_mode = MODE_GL16;
 static bool s_reader_cleanup;
@@ -775,6 +791,19 @@ static size_t fb_bytes(void) { return (size_t)epd_width() * epd_height() / 2; }
 #define LANDSCAPE_FULLSCREEN_PROGRESS_Y (UI_LOCK_WIDTH - 9)
 #define LANDSCAPE_REGULAR_FOOTER_Y (UI_LOCK_WIDTH - 64)
 #define LANDSCAPE_REGULAR_PROGRESS_Y (UI_LOCK_WIDTH - 52)
+static EpdRect reader_note_footer(void) {
+    bool wide = reader_landscape();
+    int width = wide ? UI_LOCK_HEIGHT : UI_LOCK_WIDTH;
+    int height = wide ? UI_LOCK_WIDTH : UI_LOCK_HEIGHT;
+    int band = !wide && !s_reader_fullscreen ? 88 : 58;
+    return (EpdRect){0, height - band, width, band};
+}
+
+static int reader_body_bottom(int bottom, bool note) {
+    if (!note) return bottom;
+    int clear_to = reader_note_footer().y - 8;
+    return clear_to < bottom ? clear_to : bottom;
+}
 // 正文上方留出一致的呼吸空间，下沿靠近进度区；两种模式共用排版与刷新边界。
 // Give the body a consistent top inset and extend it toward the progress strip in both modes.
 static EpdRect reader_area(void) {
@@ -795,26 +824,25 @@ static EpdRect landscape_reader_area(void) {
         LANDSCAPE_FULLSCREEN_PROGRESS_Y : LANDSCAPE_REGULAR_FOOTER_Y;
     return (EpdRect){0, top, UI_LOCK_HEIGHT, bottom - top};
 }
-static EpdRect body_rect_for_tracking(int tracking_index) {
+static EpdRect reader_body_rect(bool note) {
     if (reader_landscape()) {
         EpdRect area = landscape_reader_area();
         int margin = s_margin ? s_margin : 36;
         const bool immersive = s_reader_fullscreen && s_reader_immersive;
         const int top_inset = immersive ? 8 : 12;
         const int bottom_inset = immersive ? 5 : s_reader_fullscreen ? 6 : 12;
-        return (EpdRect){margin, area.y + top_inset, area.width - 2 * margin,
-                         area.height - top_inset - bottom_inset};
+        int top = area.y + top_inset;
+        int bottom = reader_body_bottom(area.y + area.height - bottom_inset, note);
+        return (EpdRect){margin, top, area.width - 2 * margin, bottom - top};
     }
     int top = s_reader_fullscreen ? (s_reader_immersive ? 24 : UI_STATUS_HEIGHT+16) : UI_PAGE_Y(188);
     int margin = s_margin ? s_margin : 36;
     // Leave only a narrow strip for the full-book progress line in full screen.
     int bottom = s_reader_fullscreen ? READER_FULLSCREEN_PROGRESS_TOP - 2 : UI_BAR_TOP + 8;
-    EpdRect outer = {margin, top, UI_LOCK_WIDTH - 2 * margin, bottom - top};
-    (void)tracking_index;
-    return outer;
+    return (EpdRect){margin, top, UI_LOCK_WIDTH - 2 * margin, reader_body_bottom(bottom, note) - top};
 }
 static EpdRect body_rect(void) {
-    return body_rect_for_tracking(app_settings_book_tracking());
+    return reader_body_rect(s_note_open);
 }
 static EpdRect progress_rect(void) {
     const int offset = 20;
@@ -1460,6 +1488,11 @@ static void save_progress(void) {
         .px = (uint8_t)s_px, .pct = (uint8_t)percent(s_page),
         .last_open_s = 0,
     };
+    if (s_note_open) {
+        p.chapter = s_note_origin.chapter;
+        p.byte_off = s_note_origin.byte_off;
+        p.pct = s_note_origin.pct;
+    }
     if (!pending->dirty || pending->value.file_size != p.file_size || pending->value.chapter != p.chapter ||
         pending->value.byte_off != p.byte_off || pending->value.px != p.px || pending->value.pct != p.pct) {
         pending->value = p;
@@ -1787,6 +1820,66 @@ static void draw_reader_chapter(uint8_t *fb, size_t page, EpdRect body) {
     }
 }
 
+static const char *reader_note_return_label(void) {
+    return s_note_origin_is_annotation ? UI_MSG("返回注释") : UI_MSG("返回正文");
+}
+
+static void draw_note_return(uint8_t *fb) {
+    EpdRect footer = reader_note_footer();
+    epd_fill_rect(footer, 0xe0, fb);
+    ui_hairline(fb, footer.y, 0, footer.width, 0xd0);
+    ui_text_fixed_vc(fb, footer.width / 2, footer.y + footer.height / 2,
+                     UI_PX_BTN, reader_note_return_label(), EPD_DRAW_ALIGN_CENTER, false);
+}
+
+static void reader_note_card_free(reader_note_card_t *card) {
+    if (!card) return;
+    free(card->lines);
+    free(card);
+}
+
+static void reader_note_card_close(void) {
+    reader_note_card_free(s_note_card);
+    s_note_card = NULL;
+}
+
+static EpdRect reader_note_card_rect(const reader_note_card_t *card) {
+    bool wide = reader_landscape();
+    return (EpdRect){0, (wide ? UI_LOCK_WIDTH : UI_LOCK_HEIGHT) - card->height,
+                     wide ? UI_LOCK_HEIGHT : UI_LOCK_WIDTH, card->height};
+}
+
+static EpdRect reader_note_card_exit(EpdRect card) {
+    return (EpdRect){card.width - 84, card.y, 72, NOTE_CARD_HEADER};
+}
+
+static void draw_reader_note_card(uint8_t *fb, reader_note_card_t *card) {
+    enum EpdRotation previous = epd_get_rotation();
+    bool wide = reader_landscape();
+    if (wide) reader_set_landscape_rotation();
+    EpdRect rect = reader_note_card_rect(card);
+    int top = s_reader_fullscreen && s_reader_immersive ? 0 : UI_STATUS_HEIGHT;
+    ui_fade_region(fb, (EpdRect){0,top,rect.width,rect.y-top}, 0x99);
+    for (int i = 0; i < UI_NAV_SHADOW_DEPTH; ++i)
+        epd_fill_rect((EpdRect){0,rect.y-UI_NAV_SHADOW_DEPTH+i,rect.width,1},
+                      (uint8_t)(0xff-(i+1)*0x66/UI_NAV_SHADOW_DEPTH), fb);
+    epd_fill_rect(rect, UI_GRAY_WHITE, fb);
+    ui_hairline(fb, rect.y, 0, rect.width, UI_GRAY_SECTION_LINE);
+    if (wide) {
+        epd_fill_rect((EpdRect){NOTE_CARD_WIDE_RAIL, rect.y + NOTE_CARD_DIVIDER_PAD, 1,
+                              rect.height - 2 * NOTE_CARD_DIVIDER_PAD}, UI_GRAY_ITEM_LINE, fb);
+    } else ui_nav_close_in(fb, reader_note_card_exit(rect));
+    for (size_t i = 0; i < card->count; ++i) {
+        const reader_note_line_t *line = &card->lines[i];
+        char *text = card->text + line->offset;
+        char tail = text[line->len];
+        text[line->len] = 0;
+        ttf_draw_text_px(fb, line->x, rect.y + line->baseline, card->px, text, EPD_DRAW_ALIGN_LEFT, 0, 15);
+        text[line->len] = tail;
+    }
+    epd_set_rotation(previous);
+}
+
 static void draw_reader_outer(uint8_t *fb,size_t page) {
     if (s_reader_fullscreen && !s_reader_immersive) reader_page_status(fb);
     else if (!s_reader_fullscreen) reader_status(fb,NULL,false);
@@ -1806,7 +1899,9 @@ static void draw_reader_outer(uint8_t *fb,size_t page) {
         ui_text_vc(fb, body.x + body.width / 2, body.y + body.height / 2,
                    UI_PX_CAPTION, UI_MSG("此插图暂无法显示"), EPD_DRAW_ALIGN_CENTER, false);
     }
-    if (s_reader_fullscreen) {
+    if (s_note_open) {
+        if (!s_toolbar) draw_note_return(fb);
+    } else if (s_reader_fullscreen) {
         // Full-book progress uses the last few screen rows and no footer text.
         EpdRect track = {36, READER_FULLSCREEN_PROGRESS_TOP + 3, UI_LOCK_WIDTH - 72, 3};
         ui_fill_round_rect(fb, track, 1, 0x90);
@@ -1857,7 +1952,9 @@ static void draw_landscape_body(uint8_t *fb, size_t page, bool example) {
         reader_status(fb,example ? "荷塘月色" : s_book_title[0] ? s_book_title : s_title,true);
         ui_hairline(fb, UI_STATUS_HEIGHT, 0, UI_LOCK_HEIGHT, UI_GRAY_SECTION_LINE);
     }
-    if (!example && !(s_reader_fullscreen && s_reader_immersive)) {
+    if (!example && s_note_open) {
+        draw_note_return(fb);
+    } else if (!example && !(s_reader_fullscreen && s_reader_immersive)) {
         int width = UI_LOCK_HEIGHT * 2 / 3;
         EpdRect track = {(UI_LOCK_HEIGHT - width) / 2,
                          s_reader_fullscreen ? LANDSCAPE_FULLSCREEN_PROGRESS_Y : LANDSCAPE_REGULAR_PROGRESS_Y,
@@ -1880,7 +1977,7 @@ static void draw_landscape_body(uint8_t *fb, size_t page, bool example) {
             ui_text_fixed(fb, track.x + width, track.y + 19, UI_STATUS_SIGNATURE_PX, label, EPD_DRAW_ALIGN_RIGHT, false);
         }
     }
-    if (s_reader_fullscreen && s_reader_immersive && s_reader_notice[0] && s_reader_panel == READER_PANEL_NONE) {
+    if (!example && s_reader_notice[0] && s_reader_panel == READER_PANEL_NONE) {
         char notice[sizeof(s_reader_notice)];
         copy_text(notice, sizeof(notice), s_reader_notice);
         fit_fixed_text(notice, 24, 376);
@@ -1920,8 +2017,13 @@ static void draw_reader(app_ctx_t *ctx,uint8_t *fb,size_t page) {
 #ifdef PICO_HOST_SIMULATOR
     ++s_sim_reader_draws;
 #endif
-    if (reader_landscape()) { draw_landscape_reader(ctx, fb, page, false); return; }
-    ui_clear_page(fb);book_layout_draw_page(fb,page,body_rect(),s_px);draw_reader_outer(fb,page);
+    if (reader_landscape()) draw_landscape_reader(ctx, fb, page, false);
+    else {
+        ui_clear_page(fb);
+        book_layout_draw_page(fb, page, body_rect(), s_px);
+        draw_reader_outer(fb, page);
+    }
+    if (s_note_card) draw_reader_note_card(fb, s_note_card);
 }
 // 在行/表格块边界停止，屏幕推送结束即可交还字体锁；4ms是软空闲预算。/ Stop at row/table boundaries after output; 4ms is a soft idle budget.
 #define BOOK_PREP_RESERVE (1024u*1024u)
@@ -1949,7 +2051,7 @@ static void ensure_prep(void) {
     if(!s_prep_task&&s_draw_lock&&s_prep_done&&s_next_fb&&xTaskCreatePinnedToCore(prep_task,"book_prep",12*1024,NULL,3,&s_prep_task,1)!=pdPASS)s_prep_task=NULL;
 }
 static bool kick_prep(void) {
-    if(reader_landscape()||s_view!=READING||!s_text||s_toolbar||s_clear_confirm||s_reader_panel!=READER_PANEL_NONE||s_page+1>=book_layout_page_count()||
+    if(reader_landscape()||s_view!=READING||!s_text||s_toolbar||s_note_card||s_clear_confirm||s_reader_panel!=READER_PANEL_NONE||s_page+1>=book_layout_page_count()||
        book_layout_page_image(s_page+1)>=0||book_layout_page_image_count(s_page+1)>0)return false;
     int target=(int)s_page+1;
     if(s_next_page==target&&s_next_generation==book_layout_generation())return false;
@@ -1970,7 +2072,7 @@ static bool reader_prefetch_resume(size_t page) {
     return s_next_page==(int)page&&s_next_generation==book_layout_generation();
 }
 static void reader_prefetch_idle(app_ctx_t *ctx) {
-    if(reader_landscape()||s_view!=READING||!s_text||s_toolbar||s_clear_confirm||s_reader_panel!=READER_PANEL_NONE||ctx->consumed||ctx->request_app||ctx->request_menu||
+    if(reader_landscape()||s_view!=READING||!s_text||s_toolbar||s_note_card||s_clear_confirm||s_reader_panel!=READER_PANEL_NONE||ctx->consumed||ctx->request_app||ctx->request_menu||
        (ctx->touch&&ctx->touch->touched)||s_prep_page!=(int)s_page+1||s_next_page==s_prep_page)return;
     lock_draw();int64_t deadline=esp_timer_get_time()+4000;
     for(unsigned row=0;row<8;++row)if(reader_prefetch_step()!=0||esp_timer_get_time()>=deadline)break;
@@ -2248,6 +2350,14 @@ static void track_ticket_stats(app_ctx_t* ctx) {
     if (s_stats_pending_ms >= 30000) flush_ticket_stats();
 }
 static void free_book(void) {
+    reader_note_card_close();
+    book_layout_set_links(NULL, 0);
+    for (size_t i = 0; i < s_chapter_link_count; ++i) free(s_chapter_links[i].href);
+    free(s_chapter_links);
+    s_chapter_links = NULL;
+    s_chapter_link_count = 0;
+    s_note_open = false;
+    s_note_origin_is_annotation = false;
     memset(&s_document_image,0,sizeof(s_document_image));
     flush_ticket_stats();
     e0470_page_turn_release();
@@ -2391,9 +2501,210 @@ static void prepare_inline_image(void) {
     } else ESP_LOGW(TAG, "inline image dimensions chapter=%u index=%d", (unsigned)s_chapter, index);
     free(encoded);
 }
+typedef enum { CHAPTER_KEEP_NOTE, CHAPTER_FOLLOW_NOTE, CHAPTER_LEAVE_NOTE } chapter_note_action_t;
+
+static bool note_returns_to_source(const html_text_t *text, size_t anchor) {
+    if (anchor == s_note_source) return true;
+    for (size_t i = 0; i < text->count && text->blocks[i].offset <= s_note_source; ++i) {
+        const blk_t *block = &text->blocks[i];
+        size_t end = (size_t)block->offset + block->len;
+        if (s_note_source < end) return anchor >= block->offset && anchor < end;
+    }
+    return false;
+}
+
+static bool note_link_starts_in_annotation(const html_link_t *source, size_t chapter,
+                                           const html_text_t *target, size_t anchor) {
+    if (source->backlink) return true;
+    if (source->noteref || !source->anchor) return false;
+    // A plain link out of an endnote points to an earlier marker that links back to it.
+    bool earlier = chapter < s_chapter || (chapter == s_chapter && anchor < source->start);
+    for (size_t i = 0; i < target->count && target->blocks[i].offset <= anchor; ++i) {
+        const blk_t *block = &target->blocks[i];
+        size_t end = (size_t)block->offset + block->len;
+        if (anchor >= end) continue;
+        for (size_t n = 0; n < target->link_count && target->links[n].start < end; ++n) {
+            const html_link_t *ref = &target->links[n];
+            if (ref->end <= anchor || ref->backlink || (!ref->noteref && !earlier)) continue;
+            size_t back_chapter;
+            char back_anchor[HTML_LINK_ANCHOR_CAP];
+            if (book_chapter_link_target(chapter, ref->href, &back_chapter, back_anchor, sizeof(back_anchor)) &&
+                back_chapter == s_chapter && !strcmp(back_anchor, source->anchor)) return true;
+        }
+        break;
+    }
+    return false;
+}
+
+static bool note_space(char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+}
+
+static bool note_points_to(const html_link_t *link, const char *target) {
+    if (!target) return false;
+    size_t chapter;
+    char anchor[HTML_LINK_ANCHOR_CAP];
+    return book_chapter_link_target(s_chapter, link->href, &chapter, anchor, sizeof(anchor)) &&
+           chapter == s_chapter && !strcmp(anchor, target);
+}
+
+static bool note_paragraph_boundary(const html_text_t *text, size_t offset) {
+    while (offset < text->len && note_space(text->utf8[offset])) ++offset;
+    if (offset == text->len) return true;
+    for (size_t i = 0; i < text->link_count && text->links[i].start <= offset; ++i) {
+        const html_link_t *next = &text->links[i];
+        if (next->start != offset || next->noteref) continue;
+        if (next->backlink) return true;
+        for (size_t n = 0; n < i && text->links[n].start < text->note_start; ++n) {
+            const html_link_t *ref = &text->links[n];
+            if (!ref->backlink && note_points_to(next, ref->anchor) && note_points_to(ref, next->anchor))
+                return true;
+        }
+    }
+    return false;
+}
+
+static bool wrap_reader_note_text(reader_note_card_t *card, char *at, int x, int width,
+                                  int step, int limit, int *y) {
+    while (*at) {
+        while (note_space(*at)) ++at;
+        if (!*at) break;
+        char *start = at, *word_end = NULL;
+        int used = 0;
+        while (*at && *at != '\n') {
+            char *next = at + 1;
+            while (((unsigned char)*next & 0xc0) == 0x80) ++next;
+            size_t bytes = next - at;
+            char glyph[5];
+            if (bytes >= sizeof(glyph)) return false;
+            memcpy(glyph, at, bytes);
+            glyph[bytes] = 0;
+            int advance = ttf_text_width_px(card->px, glyph);
+            if (used + advance > width) {
+                if (word_end && word_end > start) at = word_end;
+                break;
+            }
+            if (*at == ' ') word_end = at;
+            used += advance;
+            at = next;
+        }
+        if (at == start) return false;
+        char *end = at;
+        while (end > start && note_space(end[-1])) --end;
+        int above, below;
+        char tail = *end;
+        *end = 0;
+        ttf_measure_line_px(card->px, start, &above, &below);
+        *end = tail;
+        int height = above + below + card->px / 6;
+        if (height < step) height = step;
+        if (height > limit - *y) return false;
+        card->lines[card->count++] = (reader_note_line_t){
+            .offset = start - card->text, .len = end - start, .x = x,
+            .baseline = *y + (height - above - below) / 2 + above,
+        };
+        *y += height;
+    }
+    return true;
+}
+
+static bool layout_reader_note_card(reader_note_card_t *card) {
+    bool wide = reader_landscape();
+    int limit = (wide ? UI_LOCK_WIDTH : UI_LOCK_HEIGHT) / 2 - NOTE_CARD_PADDING;
+    card->px = s_px * 9 / 10;
+    int step = card->px * 5 / 4;
+    // Each row consumes at least step pixels within its column.
+    size_t capacity = (size_t)(limit / step) * (wide ? 2 : 1);
+    card->lines = heap_caps_calloc(capacity, sizeof(*card->lines), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!card->lines) return false;
+    int title_y = wide ? NOTE_CARD_WIDE_TOP : NOTE_CARD_TITLE_PAD;
+    int title_x = wide ? NOTE_CARD_WIDE_GAP : NOTE_CARD_MARGIN;
+    int title_width = wide ? NOTE_CARD_WIDE_RAIL - 2 * NOTE_CARD_WIDE_GAP : UI_LOCK_WIDTH - 2 * NOTE_CARD_MARGIN - 64;
+    if (!wrap_reader_note_text(card, card->text, title_x, title_width, step, limit, &title_y)) return false;
+    int body_y = NOTE_CARD_WIDE_TOP;
+    int body_x = NOTE_CARD_WIDE_RAIL + NOTE_CARD_WIDE_GAP;
+    int body_width = UI_LOCK_HEIGHT - body_x - NOTE_CARD_MARGIN;
+    if (!wide) {
+        title_y += NOTE_CARD_TITLE_PAD;
+        if (title_y < NOTE_CARD_HEADER) {
+            for (size_t i = 0; i < card->count; ++i)
+                card->lines[i].baseline += (NOTE_CARD_HEADER - title_y) / 2;
+            title_y = NOTE_CARD_HEADER;
+        }
+        body_y = title_y;
+        body_x = NOTE_CARD_MARGIN;
+        body_width = UI_LOCK_WIDTH - 2 * NOTE_CARD_MARGIN;
+    }
+    size_t title_lines = card->count;
+    if (!wrap_reader_note_text(card, card->text + card->body_offset, body_x, body_width, step, limit, &body_y) ||
+        card->count == title_lines) return false;
+    card->height = (body_y > title_y ? body_y : title_y) + NOTE_CARD_PADDING;
+    return true;
+}
+
+static bool open_reader_note_card(size_t chapter, const html_link_t *ref, const html_text_t *text,
+                                  size_t anchor) {
+    if (chapter != s_chapter || ref->backlink || text->note_kind == HTML_NOTE_NONE) return false;
+    size_t start = text->note_start, end = text->note_end;
+    if (start >= end || end > text->len || anchor < start || anchor >= end) return false;
+    bool paragraph = text->note_kind == HTML_NOTE_PARAGRAPH;
+    if (paragraph && (anchor <= ref->start || !note_paragraph_boundary(text, end))) return false;
+    for (size_t i = 0; i < text->count && text->blocks[i].offset < end; ++i) {
+        const blk_t *block = &text->blocks[i];
+        if (block->offset + block->len > start && block->image >= 0) return false;
+    }
+    const char *marker = s_text + ref->start;
+    size_t marker_len = ref->end - ref->start;
+    if (ref->image_label[0]) {
+        marker = ref->image_label[0] == '*' ? "" : ref->image_label;
+        marker_len = strlen(marker);
+    }
+    while (marker_len && note_space(marker[marker_len - 1])) --marker_len;
+    const char *prefix = ui_message(UI_MSG("注释"));
+    lock_draw();
+    bool latin_title = ui_i18n_english() || !ttf_font_has_text(prefix);
+    unlock_draw();
+    if (latin_title) prefix = marker_len ? "Note " : "Note";
+    size_t prefix_len = strlen(prefix), body_offset = prefix_len + marker_len + 1;
+    reader_note_card_t *card = heap_caps_calloc(1, sizeof(*card) + body_offset + end - start + 1,
+                                                MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!card) return false;
+    card->body_offset = body_offset;
+    memcpy(card->text, prefix, prefix_len);
+    memcpy(card->text + prefix_len, marker, marker_len);
+    char *body = card->text + body_offset;
+    size_t at = start, used = 0;
+    bool reciprocal = false, complete = true;
+    for (size_t i = 0; i < text->link_count && text->links[i].start < end; ++i) {
+        const html_link_t *link = &text->links[i];
+        if (link->end <= at) continue;
+        if (link->start < at || link->end > end || !note_points_to(link, ref->anchor)) {
+            complete = false;
+            break;
+        }
+        size_t before_link = link->start - at;
+        memcpy(body + used, text->utf8 + at, before_link);
+        used += before_link;
+        at = link->end;
+        reciprocal = true;
+    }
+    memcpy(body + used, text->utf8 + at, end - at);
+    if (complete && (!paragraph || reciprocal)) {
+        lock_draw();
+        bool fits = layout_reader_note_card(card);
+        unlock_draw();
+        if (fits) {
+            s_note_card = card;
+            return true;
+        }
+    }
+    reader_note_card_free(card);
+    return false;
+}
+
 static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
-                            bool last_page, const char *anchor, size_t source_offset) {
-    if (chapter != s_chapter || (!anchor && source_offset == SIZE_MAX)) s_selected_toc = SIZE_MAX;
+                            bool last_page, const char *anchor, size_t source_offset,
+                            chapter_note_action_t note_action, const html_link_t *note_link) {
     html_text_t loaded = {0};
     size_t anchor_offset = 0;
     esp_err_t err = book_chapter_load_blocks_target(chapter, anchor, source_offset,
@@ -2403,6 +2714,29 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
         copy_text(s_message, sizeof(s_message), UI_MSG("加载失败，请检查存储卡后重试"));
         return false;
     }
+    if (anchor_offset == SIZE_MAX) {
+        if (note_action == CHAPTER_FOLLOW_NOTE) { html_text_free(&loaded); return false; }
+        anchor_offset = 0;
+    }
+    if (note_action == CHAPTER_FOLLOW_NOTE && !s_note_open && note_link) {
+        if (open_reader_note_card(chapter, note_link, &loaded, anchor_offset)) {
+            html_text_free(&loaded);
+            return true;
+        }
+        s_note_origin = (book_progress_t){.chapter=s_chapter,.byte_off=reader_page_offset(s_page),.pct=percent(s_page)};
+        s_note_source = note_link->start;
+        save_progress();
+    }
+    if (note_action == CHAPTER_FOLLOW_NOTE && s_note_open && chapter == s_note_origin.chapter &&
+        note_returns_to_source(&loaded, anchor_offset)) {
+        note_action = CHAPTER_LEAVE_NOTE;
+        offset = s_note_origin.byte_off;
+        anchor = NULL;
+    }
+    bool note_open = note_action == CHAPTER_KEEP_NOTE ? s_note_open : note_action == CHAPTER_FOLLOW_NOTE;
+    bool note_origin_is_annotation = s_note_open ? s_note_origin_is_annotation :
+        note_link && note_link_starts_in_annotation(note_link, chapter, &loaded, anchor_offset);
+    EpdRect new_body = reader_body_rect(note_open);
     char heading[128] = {0}, label[32] = {0}, toc_title[128] = {0};
     size_t lead_skip = 0;
     unsigned lead_height = 0;
@@ -2443,7 +2777,7 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
         if (skip_blocks) lead_skip = skip_blocks < loaded.count ? loaded.blocks[skip_blocks].offset : loaded.len;
         if (skip_blocks < loaded.count && loaded.blocks[skip_blocks].image >= 0) lead_skip = 0;
         else
-            lead_height = body_rect().height > 214 ? 214 : 0;
+            lead_height = new_body.height > 214 ? 214 : 0;
     }
     size_t old_lead_skip = s_chapter_lead_skip;
     unsigned old_lead_height = s_chapter_lead_height;
@@ -2457,11 +2791,13 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
     book_layout_set_markdown_tables(loaded.cells, loaded.cell_count);
     book_layout_set_vertical(reader_book_vertical());
     book_layout_set_two_columns(s_reader_screen == APP_BOOK_LANDSCAPE_TWO_COLUMNS);
-    bool ok = book_layout_build_blocks(loaded.utf8, loaded.len, loaded.blocks, loaded.count, body_rect(), s_px);
+    book_layout_set_links(loaded.links, loaded.link_count);
+    bool ok = book_layout_build_blocks(loaded.utf8, loaded.len, loaded.blocks, loaded.count, new_body, s_px);
     if (!ok) {
         s_reader_dims_ctx = old_dims_ctx;
         book_layout_set_markdown(book_kind()==BOOK_KIND_MARKDOWN,s_md_sizes+1,s_text_styles,s_text_style_count);
         book_layout_set_markdown_tables(s_text_cells, s_text_cell_count);
+        book_layout_set_links(s_chapter_links, s_chapter_link_count);
         html_text_free(&loaded);
         book_layout_set_chapter_lead(old_lead_skip, old_lead_height);
         bool restored = s_text && book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count, body_rect(), s_px);
@@ -2480,7 +2816,12 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
     s_text_styles = loaded.styles; s_text_style_count = loaded.style_count;
     free(s_text_cells);
     s_text_cells = loaded.cells; s_text_cell_count = loaded.cell_count;
+    if (chapter != s_chapter || (!anchor && source_offset == SIZE_MAX)) s_selected_toc = SIZE_MAX;
     s_text = loaded.utf8;
+    for (size_t i = 0; i < s_chapter_link_count; ++i) free(s_chapter_links[i].href);
+    free(s_chapter_links);
+    s_chapter_links = loaded.links;
+    s_chapter_link_count = loaded.link_count;
     s_text_len = loaded.len;
     s_blocks = loaded.blocks;
     s_block_count = loaded.count;
@@ -2489,6 +2830,12 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
     s_images = loaded.images; s_image_count = loaded.image_count;
     free(s_inline_gray); s_inline_gray = NULL; s_inline_index = -1;
     s_chapter = chapter;
+    s_note_open = note_open;
+    s_note_origin_is_annotation = note_open && note_origin_is_annotation;
+    if (note_action == CHAPTER_LEAVE_NOTE) {
+        s_reader_panel = READER_PANEL_NONE;
+        s_reader_notice[0] = 0;
+    }
     s_chapter_lead_skip = lead_skip;
     s_chapter_lead_height = lead_height;
     copy_text(s_chapter_heading_title, sizeof(s_chapter_heading_title), heading);
@@ -2507,7 +2854,7 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
     return true;
 }
 static bool load_chapter(app_ctx_t* ctx, size_t chapter, size_t offset, bool last_page) {
-    return load_chapter_at(ctx, chapter, offset, last_page, NULL, SIZE_MAX);
+    return load_chapter_at(ctx, chapter, offset, last_page, NULL, SIZE_MAX, CHAPTER_KEEP_NOTE, NULL);
 }
 // 关闭图片时跳过纯插图页，避免出现空白翻页。/ Skip illustration-only pages when images are disabled.
 static void skip_hidden_image_pages(app_ctx_t *ctx, int direction) {
@@ -3141,7 +3488,7 @@ static app_redraw_t apply_reader_typography(app_ctx_t* ctx, int tracking_index) 
     invalidate_prep();
     book_layout_set_typography((tracking_index - 2) * 2);
     bool ok = book_layout_build_blocks(s_text, s_text_len, s_blocks, s_block_count,
-                                       body_rect_for_tracking(tracking_index), s_px);
+                                       body_rect(), s_px);
     if (ok) s_page = book_layout_page_for_offset(off);
     else {
         book_layout_set_typography((old_index - 2) * 2);
@@ -3533,11 +3880,79 @@ static app_redraw_t apply_book_presentation(bool vertical, app_book_screen_t scr
     return APP_REDRAW_PAGE;
 }
 
+static bool reader_close_note(app_ctx_t *ctx) {
+    return s_note_open && load_chapter_at(ctx, s_note_origin.chapter, s_note_origin.byte_off, false,
+                                          NULL, SIZE_MAX, CHAPTER_LEAVE_NOTE, NULL);
+}
+
+static app_redraw_t reader_note_notice(app_ctx_t *ctx, const char *message) {
+    if (s_view == READING) {
+        lock_draw();
+        copy_text(s_reader_notice, sizeof(s_reader_notice), message);
+        s_reader_notice_until = ctx->now_ms + 2200;
+        invalidate_prep();
+        unlock_draw();
+    } else {
+        ui_nav_notice_show(message, ctx->now_ms);
+    }
+    return APP_REDRAW_PAGE;
+}
+
+static app_redraw_t reader_return_from_note(app_ctx_t *ctx) {
+    const char *failure = s_note_origin_is_annotation ? UI_MSG("无法返回注释") : UI_MSG("无法返回正文");
+    if (!reader_close_note(ctx)) return reader_note_notice(ctx, failure);
+    return APP_REDRAW_PAGE;
+}
+
+static app_redraw_t reader_note_tap(app_ctx_t *ctx, uint16_t x, uint16_t y) {
+    if (s_note_open) {
+        EpdRect footer = reader_note_footer();
+        if (ui_rect_hit(footer, x, y)) {
+            if (abs((int)x - footer.width / 2) <= 108) return reader_return_from_note(ctx);
+            return APP_REDRAW_DONE;
+        }
+    }
+    if (!s_chapter_link_count || !ui_rect_hit(body_rect(), x, y)) return APP_REDRAW_NONE;
+    bool ambiguous;
+    lock_draw();
+    const html_link_t *link = book_layout_link_at(s_page, body_rect(), s_px, x, y, &ambiguous);
+    unlock_draw();
+    if (!link) return APP_REDRAW_NONE;
+    if (ambiguous) return reader_note_notice(ctx, UI_MSG("请点按要查看的注释"));
+    if (s_note_open && !s_note_origin_is_annotation && link->backlink) return reader_return_from_note(ctx);
+    size_t chapter;
+    char anchor[HTML_LINK_ANCHOR_CAP];
+    if (!book_chapter_link_target(s_chapter, link->href, &chapter, anchor, sizeof(anchor)))
+        return reader_note_notice(ctx, UI_MSG("找不到注释"));
+    if (!load_chapter_at(ctx, chapter, 0, false, anchor, SIZE_MAX, CHAPTER_FOLLOW_NOTE, link))
+        return reader_note_notice(ctx, UI_MSG("找不到注释"));
+    s_reader_notice[0] = 0;
+    return APP_REDRAW_PAGE;
+}
+
 // Touch arrives in the device's portrait coordinates, independent of drawing rotation.
 static void reader_landscape_point(uint16_t *x, uint16_t *y) {
     uint16_t portrait_x = *x, portrait_y = *y;
     *x = s_reader_landscape_reverse ? UI_LOCK_HEIGHT - 1 - portrait_y : portrait_y;
     *y = s_reader_landscape_reverse ? portrait_x : UI_LOCK_WIDTH - 1 - portrait_x;
+}
+
+static app_redraw_t reader_note_card_gesture(const ui_gesture_event_t *event) {
+    if (event->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
+    uint16_t x0 = event->x0, y0 = event->y0, x = event->x, y = event->y;
+    if (reader_landscape()) {
+        if (x0 >= UI_LOCK_WIDTH || y0 >= UI_LOCK_HEIGHT || x >= UI_LOCK_WIDTH || y >= UI_LOCK_HEIGHT)
+            return APP_REDRAW_NONE;
+        reader_landscape_point(&x0, &y0);
+        reader_landscape_point(&x, &y);
+    }
+    EpdRect card = reader_note_card_rect(s_note_card), close = reader_note_card_exit(card);
+    bool close_tapped = !reader_landscape() && ui_rect_hit(close, x0, y0) && ui_rect_hit(close, x, y);
+    if ((y0 < card.y && y < card.y) || close_tapped) {
+        reader_note_card_close();
+        return APP_REDRAW_PAGE;
+    }
+    return APP_REDRAW_NONE;
 }
 
 static bool reader_body_hit(uint16_t x, uint16_t y) {
@@ -3987,7 +4402,7 @@ static app_redraw_t reader_toc_target(app_ctx_t *ctx, int target, uint16_t x) {
         reader_remember_jump();
         set_reader_view(READING);
         if (load_chapter_at(ctx, chapter, 0, false, book_navigation_anchor((size_t)target),
-                            book_navigation_source_offset((size_t)target))) {
+                            book_navigation_source_offset((size_t)target), CHAPTER_KEEP_NOTE, NULL)) {
             s_selected_toc = (size_t)target;
             char entry_title[sizeof(s_title)];
             if (book_navigation_title((size_t)target, entry_title, sizeof(entry_title)) == ESP_OK)
@@ -4511,6 +4926,11 @@ static int reader_page_key_direction(int key) {
 }
 
 static app_redraw_t on_key(app_ctx_t* ctx, int key) {
+    if (s_note_card) {
+        if (key != UI_KEY_2) return APP_REDRAW_NONE;
+        reader_note_card_close();
+        return APP_REDRAW_PAGE;
+    }
     if (!app_book_reader_active()) {
         if (key != UI_KEY_2) {
             if (s_sort_open || s_document_menu || s_document_batch_confirm || s_batch_confirm || s_clear_confirm)
@@ -4609,7 +5029,7 @@ static app_redraw_t shelf_turn_page(app_ctx_t *ctx, int direction) {
 static app_redraw_t on_tick(app_ctx_t* ctx) {
     track_ticket_stats(ctx);
     const cst836u_touch_t *touch=ctx->touch;
-    bool multi_enabled=s_view==READING&&!s_toolbar&&!s_clear_confirm&&!ctx->consumed;
+    bool multi_enabled=s_view==READING&&!s_toolbar&&!s_note_card&&!s_clear_confirm&&!ctx->consumed;
     if(multi_enabled&&touch&&touch->count==2)multi_enabled=reader_body_hit(touch->points[0].x,touch->points[0].y)&&reader_body_hit(touch->points[1].x,touch->points[1].y);
     bool was_multi_active=s_reader_multi.active,was_multi_blocked=s_reader_multi.blocked;
     int multi=reader_multi_feed(&s_reader_multi,multi_enabled,touch&&touch->touched,touch?touch->count:0,
@@ -4706,6 +5126,8 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
 }
 static void before_lock(app_ctx_t* ctx) {
     reader_stop_landscape_sensor(ctx);
+    reader_note_card_close();
+    if (s_view == READING) (void)reader_close_note(ctx);
     s_progress_drag=false;
     s_reader_slider=-1;
     s_toc_jump_drag=false;

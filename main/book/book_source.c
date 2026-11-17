@@ -84,6 +84,9 @@ esp_err_t book_chapter_load_blocks_anchor(size_t i, const char *anchor,
                                            size_t *anchor_offset, html_text_t *out) {
     return book_chapter_load_blocks_target(i, anchor, SIZE_MAX, anchor_offset, out);
 }
+bool book_chapter_link_target(size_t from, const char *href, size_t *chapter, char *anchor, size_t capacity) {
+    return s_epub && book_epub_link_target(s_epub, from, href, chapter, anchor, capacity);
+}
 esp_err_t book_chapter_load_blocks_target(size_t i, const char *anchor,
                                            size_t source_offset, size_t *text_offset,
                                            html_text_t *out) {

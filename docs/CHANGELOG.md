@@ -4,6 +4,12 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.4 beta 1 / 2026-11-17
+
+- EPUB 注释支持正文与注释双向跳转，底栏根据当前位置提供返回正文或返回注释。/ EPUB notes support navigation in both directions, with contextual return to the text or note.
+- EPUB 正文内的注释标记保持行内显示；带编号时显示数字角标，无编号时显示圆形标记。短注释可在阅读页底部卡片查看，卡片适配竖屏与横屏排版。/ Keep EPUB note markers inline as numbered or circular badges. Short notes open in a bottom card sized for portrait and landscape layouts.
+- 图书版式设置改为两行宽松布局，排版方向、屏幕方向和栏数选项清晰分组。/ Arrange book layout choices in two spacious rows for text direction, screen orientation, and column count.
+
 ## 0.2.3 beta 2 / 2026-11-15
 
 - 修正横屏转向颠倒。横屏阅读中自动跟随持握方向，手指离开后再应用转向。 / Fix reversed landscape orientation. Follow the device during landscape reading and defer rotation until touch is released.

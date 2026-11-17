@@ -14,6 +14,7 @@
  */
 #include "book_epub.h"
 #include "book_index_cache.h"
+#include "book_image_header.h"
 #include "zip_reader.h"
 #include "esp_heap_caps.h"
 #include <stdbool.h>
@@ -1412,6 +1413,40 @@ static char *chapter_css(book_epub_t *book, const char *chapter_path,
     return css;
 }
 
+typedef struct {
+    book_epub_t *book;
+    const char *chapter_path;
+    unsigned remaining;
+    int last_entry;
+    bool last_small;
+} note_image_probe_t;
+
+static bool probe_note_image(void *ctx, const char *src, unsigned max_side) {
+    note_image_probe_t *probe = ctx;
+    char path[EPUB_PATH_CAP];
+    if (!resolve_path(probe->chapter_path, src, path)) return false;
+    int entry = zip_find(probe->book->zip, path);
+    if (entry < 0) return false;
+    if (entry == probe->last_entry) return probe->last_small;
+    size_t bytes = zip_entry_size(probe->book->zip, entry);
+    // Only inspect bounded small ZIP assets; the marker never uses an image decoder.
+    if (!probe->remaining || !bytes || bytes > 16 * 1024 ||
+        zip_entry_packed_size(probe->book->zip, entry) > 16 * 1024) return false;
+    --probe->remaining;
+    probe->last_entry = entry;
+    probe->last_small = false;
+    uint8_t *data = psram(bytes);
+    if (!data) return false;
+    unsigned width = 0, height = 0;
+    if (zip_extract(probe->book->zip, entry, data, bytes) == ESP_OK) {
+        if (book_png_frame(data, bytes, &width, &height) || book_jpeg_frame(data, bytes, NULL, &width, &height)) {
+            probe->last_small = width && height && width <= max_side && height <= max_side;
+        }
+    }
+    free(data);
+    return probe->last_small;
+}
+
 esp_err_t book_epub_load_target(book_epub_t *book, size_t i, const char *anchor,
                                 size_t source_offset, size_t *anchor_offset, html_text_t *out) {
     if (!out) return ESP_ERR_INVALID_ARG;
@@ -1419,9 +1454,11 @@ esp_err_t book_epub_load_target(book_epub_t *book, size_t i, const char *anchor,
     char *text; size_t len; esp_err_t err = load_entry(book, book->chapters[i].zip_index, &text, &len);
     if (err != ESP_OK) return err;
     size_t css_len = 0;
-    char *css = chapter_css(book, zip_entry_name(book->zip, book->chapters[i].zip_index), text, len, &css_len);
+    const char *path = zip_entry_name(book->zip, book->chapters[i].zip_index);
+    char *css = chapter_css(book, path, text, len, &css_len);
+    note_image_probe_t probe = {.book = book, .chapter_path = path, .remaining = 16, .last_entry = -1};
     err = html_to_blocks_with_css_target(text, len, css, css_len,
-                                         anchor, source_offset, anchor_offset, out);
+                                         anchor, source_offset, anchor_offset, probe_note_image, &probe, out);
     free(css); free(text); return err;
 }
 esp_err_t book_epub_load_anchor(book_epub_t *book, size_t i, const char *anchor,
@@ -1430,6 +1467,39 @@ esp_err_t book_epub_load_anchor(book_epub_t *book, size_t i, const char *anchor,
 }
 esp_err_t book_epub_load(book_epub_t *book, size_t i, html_text_t *out) {
     return book_epub_load_anchor(book, i, NULL, NULL, out);
+}
+bool book_epub_link_target(book_epub_t *book, size_t from, const char *href,
+                          size_t *chapter, char *anchor, size_t capacity) {
+    if (!book || from >= book->count || !href || !chapter || !anchor || capacity < 2)
+        return false;
+    const char *part = strchr(href, '#');
+    if (!part || !part[1]) return false;
+    const int source = book->chapters[from].zip_index;
+    char path[EPUB_PATH_CAP];
+    if (!resolve_path(zip_entry_name(book->zip, source), href, path)) return false;
+    int entry = zip_find(book->zip, path);
+    if (entry < 0) return false;
+    size_t target = from;
+    if (entry != source) {
+        for (target = 0; target < book->count && book->chapters[target].zip_index != entry; ++target) {}
+        if (target == book->count) return false;
+    }
+    size_t used = 0;
+    for (++part; *part; ++part) {
+        int c = (unsigned char)*part;
+        if (c == '%') {
+            if (!part[1] || !part[2]) return false;
+            int a = hex(part[1]), b = hex(part[2]);
+            if (a < 0 || b < 0) return false;
+            c = (a << 4) | b;
+            part += 2;
+        }
+        if (c <= 32 || c == 127 || used + 1 >= capacity) return false;
+        anchor[used++] = (char)c;
+    }
+    anchor[used] = 0;
+    *chapter = target;
+    return true;
 }
 esp_err_t book_epub_image(book_epub_t *book, size_t chapter, const char *src,
                           uint8_t **data, size_t *size, bool *png) {

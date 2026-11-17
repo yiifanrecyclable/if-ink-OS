@@ -62,6 +62,13 @@ void ttf_draw_text_px_spaced(uint8_t* fb, int x, int y, int px, const char* text
     last_tracking_px = tracking_px;
     ttf_draw_text_px(fb, x, y, px, text, EPD_DRAW_ALIGN_LEFT, fg, bg);
 }
+bool ttf_text_range_px(int px, const char *text, int tracking, int target,
+                       size_t start, size_t end, int *first, int *last, int *ink_bottom) {
+    (void)px; (void)text; (void)tracking; (void)target;
+    (void)start; (void)end; (void)first; (void)last; (void)ink_bottom;
+    assert(!"These layout fixtures do not render links");
+    return false;
+}
 void ttf_draw_text_px_fitted(uint8_t* fb, int x, int y, int px, const char* text,
                              int tracking_px, int target_width, uint8_t fg, uint8_t bg) {
     fitted_target = target_width;

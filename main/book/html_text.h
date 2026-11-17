@@ -18,6 +18,11 @@
 
 #define HTML_TEXT_MAX_BYTES (4u * 1024u * 1024u)
 #define HTML_TEXT_MAX_BLOCKS 16384u
+#define HTML_LINK_HREF_CAP 512u
+#define HTML_LINK_ANCHOR_CAP 128u
+#define HTML_LINK_MAX 512u
+#define HTML_NOTE_LABEL_CAP 6u
+#define HTML_NOTE_IMAGE_CP 0xfffcu
 
 typedef struct {
     size_t offset; ///< UTF-8 字节起点 / UTF-8 byte start
@@ -42,7 +47,22 @@ enum { TEXT_STYLE_BOLD = 1, TEXT_STYLE_ITALIC = 2, TEXT_STYLE_HIGHLIGHT = 4 };
 /// 非重叠有序文字样式区间，偏移沿用归一化 UTF-8。/ Ordered nonoverlapping style runs in normalized UTF-8.
 typedef struct { size_t offset, len; uint8_t flags; } text_style_t;
 
+/// 区间使用归一化 UTF-8 字节偏移。/ Range uses normalized UTF-8 byte offsets.
 typedef struct {
+    uint32_t start, end;
+    char *href;
+    const char *anchor;
+    bool backlink, noteref;
+    char image_label[HTML_NOTE_LABEL_CAP];
+} html_link_t;
+
+typedef enum { HTML_NOTE_NONE, HTML_NOTE_PARAGRAPH, HTML_NOTE_EXPLICIT } html_note_kind_t;
+
+typedef struct {
+    html_link_t *links;
+    size_t link_count;
+    size_t note_start, note_end; ///< Normalized text range enclosing the requested anchor.
+    html_note_kind_t note_kind;
     markdown_cell_t *cells; ///< 自有 Markdown 单元格表，普通图书为空 / Owned Markdown cells, absent in ordinary books
     size_t cell_count;
     text_style_t* styles; ///< 自有样式表，普通图书为空 / Owned style table, empty for ordinary books
@@ -60,17 +80,19 @@ esp_err_t html_to_blocks(const char* html, size_t len, html_text_t* out);
 /// 先应用书内 CSS，再应用页面内样式；两段输入均只借用。/ Apply in-book CSS before page styles; both inputs are borrowed.
 esp_err_t html_to_blocks_with_css(const char* html, size_t len,
                                    const char* css, size_t css_len, html_text_t* out);
-/// 同一次解析记录 EPUB #fragment 在规范化正文中的字节位置；找不到时为零。
-/// Record a fragment's normalized text offset during parsing; missing anchors map to zero.
+/// 同一次解析记录 EPUB #fragment 在规范化正文中的字节位置；找不到时为 SIZE_MAX。
+/// Record a fragment's normalized text offset during parsing; missing anchors map to SIZE_MAX.
 esp_err_t html_to_blocks_with_css_anchor(const char* html, size_t len,
                                           const char* css, size_t css_len,
                                           const char* anchor, size_t* anchor_offset,
                                           html_text_t* out);
+typedef bool (*html_note_image_probe_fn)(void *ctx, const char *path, unsigned max_side);
 /// 目录标题没有 id 时，以原 XHTML 标签位置定位，仍在同一次排版解析中换算正文偏移。
 /// Resolve a source tag position to normalized text during the same parse.
 esp_err_t html_to_blocks_with_css_target(const char* html, size_t len,
                                           const char* css, size_t css_len,
                                           const char* anchor, size_t source_offset,
-                                          size_t* text_offset, html_text_t* out);
+                                          size_t* text_offset, html_note_image_probe_fn probe, void *probe_ctx,
+                                          html_text_t* out);
 /// 释放文本与块表并清零；可重复调用。/ Free text and blocks and reset; safe to repeat.
 void html_text_free(html_text_t* text);

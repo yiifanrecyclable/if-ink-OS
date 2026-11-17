@@ -65,7 +65,7 @@ def main():
         exe = work / 'test'
         subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-g', '-fsanitize=address,undefined',
                         '-I' + str(ROOT / 'tools/book_epub_stubs'), '-I' + str(ROOT / 'tools/zip_host_stubs'),
-                        '-I' + str(ROOT / 'main/book'), str(ROOT / 'tools/book_epub_host_test.c'),
+                        '-I' + str(ROOT / 'main'), '-I' + str(ROOT / 'main/book'), str(ROOT / 'tools/book_epub_host_test.c'),
                         str(ROOT / 'main/book/book_epub.c'), str(ROOT / 'main/book/zip_reader.c'),
                         str(ROOT / 'main/book/html_text.c'), str(ROOT / 'main/book/book_index_cache.c'),
                         '-lz', '-o', str(exe)], check=True)
@@ -211,7 +211,7 @@ def main():
         large_exe = work / 'large-test'
         subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-g', '-fsanitize=address,undefined',
                         '-I' + str(ROOT / 'tools/book_epub_stubs'), '-I' + str(ROOT / 'tools/zip_host_stubs'),
-                        '-I' + str(ROOT / 'main/book'), str(ROOT / 'tools/book_epub_large_host_test.c'),
+                        '-I' + str(ROOT / 'main'), '-I' + str(ROOT / 'main/book'), str(ROOT / 'tools/book_epub_large_host_test.c'),
                         str(ROOT / 'main/book/book_epub.c'), str(ROOT / 'main/book/zip_reader.c'),
                         str(ROOT / 'main/book/html_text.c'), str(ROOT / 'main/book/book_index_cache.c'),
                         '-lz', '-o', str(large_exe)], check=True)

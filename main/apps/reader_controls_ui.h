@@ -12,12 +12,22 @@ static int reader_font_row_height(void) {
     return reader_font_name_px() + 24;
 }
 
+enum {
+    READER_LAYOUT_MODES_HEIGHT = 128,
+    READER_LAYOUT_MODES_TOP = 1084 - READER_LAYOUT_MODES_HEIGHT,
+};
+
 static int reader_row_height(void) {
     if (s_reader_panel == READER_PANEL_SHORTCUTS) return 790 / READER_SHORTCUT_COUNT;
     if (s_reader_panel == READER_PANEL_BINDING) return 790 / READER_ACTION_COUNT;
     int text_height = reader_px(UI_TEXT_BODY);
     if (s_reader_panel == READER_PANEL_FONT_PICKER) return reader_font_row_height();
-    if (s_reader_panel == READER_PANEL_LAYOUT_SETTINGS) return 88 + text_height * 3 / 4;
+    if (s_reader_panel == READER_PANEL_LAYOUT_SETTINGS) {
+        int height = 88 + text_height * 3 / 4;
+        const int limit = (READER_LAYOUT_MODES_TOP - UI_PAGE_Y(220) - 12) / 6;
+        if (book_kind() != BOOK_KIND_MARKDOWN && height > limit) height = limit;
+        return height;
+    }
     int height = text_height * 2 + 48;
     return height < 112 ? 112 : height;
 }
@@ -35,7 +45,7 @@ static int reader_control_rows(void) {
 static EpdRect reader_control_row(int visible) {
     int height = reader_row_height();
     if (s_reader_panel == READER_PANEL_LAYOUT_SETTINGS && visible == 6)
-        return (EpdRect){36, 1014, 612, 70};
+        return (EpdRect){36, READER_LAYOUT_MODES_TOP, 612, READER_LAYOUT_MODES_HEIGHT};
     return (EpdRect){36, UI_PAGE_Y(220) + visible * height, 612, height};
 }
 
@@ -48,11 +58,12 @@ static int reader_control_row_at(int y) {
     return -1;
 }
 
-static EpdRect reader_layout_mode_rect(int button) {
-    EpdRect row = reader_control_row(6);
-    row.width /= 3;
-    row.x += button * row.width;
-    return row;
+static EpdRect reader_layout_mode_rect(EpdRect grid, int row, int column) {
+    int left = grid.width * column / 3;
+    int right = grid.width * (column + 1) / 3;
+    int top = grid.height * row / 2;
+    int bottom = grid.height * (row + 1) / 2;
+    return (EpdRect){grid.x + left, grid.y + top, right - left, bottom - top};
 }
 static unsigned s_reader_names_shown;
 static bool s_reader_names_settled;
@@ -114,16 +125,33 @@ static void reader_control_label(uint8_t *fb,EpdRect r,const char *text,const ch
     reader_control_text(fb,r.x+12,r.y+r.height/2,UI_TEXT_BODY,label,EPD_DRAW_ALIGN_LEFT,false);
     if(value&&*value){char detail[128];copy_text(detail,sizeof(detail),value);fit_fixed_text(detail,reader_px(UI_TEXT_CAPTION),238);reader_control_text(fb,r.x+r.width-12,r.y+r.height/2,UI_TEXT_CAPTION,detail,EPD_DRAW_ALIGN_RIGHT,false);}
 }
-static void reader_layout_mode_button(uint8_t *fb, int button, const char *label, bool enabled) {
-    EpdRect r = reader_layout_mode_rect(button);
-    if (button)
-        epd_fill_rect((EpdRect){r.x, r.y + (r.height - 28) / 2, 1, 28}, UI_GRAY_SECTION_LINE, fb);
-    char text[48];
-    copy_text(text, sizeof(text), label);
-    int px = reader_px(UI_TEXT_BODY);
-    fit_fixed_text(text, px, r.width - 16);
-    ui_text_fixed_vc_gray(fb, r.x + r.width / 2, r.y + r.height / 2, px, text,
-                          EPD_DRAW_ALIGN_CENTER, enabled ? UI_INK_BLACK : 8, UI_INK_WHITE);
+static bool reader_layout_mode_enabled(int row, int column) {
+    return row == 0 || column != 2 || reader_landscape();
+}
+static void draw_reader_layout_modes(uint8_t *fb, EpdRect grid) {
+    const char *labels[2][3] = {
+        {UI_MSG("横排"), UI_MSG("竖屏"), UI_MSG("单栏")},
+        {UI_MSG("竖排"), UI_MSG("横屏"), UI_MSG("双栏")},
+    };
+    const bool lower_selected[] = {
+        reader_book_vertical(), reader_landscape(), s_reader_screen == APP_BOOK_LANDSCAPE_TWO_COLUMNS,
+    };
+    for (int column = 1; column < 3; ++column) {
+        int x = reader_layout_mode_rect(grid, 0, column).x;
+        epd_fill_rect((EpdRect){x, grid.y, 1, grid.height}, UI_GRAY_ITEM_LINE, fb);
+    }
+    for (int row = 0; row < 2; ++row) {
+        for (int column = 0; column < 3; ++column) {
+            EpdRect cell = reader_layout_mode_rect(grid, row, column);
+            int px = reader_px(UI_TEXT_BODY);
+            const char *label = labels[row][column];
+            while (px > 16 && ui_text_fixed_width_px(px, label) > cell.width - 16) --px;
+            bool selected = lower_selected[column] == (row == 1);
+            uint8_t ink = selected ? UI_INK_BLACK : reader_layout_mode_enabled(row, column) ? 8 : 10;
+            ui_text_fixed_vc_gray(fb, cell.x + cell.width / 2, cell.y + cell.height / 2,
+                                  px, label, EPD_DRAW_ALIGN_CENTER, ink, UI_INK_WHITE);
+        }
+    }
 }
 static void reader_control_footer(uint8_t *fb){
     static const char *const labels[]={UI_MSG("目录"),UI_MSG("书签"),UI_MSG("文字"),UI_MSG("版式"),UI_MSG("更多")};
@@ -449,10 +477,7 @@ static void draw_reader_panel(uint8_t *fb){
                 else if(i==2){ui_snprintf(value,sizeof(value),"%d%%",para);reader_control_slider(fb,3,names[i],value,para,76);}
                 else if(i==3){ui_snprintf(value,sizeof(value),"%+d px",(tracking-2)*2);reader_control_slider(fb,4,names[i],value,tracking,5);}
                 else if(i==6){
-                    reader_layout_mode_button(fb, 0, reader_book_vertical() ? UI_MSG("竖排") : UI_MSG("横排"), true);
-                    reader_layout_mode_button(fb, 1, reader_landscape() ? UI_MSG("横屏") : UI_MSG("竖屏"), true);
-                    reader_layout_mode_button(fb, 2, s_reader_screen == APP_BOOK_LANDSCAPE_TWO_COLUMNS ? UI_MSG("双栏") : UI_MSG("单栏"),
-                                              reader_landscape());
+                    draw_reader_layout_modes(fb, reader_control_row(row));
                 }
                 else{ui_snprintf(value,sizeof(value),i==4?UI_MSG("%u 字 · 点按切换"):UI_MSG("设置 ›"),app_settings_book_indent());reader_control_label(fb,reader_control_row(row),names[i],value);}
             }

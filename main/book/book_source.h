@@ -36,6 +36,7 @@ esp_err_t book_chapter_load(size_t i, char **utf8, size_t *len);
 /// 保留 EPUB 标题/段落块；TXT 的 blocks 为 NULL，调用方 html_text_free。
 /// Preserve EPUB heading/paragraph blocks; TXT has NULL blocks; caller uses html_text_free.
 esp_err_t book_chapter_load_blocks(size_t i, html_text_t *out);
+bool book_chapter_link_target(size_t from, const char *href, size_t *chapter, char *anchor, size_t capacity);
 esp_err_t book_chapter_load_blocks_anchor(size_t i, const char *anchor,
                                            size_t *anchor_offset, html_text_t *out);
 esp_err_t book_chapter_load_blocks_target(size_t i, const char *anchor,

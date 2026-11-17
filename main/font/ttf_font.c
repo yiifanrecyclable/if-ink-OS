@@ -2733,15 +2733,12 @@ static bool cjk_spacing_point(uint32_t cp) {
     return (cp >= 0x2e80 && cp <= 0xffef) || (cp >= 0x2018 && cp <= 0x201d);
 }
 
-void ttf_draw_text_px_fitted(
-    uint8_t* framebuffer, int x, int y, int pixel_height, const char* text,
-    int tracking_px, int target_width, uint8_t fg, uint8_t bg
-) {
-    if (!font_ready || !framebuffer || !text || !*text) return;
-    ttf_cover_lut_init();
-    int requested_px = pixel_height;
-    pixel_height = raster_px(pixel_height);
-    warm_text_io(pixel_height, text);
+typedef struct {
+    int quotient, remainder;
+    bool compress, active;
+} text_fit_t;
+
+static text_fit_t text_fit(int px, const char *text, int tracking, int target_width) {
     int glyph_count = 0, cjk_gaps = 0;
     const char* cursor = text;
     uint32_t previous = 0;
@@ -2752,19 +2749,89 @@ void ttf_draw_text_px_fitted(
         ++glyph_count;
     }
     int gaps = glyph_count - 1;
-    int natural = measure_width(pixel_height, text) + tracking_px * gaps;
+    int natural = measure_width(px, text) + tracking * gaps;
     int delta = target_width - natural;
     bool compress = delta < 0;
     int adjustable = compress ? gaps : cjk_gaps;
     if (adjustable < 2 || (compress && -delta > adjustable * 3) ||
-        (!compress && delta > adjustable * 12)) {
+        (!compress && delta > adjustable * 12)) return (text_fit_t){0};
+    return (text_fit_t){delta / adjustable, delta % adjustable, compress, true};
+}
+
+static int fitted_gap(text_fit_t fit, uint32_t cp, uint32_t next, int *adjusted) {
+    if (!fit.active || (!fit.compress && !cjk_spacing_point(cp) && !cjk_spacing_point(next))) return 0;
+    int step = fit.quotient;
+    if (fit.remainder > 0 && *adjusted < fit.remainder) ++step;
+    if (fit.remainder < 0 && *adjusted < -fit.remainder) --step;
+    ++*adjusted;
+    return step;
+}
+
+bool ttf_text_range_px(int px, const char *text, int tracking, int target,
+                       size_t start, size_t end, int *first, int *last, int *ink_bottom) {
+    if (!font_ready || !text || !first || !last || start >= end) return false;
+    px = raster_px(px);
+    text_fit_t fit = target ? text_fit(px, text, tracking, target) : (text_fit_t){0};
+    const char *cursor = text;
+    float scale = stbtt_ScaleForPixelHeight(&font_info, (float)px);
+    int offset = 0, adjusted = 0;
+    bool found_start = false, found_ink = false;
+    if (ink_bottom) *ink_bottom = 0;
+    while (*cursor) {
+        size_t at = (size_t)(cursor - text);
+        if (at == start) { *first = offset; found_start = true; }
+        if (at >= end) return found_start && at == end;
+        uint32_t cp = decode_utf8(&cursor);
+        const glyph_entry_t *glyph = cache_lookup(cp, px);
+        int advance = 0;
+        int bottom = 0;
+        bool has_ink = false;
+        if (glyph) {
+            advance = glyph->advance_x;
+            if (glyph->bitmap) {
+                bottom = glyph->height - glyph->top;
+                has_ink = true;
+            }
+        } else {
+            int index = stbtt_FindGlyphIndex(&font_info, (int)cp);
+            stbtt_GetGlyphHMetrics(&font_info, index, &advance, NULL);
+            advance = (int)lroundf(advance * scale);
+            if (ink_bottom && found_start) {
+                int top;
+                stbtt_GetGlyphBitmapBox(&font_info, index, scale, scale, NULL, &top, NULL, &bottom);
+                has_ink = top < bottom;
+            }
+        }
+        if (ink_bottom && found_start && has_ink && (!found_ink || bottom > *ink_bottom)) {
+            *ink_bottom = bottom;
+            found_ink = true;
+        }
+        offset += advance;
+        *last = offset;
+        if (*cursor) {
+            const char *peek = cursor;
+            offset += tracking + fitted_gap(fit, cp, decode_utf8(&peek), &adjusted);
+        }
+    }
+    return found_start && (size_t)(cursor - text) == end;
+}
+
+void ttf_draw_text_px_fitted(
+    uint8_t* framebuffer, int x, int y, int pixel_height, const char* text,
+    int tracking_px, int target_width, uint8_t fg, uint8_t bg
+) {
+    if (!font_ready || !framebuffer || !text || !*text) return;
+    ttf_cover_lut_init();
+    int requested_px = pixel_height;
+    pixel_height = raster_px(pixel_height);
+    warm_text_io(pixel_height, text);
+    text_fit_t fit = text_fit(pixel_height, text, tracking_px, target_width);
+    if (!fit.active) {
         ttf_draw_text_px_spaced(framebuffer, x, y, requested_px, text, tracking_px, fg, bg);
         return;
     }
-    int quotient = delta / adjustable;
-    int remainder = delta % adjustable;
+    const char *cursor = text;
     int adjusted = 0, cursor_x = x;
-    cursor = text;
     while (*cursor) {
         uint32_t cp = decode_utf8(&cursor);
         const glyph_entry_t* glyph = get_glyph(cp, pixel_height);
@@ -2782,14 +2849,7 @@ void ttf_draw_text_px_fitted(
         if (*cursor) {
             const char* peek = cursor;
             uint32_t next = decode_utf8(&peek);
-            cursor_x += tracking_px;
-            if (compress || cjk_spacing_point(cp) || cjk_spacing_point(next)) {
-                int step = quotient;
-                if (remainder > 0 && adjusted < remainder) ++step;
-                if (remainder < 0 && adjusted < -remainder) --step;
-                cursor_x += step;
-                ++adjusted;
-            }
+            cursor_x += tracking_px + fitted_gap(fit, cp, next, &adjusted);
         }
     }
 }

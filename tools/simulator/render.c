@@ -353,6 +353,20 @@ int main(int argc, char **argv) {
     printf(",\"reader_progress_geometry\":[%d,%d,%d]",simulator_reader_progress_geometry(0),simulator_reader_progress_geometry(1),simulator_reader_progress_geometry(2));
     extern int simulator_reader_margin(void),simulator_reader_control_geometry(unsigned);
     extern size_t simulator_reader_offset(void);
+    extern size_t simulator_reader_chapter(void);
+    extern bool simulator_reader_note_open(void);
+    extern const char *simulator_reader_note_return_label(void);
+    printf(",\"reader_chapter\":%zu,\"reader_note_open\":%s",simulator_reader_chapter(),simulator_reader_note_open()?"true":"false");
+    printf(",\"reader_note_return_label\":");json_string(simulator_reader_note_return_label());
+    extern int simulator_reader_note_card_top(void);
+    extern const char *simulator_reader_note_card_text(void);
+    extern int simulator_reader_note_card_px(void);
+    extern const char *simulator_reader_note_card_title(void);
+    printf(",\"reader_note_card_top\":%d,\"reader_note_card_px\":%d,\"reader_note_card_text\":",
+           simulator_reader_note_card_top(),simulator_reader_note_card_px());
+    json_string(simulator_reader_note_card_text());
+    printf(",\"reader_note_card_title\":");
+    json_string(simulator_reader_note_card_title());
     extern unsigned simulator_reader_bookmark_count(void);printf(",\"reader_bookmark_count\":%u",simulator_reader_bookmark_count());
     printf(",\"reader_margin\":%d,\"reader_offset\":%zu,\"reader_controls_geometry\":[%d,%d,%d],\"reader_shortcuts\":[",simulator_reader_margin(),simulator_reader_offset(),simulator_reader_control_geometry(0),simulator_reader_control_geometry(1),simulator_reader_control_geometry(2));
     for(unsigned i=0;i<12;++i){if(i)printf(",");printf("%u",simulator_reader_binding(i));}printf("]");

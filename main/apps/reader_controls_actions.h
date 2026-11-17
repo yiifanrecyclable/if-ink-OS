@@ -72,6 +72,27 @@ static app_redraw_t reader_quick_action(app_ctx_t *ctx, int button) {
     }
     return reader_manual_refresh(ctx);
 }
+static app_redraw_t reader_layout_mode_action(EpdRect grid, uint16_t x, uint16_t y) {
+    if (!ui_rect_hit(grid, x, y)) return APP_REDRAW_NONE;
+    int row = y >= grid.y + grid.height / 2;
+    int column = 0;
+    while (column < 2 && x >= reader_layout_mode_rect(grid, row, column + 1).x) ++column;
+    if (!reader_layout_mode_enabled(row, column)) return APP_REDRAW_NONE;
+
+    bool vertical = reader_book_vertical();
+    app_book_screen_t screen = s_reader_screen;
+    if (column == 0) {
+        if (vertical == (row == 1)) return APP_REDRAW_NONE;
+        vertical = row == 1;
+    } else if (column == 1) {
+        if (reader_landscape() == (row == 1)) return APP_REDRAW_NONE;
+        screen = row == 1 ? APP_BOOK_LANDSCAPE : APP_BOOK_PORTRAIT;
+    } else {
+        screen = row == 1 ? APP_BOOK_LANDSCAPE_TWO_COLUMNS : APP_BOOK_LANDSCAPE;
+        if (!reader_landscape() || screen == s_reader_screen) return APP_REDRAW_NONE;
+    }
+    return apply_book_presentation(vertical, screen);
+}
 static app_redraw_t reader_panel_item(app_ctx_t *ctx,int i,uint16_t x,uint16_t y) {
     if(s_reader_panel==READER_PANEL_FONT_SETTINGS){
         if(i==1)return reader_show_panel(READER_PANEL_FONT_PICKER);
@@ -81,16 +102,8 @@ static app_redraw_t reader_panel_item(app_ctx_t *ctx,int i,uint16_t x,uint16_t y
     }else if(s_reader_panel==READER_PANEL_LAYOUT_SETTINGS){
         if(i==4)return apply_reader_indent(ctx,(app_settings_book_indent()+1)%4);
         if(i==5)return reader_show_panel(READER_PANEL_RULE_SETTINGS);
-        if(i==6 && book_kind()!=BOOK_KIND_MARKDOWN) {
-            bool vertical = reader_book_vertical();
-            if (ui_rect_hit(reader_layout_mode_rect(0), x, y))
-                return apply_book_presentation(!vertical, s_reader_screen);
-            if (ui_rect_hit(reader_layout_mode_rect(1), x, y))
-                return apply_book_presentation(vertical, reader_landscape() ? APP_BOOK_PORTRAIT : APP_BOOK_LANDSCAPE);
-            if (reader_landscape() && ui_rect_hit(reader_layout_mode_rect(2), x, y))
-                return apply_book_presentation(vertical, s_reader_screen == APP_BOOK_LANDSCAPE
-                    ? APP_BOOK_LANDSCAPE_TWO_COLUMNS : APP_BOOK_LANDSCAPE);
-        }
+        if(i==6 && book_kind()!=BOOK_KIND_MARKDOWN)
+            return reader_layout_mode_action(reader_control_row(6), x, y);
     }else if(s_reader_panel==READER_PANEL_RULE_SETTINGS){
         if(i<3){int style=i;app_settings_set_book_reading_line(style);book_layout_set_reading_line(style);}
         else if(i==3||i==4){int dir=ui_rect_hit(reader_landscape()?wide_rule_adjust(-1):reader_rule_offset_rect(-1),x,y)?-1:ui_rect_hit(reader_landscape()?wide_rule_adjust(1):reader_rule_offset_rect(1),x,y)?1:0;if(i==3&&!dir)return APP_REDRAW_NONE;int offset=i==4?0:app_settings_book_reading_line_offset()+dir*2;if(offset< -8)offset=-8;if(offset>8)offset=8;app_settings_set_book_reading_line_offset(offset);book_layout_set_reading_line_offset(offset);}
@@ -254,6 +267,7 @@ static app_redraw_t reader_style_gesture(app_ctx_t *ctx,const ui_gesture_event_t
 }
 static app_redraw_t reader_controls_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev){
     if(ctx->touch&&ctx->touch->count>1){s_pressed_control=-1;if(s_progress_drag){s_progress_drag=false;return APP_REDRAW_PAGE;}if(s_reader_slider>=0){s_reader_slider=-1;return APP_REDRAW_PAGE;}return APP_REDRAW_NONE;}
+    if(s_note_card)return reader_note_card_gesture(ev);
     if(!s_toolbar&&(s_reader_multi.active||(s_reader_multi.blocked&&ctx->touch)))return APP_REDRAW_NONE;
     if(s_toolbar){
         if(s_reader_panel==READER_PANEL_TOOLS && reader_progress_event(ev))
@@ -281,6 +295,8 @@ static app_redraw_t reader_controls_gesture(app_ctx_t *ctx,const ui_gesture_even
         }
     }
     if (type == UI_GESTURE_TAP) {
+        app_redraw_t note = reader_note_tap(ctx, x, y);
+        if (note != APP_REDRAW_NONE) return note;
         if (reader_landscape()) {
             for(int zone=0;zone<3;++zone)
                 if(ui_rect_hit(wide_tap_rect(zone),x,y))

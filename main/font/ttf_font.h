@@ -100,6 +100,9 @@ void ttf_draw_text_px_spaced(
     uint8_t* framebuffer, int x, int y, int pixel_height, const char* text,
     int tracking_px, uint8_t fg, uint8_t bg
 );
+/// Return the byte range's advances and optional ink bottom relative to the baseline.
+bool ttf_text_range_px(int px, const char *text, int tracking, int target,
+                       size_t start, size_t end, int *first, int *last, int *ink_bottom);
 /// 在汉字间均摊行尾余量；标点溢出时可小幅压缩字距。/ Distribute spare width across CJK gaps or slightly compress for hanging punctuation.
 void ttf_draw_text_px_fitted(
     uint8_t* framebuffer, int x, int y, int pixel_height, const char* text,

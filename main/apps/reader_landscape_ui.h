@@ -2,7 +2,7 @@
 #pragma once
 
 // All coordinates are native landscape pixels. Detail hit rectangles are pane-local.
-enum { WIDE_FONT_LIST_TOP = 76 };
+enum { WIDE_FONT_LIST_TOP = 76, WIDE_LAYOUT_MODES_TOP = 24 };
 
 static int wide_detail_rows(void) {
     if (s_reader_panel == READER_PANEL_FONT_PICKER)
@@ -20,7 +20,7 @@ static EpdRect wide_detail_row(int row) {
     case READER_PANEL_FONT_PICKER: top = WIDE_FONT_LIST_TOP; step = reader_font_row_height(); break;
     case READER_PANEL_SHORTCUTS:
     case READER_PANEL_BINDING: top = 68; step = 88; break;
-    case READER_PANEL_LAYOUT_SETTINGS: top = 140; step = 96; break;
+    case READER_PANEL_LAYOUT_SETTINGS: top = WIDE_LAYOUT_MODES_TOP + READER_LAYOUT_MODES_HEIGHT + 16; step = 96; break;
     case READER_PANEL_RULE_SETTINGS: top = 74; step = 94; break;
     case READER_PANEL_FONT_SETTINGS: top = 155; step = 78; break;
     case READER_PANEL_REFRESH_SETTINGS: step = 96; break;
@@ -36,6 +36,7 @@ static EpdRect wide_slider_rect(int slider) {
     return (EpdRect){0};
 }
 static EpdRect wide_at(EpdRect r,int origin) { r.x += origin; return r; }
+static EpdRect wide_layout_modes(void) { return (EpdRect){24,WIDE_LAYOUT_MODES_TOP,WIDE_PANE_WIDTH-48,READER_LAYOUT_MODES_HEIGHT}; }
 static EpdRect wide_close(void) { return (EpdRect){16,8,56,52}; }
 static EpdRect wide_tap_zone(EpdRect area, int zone) {
     static const int edges[] = {0,30,55,100};
@@ -280,12 +281,7 @@ static void draw_wide_detail(app_ctx_t *ctx,uint8_t *fb,const char *face) {
     else if(s_reader_panel==READER_PANEL_BASIC)draw_wide_basic(fb,x);
     else if(s_reader_panel==READER_PANEL_LAYOUT_SETTINGS){
         if(!s_control_page){
-            const char *modes[]={reader_book_vertical()?UI_MSG("竖排"):UI_MSG("横排"),UI_MSG("横屏"),
-                            s_reader_screen==APP_BOOK_LANDSCAPE_TWO_COLUMNS?UI_MSG("双栏"):UI_MSG("单栏")};
-            for(int i=0;i<3;++i){
-                if(i)epd_fill_rect((EpdRect){x+i*WIDE_PANE_WIDTH/3,38,1,45},UI_GRAY_ITEM_LINE,fb);
-                reader_control_text(fb,x+(2*i+1)*WIDE_PANE_WIDTH/6,60,UI_TEXT_BODY,modes[i],EPD_DRAW_ALIGN_CENTER,false);
-            }
+            draw_reader_layout_modes(fb,wide_at(wide_layout_modes(),x));
             ui_snprintf(value,sizeof(value),UI_MSG("%u 字 · 点按切换"),app_settings_book_indent());
             wide_label(fb,wide_at(wide_detail_row(0),x),UI_MSG("首行缩进"),value);
             wide_label(fb,wide_at(wide_detail_row(1),x),UI_MSG("阅读线"),"›");
