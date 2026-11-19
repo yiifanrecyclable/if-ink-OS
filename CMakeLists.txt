@@ -9,7 +9,11 @@ option(IFINK_INKBUDDY "Enable inkbuddy in local test firmware" OFF)
 option(IFINK_LANDSCAPE_READER_TEST "Build the local 0.2.3-beta3t reader test firmware" OFF)
 option(IFINK_DOCUMENT_TIMING "Build the local document timing test firmware" OFF)
 option(IFINK_VERTICAL_LAYOUT_TEST "Build the local 0.2.3-beta.1t1 test firmware" OFF)
-set(PROJECT_VER "0.2.4-beta.1")
+option(IFINK_SHELF_TIMING_TEST "Build the local 0.2.4-beta9t performance test firmware" OFF)
+set(PROJECT_VER "0.2.5-beta.1")
+if(IFINK_SHELF_TIMING_TEST AND (NOT IFINK_INKBUDDY OR IFINK_DOCUMENT_TIMING OR IFINK_VERTICAL_LAYOUT_TEST OR IFINK_LANDSCAPE_READER_TEST))
+    message(FATAL_ERROR "0.2.4-beta9t requires inkbuddy and excludes other test profiles")
+endif()
 # 由同一开关派生版本和功能。/ Derive both the version and the feature from the same option.
 if((IFINK_DOCUMENT_TIMING AND IFINK_INKBUDDY) OR
    (IFINK_VERTICAL_LAYOUT_TEST AND (IFINK_DOCUMENT_TIMING OR IFINK_INKBUDDY)))
@@ -18,7 +22,9 @@ endif()
 if(IFINK_LANDSCAPE_READER_TEST AND (NOT IFINK_INKBUDDY OR IFINK_DOCUMENT_TIMING OR IFINK_VERTICAL_LAYOUT_TEST))
     message(FATAL_ERROR "0.2.3-beta3t requires inkbuddy and excludes other test profiles")
 endif()
-if(IFINK_LANDSCAPE_READER_TEST)
+if(IFINK_SHELF_TIMING_TEST)
+    set(PROJECT_VER "0.2.4-beta9t")
+elseif(IFINK_LANDSCAPE_READER_TEST)
     set(PROJECT_VER "0.2.3-beta3t")
 elseif(IFINK_INKBUDDY)
     set(PROJECT_VER "0.2.2-beta.3t2")
@@ -34,6 +40,12 @@ if(DEFINED CACHE{PROJECT_VER} AND
     endif()
 endif()
 project(Read_Pico_IF)
+
+# 书架测试版缩短等候时间，沿用常规唤醒流程。/ Shorten the wait for shelf tests without changing the wake path.
+if(IFINK_SHELF_TIMING_TEST)
+    idf_component_get_property(ifink_main_lib main COMPONENT_LIB)
+    target_compile_definitions(${ifink_main_lib} PRIVATE IFINK_SHORT_STAGED_SLEEP=1)
+endif()
 
 # 一分钟的深睡诊断仅用于本地唤醒测试。/ Keep the one-minute interval local to wake diagnostics.
 if(PROJECT_VER MATCHES "^0[.]2[.]1-beta-r1t[3456]$")

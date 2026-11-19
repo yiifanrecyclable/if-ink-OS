@@ -1,14 +1,17 @@
-# if-ink OS v0.2.3 Beta 1 构建与重新链接
+# if-ink OS 0.2.5 Beta 1 构建与重新链接
 
-项目身份保留 `Read_Pico_IF`，用于兼容已安装的 IF 本地升级。源码包括应用、修改后的 epdiy、固定依赖和实际构建配置。应用 SHA256：`d3c65cf18c0b63197d8f83969431b0c9e4e44efb3390f811fd1c9afe9910862b`。
+项目身份保留 `Read_Pico_IF`，用于兼容已安装的 IF 本地升级。源码包括应用、修改后的 epdiy、固定依赖和实际构建配置。发布镜像的 SHA-256、构建配置与验证记录见同版本附件 `SHA256SUMS` 和 `build-verification.json`。
 
 安装 Espressif ESP-IDF 与工具链，SDK 固定提交 [`fff9895c82d744c7237be8847347bdd1b07c6643`](https://github.com/espressif/esp-idf/tree/fff9895c82d744c7237be8847347bdd1b07c6643)（v6.1 开发树）。按 SDK 官方说明执行 install/export 脚本，然后在本仓库执行：
 
 ```sh
-idf.py -B build -D SDKCONFIG=sdkconfig.release -D IFINK_INKBUDDY=OFF -D IFINK_DOCUMENT_TIMING=OFF -D IFINK_LANDSCAPE_READER_TEST=OFF -D IFINK_VERTICAL_LAYOUT_TEST=OFF build
+idf.py -B build -D IDF_TARGET=esp32s3 -D SDKCONFIG=sdkconfig.release \
+  -D IFINK_INKBUDDY=OFF -D IFINK_DOCUMENT_TIMING=OFF \
+  -D IFINK_LANDSCAPE_READER_TEST=OFF -D IFINK_VERTICAL_LAYOUT_TEST=OFF \
+  -D IFINK_SHELF_TIMING_TEST=OFF build
 ```
 
-本次公开 Beta 的固件版本为 `0.2.3-beta.1`，终端功能关闭（`IFINK_INKBUDDY=OFF`）。实际发布配置为 `sdkconfig.release`；依赖版本在 `dependencies.lock`，对应源码在 `components/` 与 `managed_components/`。SDK/工具链首次安装需联网。构建包含实际内建字库，不需要先装字体生成依赖；如修改内建字库，按 `tools/gen_builtin_font.py` 及 `assets/fonts/README.md` 说明准备字体。完整 TF 字体和拼音词库另在资源包。
+本次公开固件版本为 `0.2.5-beta.1`。以上命令关闭终端模式和本地测试功能。实际发布配置为 `sdkconfig.release`；依赖版本在 `dependencies.lock`，对应源码在 `components/` 与 `managed_components/`。SDK/工具链首次安装需联网。建议把 SDK 放在不含空格的路径。发布构建的 SDK 路径含空格，因此在其 `components/bt/controller/CMakeLists.txt` 中使用组件相对路径 `controller/linker_rw_bt_controller.lf` 引用相同的链接片段。构建包含实际内建字库，不需要先装字体生成依赖；如修改内建字库，按 `tools/gen_builtin_font.py` 及 `assets/fonts/README.md` 说明准备字体。完整 TF 字体和拼音词库另在资源包。
 
 替换 `components/epdiy` 中接口兼容的实现或修改应用后，执行相同命令重新编译链接；按新构建的 `build/flash_args` 安装自己的四段产物，不能用原发布应用替代自己的重新链接结果。未启用安全启动或 Flash 加密来限制更换固件。编译时间会影响镜像摘要，不要求逐字节重现。源码中的 `sdkconfig.defaults` 是板级产品默认，CI 配置不能替代它。
 

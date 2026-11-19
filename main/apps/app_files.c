@@ -34,6 +34,7 @@
 #include "file_tree.h"
 #include "file_references.h"
 #include "file_thumbnail.h"
+#include "file_thumbnail_ui.h"
 #include "book_cover.h"
 #include "read_pico_sd.h"
 #include "read_pico_search.h"
@@ -629,10 +630,8 @@ static void render_grid(uint8_t *fb){
         int text_height=ui_text_line_height(UI_TEXT_CAPTION);
         EpdRect box={cell.x+6,cell.y+6,cell.width-12,cell.height-text_height-24};
         const file_thumb_t *thumb=&s_thumbs[row];
-        if(thumb->pixels&&thumb->width&&thumb->height){unsigned w,h;book_cover_fit_size(thumb->width,thumb->height,(unsigned)box.width,(unsigned)box.height,&w,&h);
-            int left=box.x+(box.width-(int)w)/2,top=box.y+(box.height-(int)h)/2;
-            for(unsigned y=0;y<h;++y)for(unsigned x=0;x<w;++x){size_t pixel=(size_t)(y*thumb->height/h)*thumb->width+x*thumb->width/w;uint8_t byte=thumb->pixels[pixel/2];uint8_t shade=pixel&1?byte&15:byte>>4;epd_draw_pixel(left+(int)x,top+(int)y,(uint8_t)(shade<<4),fb);}
-        }else ui_draw_icon(fb,box.x+box.width/2,box.y+box.height/2,72,item->is_dir?(thumb->image_folder?UI_ICON_FOLDER_IMAGE:UI_ICON_FOLDER):(supported(1,item->name)?UI_ICON_IMAGE:UI_ICON_FILE),item->is_dir?UI_GRAY_BLACK:0x88);
+        if(!file_thumbnail_draw(fb,box,thumb->pixels,thumb->width,thumb->height))
+            ui_draw_icon(fb,box.x+box.width/2,box.y+box.height/2,72,item->is_dir?(thumb->image_folder?UI_ICON_FOLDER_IMAGE:UI_ICON_FOLDER):(supported(1,item->name)?UI_ICON_IMAGE:UI_ICON_FILE),item->is_dir?UI_GRAY_BLACK:0x88);
         epd_draw_rect(box,UI_GRAY_ITEM_LINE,fb);
         if(picker_current(item))for(int d=2;d<=4;d++)epd_draw_rect((EpdRect){box.x-d,box.y-d,box.width+2*d,box.height+2*d},UI_GRAY_BLACK,fb);
         char name[128];ui_snprintf(name,sizeof(name),"%s",item->name);

@@ -28,7 +28,8 @@ int simulator_settings(uint8_t *fb,int page,int scroll,const char *events){
  bool quote=page==23;if(quote)app_device_settings_request_home_quote();
  app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);if(quote)home_quote_editor_open();
  if(page==SETTINGS_BANNER_IMAGE||page==SETTINGS_BANNER_BROWSER)banner_picker_open();
- if(page==SETTINGS_SYSTEM_FONT||page==SETTINGS_QUOTE_FONT)ttf_font_scan();
+ if(page==SETTINGS_SYSTEM_FONT)ttf_font_scan();
+ if(page==SETTINGS_QUOTE_FONT)quote_font_picker_open();
  if(page==SETTINGS_WALLPAPER_PREVIEW)page=SETTINGS_WALLPAPER_FIXED;
  if(page==SETTINGS_WALLPAPER_FIXED||page==SETTINGS_WALLPAPER_FOLDER)wallpaper_picker_open(&ctx,page==SETTINGS_WALLPAPER_FOLDER);
 
@@ -36,14 +37,21 @@ int simulator_settings(uint8_t *fb,int page,int scroll,const char *events){
  s_page=quote?SETTINGS_TEXT_EDIT:(page==SETTINGS_RETIRED_4||page==SETTINGS_RETIRED_7||page==SETTINGS_RETIRED_15||page==SETTINGS_RETIRED_16||page==SETTINGS_RETIRED_17||page==SETTINGS_RETIRED_18)?SETTINGS_MAIN:(settings_page_t)page;s_main_scroll=scroll;
  if(s_page==SETTINGS_HOME_QUOTE)quote_preview_prepare(s_quote_px,false);
  s_year=2026;s_month=10;s_day=5;s_hour=12;s_minute=0;
- if(s_page==SETTINGS_ONLINE_UPDATE)(void)if_update_check();
+ if(s_page==SETTINGS_ONLINE_UPDATE)(void)if_update_check_all();
  if(s_page==SETTINGS_WALLPAPER_PREVIEW)render(&ctx,fb);
  simulator_replay(&ctx,preview_settings_gesture,on_key,events);render(&ctx,fb);
- if(s_page==SETTINGS_SYSTEM_FONT&&!getenv("PICO_SIM_DEFER_FONT_NAMES")){
+ if(font_picker_page()&&!ctx.request_app&&!getenv("PICO_SIM_DEFER_FONT_NAMES")){
      ctx.consumed=ctx.pressed=ctx.released=false;
      for(int i=0;i<=font_list_rows()+1&&!s_font_names_settled;++i){
          ctx.now_ms+=400;
-         (void)system_font_preview_tick(&ctx);
+         (void)settings_font_preview_tick(&ctx);
+     }
+ }
+ if(banner_picker_page()&&!ctx.request_app&&!getenv("PICO_SIM_DEFER_BANNER_THUMBS")){
+     ctx.consumed=ctx.pressed=ctx.released=false;
+     for(int i=0;i<BANNER_PICK_ITEMS&&s_banner_thumb_next<s_banner_image_count;++i){
+         ctx.now_ms=s_banner_thumb_next_ms;
+         (void)banner_picker_tick(&ctx);
      }
  }
  if(ctx.request_app){extern const app_desc_t app_transfer;simulator_route=ctx.request_app==&app_transfer?5:app_index_of(ctx.request_app);}
@@ -58,9 +66,16 @@ int simulator_settings_geometry(int item) {
 
 int simulator_settings_update_state(void){if_update_status_t status;if_update_get_status(&status);return status.state;}
 int simulator_settings_update_confirmation(void){return s_online_confirm;}
-int simulator_settings_update_channel(void){if_update_status_t status;if_update_get_status(&status);return status.channel;}
+int simulator_settings_update_channel(void){
+    if(s_online_confirm)return s_online_channel;
+    if_update_status_t status;if_update_get_status(&status);return status.channel;
+}
+int simulator_settings_update_offer(unsigned channel){
+    if_update_status_t status;if_update_get_status(&status);
+    return channel<IF_UPDATE_CHANNEL_COUNT?status.offers[channel].state:IF_UPDATE_IDLE;
+}
 
-int simulator_banner_draft(unsigned part){if(part==12)return ui_banner_text_y(&s_banner_draft);const int values[]={s_banner_draft.mode,s_banner_draft.show_date,s_quote_px,s_banner_draft.align,s_banner_draft.valign,banner_date_y(),s_banner_image_count,s_banner_image_total,font_list_step(),s_banner_image_page,banner_image_rows(),s_banner_draft.show_text};return part<12?values[part]:0;}
+int simulator_banner_draft(unsigned part){if(part==12)return ui_banner_text_y(&s_banner_draft);const int values[]={s_banner_draft.mode,s_banner_draft.show_date,s_quote_px,s_banner_draft.align,s_banner_draft.valign,banner_date_y(),s_banner_image_count,s_banner_image_total,banner_image_cell(0).height,s_banner_image_page,BANNER_PICK_ITEMS,s_banner_draft.show_text};return part<12?values[part]:0;}
 const char *simulator_banner_text(void){return s_banner_draft.text;}
 const char *simulator_banner_font(void){return s_banner_draft.font;}
 const char *simulator_banner_image(void){return s_banner_draft.image;}

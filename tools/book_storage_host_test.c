@@ -92,7 +92,8 @@ int main(void){
     book_progress_watch_destroy(watch_a);
     book_progress_t p={.file_size=123456,.chapter=2047,.byte_off=9876,.px=48,.pct=83,.last_open_s=UINT32_MAX},q={.file_size=999};
     assert(!book_progress_load(sd,p.file_size,&q));
-    assert(book_progress_save(sd,&p)==ESP_OK);
+    uint32_t committed=0;
+    assert(book_progress_save_with_sequence(sd,&p,&committed)==ESP_OK&&committed==1);
     assert(book_progress_load(sd,p.file_size,&q)&&q.last_open_s==1);
     assert(q.chapter==p.chapter&&q.byte_off==p.byte_off&&q.px==48&&q.pct==83);
     assert(!book_progress_load(sd,p.file_size+1,&q)&&q.file_size==p.file_size);
@@ -106,7 +107,7 @@ int main(void){
     seq_failure=0;blob_failure=ESP_ERR_NVS_NOT_ENOUGH_SPACE;assert(book_progress_save(sd,&p)==blob_failure&&sequence==3);
     assert(book_progress_load(sd,p.file_size,&q)&&q.last_open_s==2);blob_failure=0;
     assert(book_progress_save(sd,&p)==ESP_OK);assert(book_progress_load(sd,p.file_size,&q)&&q.last_open_s==4);
-    commit_failure=ESP_FAIL;assert(book_progress_save(sd,&p)==ESP_FAIL);
+    commit_failure=ESP_FAIL;assert(book_progress_save_with_sequence(sd,&p,&committed)==ESP_FAIL&&committed==1);
     assert(book_progress_load(sd,p.file_size,&q)&&q.last_open_s==4);commit_failure=0;
     assert(book_progress_save(flash,&p)==ESP_OK);assert(book_progress_set_last_path(flash)==ESP_OK);
     assert(book_progress_forget(sd)==ESP_OK);assert(!book_progress_load(sd,p.file_size,&q));

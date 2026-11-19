@@ -39,19 +39,35 @@ static void read_pair(FILE *f,long offset,history_record_t pair[2]) {
 }
 void reading_history_range(uint32_t start,unsigned count,uint32_t *seconds) {
     if(!seconds)return;
-    FILE *f=NULL;int opened_year=0;
-    for(unsigned i=0;i<count;++i){
-        seconds[i]=0;int year;uint32_t first,day=start+i;
-        if(day<start||!year_of(day,&year,&first))continue;
+    memset(seconds,0,(size_t)count*sizeof(*seconds));
+    // Consecutive days occupy consecutive slot pairs. Read small blocks, splitting
+    // on year boundaries, while preserving independent validation of both slots.
+    FILE *f=NULL;
+    int opened_year=0;
+    for(unsigned i=0;i<count;){
+        int year;uint32_t first,day=start+i;
+        if(day<start||!year_of(day,&year,&first)){++i;continue;}
         if(year!=opened_year){
             if(f)fclose(f);
             char path[80];snprintf(path,sizeof(path),HISTORY_DIR"/%04d.bin",year);
             f=fopen(path,"rb");opened_year=year;
         }
-        if(!f)continue;
-        history_record_t pair[2];read_pair(f,(long)(day-first)*2*sizeof(*pair),pair);
-        uint32_t a=valid(&pair[0],day)?pair[0].seconds:0,b=valid(&pair[1],day)?pair[1].seconds:0;
-        seconds[i]=a>b?a:b;
+        history_record_t block[16][2];
+        unsigned days=1;
+        while(days<16&&days<count-i&&day+days>=day){
+            int next_year;uint32_t next_first;
+            if(!year_of(day+days,&next_year,&next_first)||next_year!=year)break;
+            ++days;
+        }
+        if(f&&!fseek(f,(long)(day-first)*2*sizeof(history_record_t),SEEK_SET)){
+            size_t read=fread(block,sizeof(history_record_t),2*days,f);
+            for(unsigned j=0;j<days&&2*j<read;++j){
+                uint32_t a=valid(&block[j][0],day+j)?block[j][0].seconds:0;
+                uint32_t b=2*j+1<read&&valid(&block[j][1],day+j)?block[j][1].seconds:0;
+                seconds[i+j]=a>b?a:b;
+            }
+        }
+        i+=days;
     }
     if(f)fclose(f);
 }

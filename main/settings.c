@@ -114,7 +114,7 @@ static app_book_screen_t s_book_screen;
 static bool s_reader_hide_images;
 static bool s_reader_hold_refresh;
 static bool s_reader_vertical_turn;
-static bool s_shelf_recent_sort;
+static bool s_shelf_recent_sort = true;
 static uint8_t s_book_tracking = 2, s_book_reading_line, s_book_rule_offset = 4;
 static uint8_t s_book_indent = 2;
 static char s_books_dir[MEDIA_DIR_MAX] = "/sdcard/books";

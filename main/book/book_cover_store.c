@@ -217,6 +217,44 @@ failed:
     return false;
 }
 
+// 只记已核对的缩略图身份，不存第二份像素；媒体或单书失效沿用同一套 epoch。
+// Remember verified identities without a second pixel copy. Reuse the media and per-file epochs.
+#define COVER_VERIFIED_COUNT 24
+typedef struct {
+    cover_cache_header_t key;
+    uint8_t source_id[32];
+} cover_verified_t;
+static cover_verified_t s_verified[COVER_VERIFIED_COUNT];
+static unsigned s_verified_next;
+
+static bool cover_verified_read(const cover_cache_header_t *key, const char *source, bool fitted,
+                                uint8_t *out, unsigned *width, unsigned *height) {
+    for (size_t i = 0; i < COVER_VERIFIED_COUNT; ++i) {
+        cover_verified_t *entry = &s_verified[i];
+        const cover_cache_header_t *saved = &entry->key;
+        if (saved->schema != key->schema || saved->media_epoch != key->media_epoch ||
+            saved->file_size != key->file_size || saved->modified != key->modified ||
+            saved->path_hash != key->path_hash || saved->text_hash != key->text_hash)
+            continue;
+        SHELF_PERF_SCOPE(perf, SP_COVER_VERIFIED_HIT, fitted, 0);
+        char path[120];
+        bool ok = cover_persist_path(key, fitted, path) &&
+                  cover_persist_read(path, source, entry->source_id, fitted, out, width, height) &&
+                  cover_source_unchanged(source, key);
+        if (!ok) entry->key.schema = 0;
+        perf.b = ok;
+        return ok;
+    }
+    return false;
+}
+
+static void cover_verified_note(const cover_cache_header_t *key, const uint8_t source_id[32]) {
+    cover_verified_t *entry = &s_verified[s_verified_next];
+    entry->key = *key;
+    memcpy(entry->source_id, source_id, sizeof(entry->source_id));
+    s_verified_next = (s_verified_next + 1) % COVER_VERIFIED_COUNT;
+}
+
 static bool load_cover(const char *path, const char *title, const char *author,
                           uint8_t out[BOOK_COVER_W * BOOK_COVER_H],
                           bool allow_decode, bool *pending, bool fitted, unsigned *width, unsigned *height) {
@@ -230,7 +268,8 @@ static bool load_cover(const char *path, const char *title, const char *author,
     cover_cache_header_t key;
     bool cacheable = cover_cache_key(path, title, author, cache_path, sizeof(cache_path), &key, fitted);
     if (!cacheable) return false;
-    if (cover_cache_read(cache_path, &key, out, width, height)) return true;
+    if (cover_verified_read(&key, path, fitted, out, width, height) ||
+        cover_cache_read(cache_path, &key, out, width, height)) return true;
     if (!allow_decode) { if (pending) *pending = true; return false; }
 
     bool good=false,cache_result=true,identity=false,png=false;
@@ -249,7 +288,7 @@ static bool load_cover(const char *path, const char *title, const char *author,
     if(!cover_source_unchanged(path,&key)){free(data);return false;}
     if(identity&&cover_persist_read(persistent,path,id,fitted,out,width,height)){
         good=cover_source_unchanged(path,&key);
-        if(good){key.width=*width;key.height=*height;cover_cache_write(cache_path,&key,out);}
+        if (good) cover_verified_note(&key, id);
         free(data);return good;
     }
     {

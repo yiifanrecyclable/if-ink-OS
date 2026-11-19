@@ -26,6 +26,7 @@
 
 #define EPUB_MANIFEST_MAX 8192
 #define EPUB_CHAPTER_MAX 8192
+#define EPUB_AUXILIARY_BASE EPUB_CHAPTER_MAX
 #define EPUB_NAV_MAX 8192
 #define EPUB_XML_DEPTH 64
 #define EPUB_PATH_CAP 512
@@ -64,6 +65,7 @@ struct book_epub {
     chapter_t *chapters; ///< 按实际章节数分配的 PSRAM 表 / PSRAM table sized to actual spine
     size_t count; ///< 章节数 / Chapter count
     size_t chapter_capacity;
+    uint8_t *manifest_html; ///< Local XHTML entries, loaded only when following a link outside the spine.
     uint32_t total; ///< 原始 HTML 字节总量 / Total source HTML bytes
     char source_path[EPUB_PATH_CAP]; ///< 延迟目录缓存来源 / Source for lazy navigation cache
     bool headings_dirty; ///< 标题需要写回 / Titles need caching
@@ -987,7 +989,8 @@ esp_err_t book_epub_open(const char *path, book_epub_t **out) {
 void book_epub_close(book_epub_t *book) {
     if (!book) return;
     if (book->headings_dirty && book->source_path[0]) epub_cache_save(book->source_path, book);
-    zip_close(book->zip); text_pool_free(book); free(book->visible_index); free(book->navigation); free(book->chapters); free(book);
+    zip_close(book->zip); text_pool_free(book); free(book->visible_index); free(book->navigation);
+    free(book->manifest_html); free(book->chapters); free(book);
 }
 size_t book_epub_chapter_count(const book_epub_t *book) { return book ? book->count : 0; }
 // 目录缺项时只解析当前可见章节的标题，不在开书时解压所有章节。
@@ -1447,14 +1450,55 @@ static bool probe_note_image(void *ctx, const char *src, unsigned max_side) {
     return probe->last_small;
 }
 
+static bool load_manifest_html(book_epub_t *book) {
+    if (book->manifest_html) return true;
+    char opf[EPUB_PATH_CAP];
+    if (container_path(book, opf) != ESP_OK) return false;
+    char *text;
+    size_t len;
+    if (load_entry(book, zip_find(book->zip, opf), &text, &len) != ESP_OK) return false;
+    uint8_t *entries = heap_caps_calloc((zip_entry_count(book->zip) + 7) / 8, 1, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!entries) { free(text); return false; }
+    xml_t xml;
+    xml_reader(&xml, text, len);
+    token_t token;
+    size_t depth = 0;
+    while (xml_next(&xml, &token)) {
+        if (token.kind == XML_OPEN && token.depth == 2 && local_name(token.name, "manifest")) depth = token.depth;
+        if (token.kind == XML_CLOSE && token.depth == depth) break;
+        if (!depth || token.kind != XML_OPEN || token.depth != depth + 1 || !local_name(token.name, "item")) continue;
+        char type[80], href[EPUB_PATH_CAP], path[EPUB_PATH_CAP];
+        if (!attribute(token, "media-type", type, sizeof(type)) ||
+            (strcmp(type, "application/xhtml+xml") && strcmp(type, "text/html")) ||
+            !attribute(token, "href", href, sizeof(href)) || !resolve_path(opf, href, path)) continue;
+        int index = zip_find(book->zip, path);
+        if (index >= 0) entries[index / 8] |= 1u << (index % 8);
+    }
+    free(text);
+    if (xml.failed || !depth) { free(entries); return false; }
+    book->manifest_html = entries;
+    return true;
+}
+
+static int chapter_entry(book_epub_t *book, size_t chapter) {
+    if (!book) return -1;
+    if (chapter < book->count) return book->chapters[chapter].zip_index;
+    if (chapter < EPUB_AUXILIARY_BASE) return -1;
+    size_t index = chapter - EPUB_AUXILIARY_BASE;
+    if (index >= zip_entry_count(book->zip) || !load_manifest_html(book)) return -1;
+    return book->manifest_html[index / 8] & (1u << (index % 8)) ? (int)index : -1;
+}
+
 esp_err_t book_epub_load_target(book_epub_t *book, size_t i, const char *anchor,
                                 size_t source_offset, size_t *anchor_offset, html_text_t *out) {
     if (!out) return ESP_ERR_INVALID_ARG;
-    memset(out, 0, sizeof(*out)); if (!book || i >= book->count) return ESP_ERR_INVALID_ARG;
-    char *text; size_t len; esp_err_t err = load_entry(book, book->chapters[i].zip_index, &text, &len);
+    memset(out, 0, sizeof(*out));
+    int entry = chapter_entry(book, i);
+    if (entry < 0) return ESP_ERR_INVALID_ARG;
+    char *text; size_t len; esp_err_t err = load_entry(book, entry, &text, &len);
     if (err != ESP_OK) return err;
     size_t css_len = 0;
-    const char *path = zip_entry_name(book->zip, book->chapters[i].zip_index);
+    const char *path = zip_entry_name(book->zip, entry);
     char *css = chapter_css(book, path, text, len, &css_len);
     note_image_probe_t probe = {.book = book, .chapter_path = path, .remaining = 16, .last_entry = -1};
     err = html_to_blocks_with_css_target(text, len, css, css_len,
@@ -1470,11 +1514,12 @@ esp_err_t book_epub_load(book_epub_t *book, size_t i, html_text_t *out) {
 }
 bool book_epub_link_target(book_epub_t *book, size_t from, const char *href,
                           size_t *chapter, char *anchor, size_t capacity) {
-    if (!book || from >= book->count || !href || !chapter || !anchor || capacity < 2)
+    if (!href || !chapter || !anchor || capacity < 2)
         return false;
     const char *part = strchr(href, '#');
     if (!part || !part[1]) return false;
-    const int source = book->chapters[from].zip_index;
+    const int source = chapter_entry(book, from);
+    if (source < 0) return false;
     char path[EPUB_PATH_CAP];
     if (!resolve_path(zip_entry_name(book->zip, source), href, path)) return false;
     int entry = zip_find(book->zip, path);
@@ -1482,7 +1527,11 @@ bool book_epub_link_target(book_epub_t *book, size_t from, const char *href,
     size_t target = from;
     if (entry != source) {
         for (target = 0; target < book->count && book->chapters[target].zip_index != entry; ++target) {}
-        if (target == book->count) return false;
+        if (target == book->count) {
+            // 临时引用使用 ZIP 条目编号，不追加到正文阅读顺序。/ Address auxiliary documents without adding them to the spine.
+            target = EPUB_AUXILIARY_BASE + (size_t)entry;
+            if (chapter_entry(book, target) < 0 || zip_entry_size(book->zip, entry) > EPUB_ENTRY_MAX) return false;
+        }
     }
     size_t used = 0;
     for (++part; *part; ++part) {
@@ -1503,10 +1552,11 @@ bool book_epub_link_target(book_epub_t *book, size_t from, const char *href,
 }
 esp_err_t book_epub_image(book_epub_t *book, size_t chapter, const char *src,
                           uint8_t **data, size_t *size, bool *png) {
-    if (!book || chapter >= book->count || !src || !data || !size || !png) return ESP_ERR_INVALID_ARG;
+    int chapter_zip = chapter_entry(book, chapter);
+    if (chapter_zip < 0 || !src || !data || !size || !png) return ESP_ERR_INVALID_ARG;
     *data = NULL; *size = 0; *png = false;
     char path[EPUB_PATH_CAP];
-    if (!resolve_path(zip_entry_name(book->zip, book->chapters[chapter].zip_index), src, path)) return ESP_ERR_INVALID_ARG;
+    if (!resolve_path(zip_entry_name(book->zip, chapter_zip), src, path)) return ESP_ERR_INVALID_ARG;
     int entry = zip_find(book->zip, path);
     if (entry < 0) return ESP_ERR_NOT_FOUND;
     size_t n = zip_entry_size(book->zip, entry);

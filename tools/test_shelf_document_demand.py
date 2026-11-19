@@ -64,6 +64,7 @@ static esp_err_t document_store_read_changes(unsigned after,unsigned through,doc
  return ESP_OK;
 }
 static char s_document_message[64];
+static bool s_shelf_paged,s_shelf_disk_valid;
 static bool s_scan_pending,s_document_mode,s_document_delete_confirm,s_document_clear_confirm,s_document_menu;
 static bool s_requested_open_home,s_reader_return_home,open_ok=true;
 static char s_requested_open[288];
@@ -83,10 +84,17 @@ static void copy_text(char *d,size_t n,const char *s){snprintf(d,n,"%s",s);}
 static void prepare_covers(app_ctx_t *c){(void)c;}
 static void clear_content_search(app_ctx_t *c){(void)c;++clears;}
 static void track_ticket_stats(app_ctx_t *c){(void)c;}
+static void book_recent_index_flush(void) {}
+static void book_shelf_index_audit_stop(void) {}
+static void shelf_index_checkpoint(app_ctx_t *ctx,bool allow_large){(void)ctx;(void)allow_large;}
+static bool shelf_load_page(int leaf){(void)leaf;return true;}
+static bool shelf_try_index(void){return false;}
 static void save_progress(void){++saves;}
 static void free_book(void){}
 static void ui_nav_request(app_ctx_t *c,int i){assert(!i);c->home=1;}
 static void return_to_cached_shelf(app_ctx_t *c){(void)c;++returns;}
+static int s_reader_shelf_leaf;
+static int leaves(void){return 1;}
 '''
 for name in ('static void discard_document_cache(void) {',
              'static bool document_cache_same_media(void) {',

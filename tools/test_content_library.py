@@ -57,7 +57,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     assert render(0,sort_open)['content_sort_open']
     assert render(0)['book_view']==0
     # 底部卡片共用布局，保留背景、阴影和底栏。/ Both sort cards preserve and fade their own content.
-    for view,selected in ((0,85),(8,598)):
+    for view,selected in ((0,598),(8,598)):
         render(view);background=(build/'frame.bin').read_bytes()
         render(view,sort_open);card_frame=(build/'frame.bin').read_bytes()
         top,nav=852,1136

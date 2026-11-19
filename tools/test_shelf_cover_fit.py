@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory(prefix='shelf-fit-',dir=R/'build') as tmp:
     (card/'books/D-coverless.txt').write_text('Coverless book.');sizes['D-coverless.txt']=(176,240)
     (out/'titles.txt').write_text('');env={**os.environ,'PICO_SIM_CARD_ROOT':str(card)}
     def frame(view='book-0',path=''):
-        p=subprocess.run([str(R/'build/simulator/render'),view,path,'0','48','build/simulator/frame.bin','build/simulator/titles.txt','0',','.join(['0']*30),'builtin',''],cwd=base,env=env,capture_output=True,text=True,timeout=30)
+        p=subprocess.run([str(Path(os.environ.get('PICO_SIM_RENDER', R/'build/simulator/render')).resolve()),view,path,'0','48','build/simulator/frame.bin','build/simulator/titles.txt','0',','.join(['0']*30),'builtin',''],cwd=base,env=env,capture_output=True,text=True,timeout=30)
         assert p.returncode==0,p.stderr
         return json.loads(p.stdout),(out/'frame.bin').read_bytes()
     def tone(data,x,y):return (data[y*342+x//2]>>(4 if x%2 else 0))&15
@@ -45,13 +45,16 @@ with tempfile.TemporaryDirectory(prefix='shelf-fit-',dir=R/'build') as tmp:
     assert geometries[0][7]>geometries[1][7]>geometries[2][7]
     assert tracks[0][1]==geometries[0][1]+geometries[0][7]+8
     cache=card/'.readpico/covers';fitted=list(cache.glob('*-fit2.bin'));assert len(fitted)==4
-    # Each renderer is a cold boot: only the epoch/header changes; rendered payload stays deterministic.
+    # 每次渲染模拟冷启动；命中后两类磁盘文件都保持原样。
+    # Each renderer starts cold. A persistent hit leaves both files unchanged.
     def payload(p):
         raw=p.read_bytes();w,h=struct.unpack_from("=II",raw,12);return (w,h,raw[-w*h:])
     persistent=list(cache.glob('*-fit3.bin'));assert len(persistent)==4
     stable={p.name:p.read_bytes() for p in persistent}
     unchanged_stat={p.name:(p.stat().st_ino,p.stat().st_mtime_ns) for p in persistent}
+    session_files={p.name:(p.stat().st_ino,p.stat().st_mtime_ns,p.read_bytes()) for p in fitted}
     before={p.name:payload(p) for p in fitted};frame()
+    assert session_files=={p.name:(p.stat().st_ino,p.stat().st_mtime_ns,p.read_bytes()) for p in fitted}
     assert stable=={p.name:p.read_bytes() for p in persistent}
     assert unchanged_stat=={p.name:(p.stat().st_ino,p.stat().st_mtime_ns) for p in persistent} # A fresh-process hit does not rewrite persistent artwork.
     assert before=={p.name:payload(p) for p in fitted}
@@ -85,6 +88,9 @@ with tempfile.TemporaryDirectory(prefix='shelf-fit-',dir=R/'build') as tmp:
         assert grid[2][5]+grid[2][7]//2==grid[3][5]+grid[3][7]//2
         assert grid[0][12]==grid[1][12]==grid[2][12]==grid[3][12]
 
+    # Use an explicit name sort so the test cover remains in the three exported first entries after reading four books.
+    preferences=out/'nvs/if_content';preferences.mkdir(parents=True,exist_ok=True)
+    (preferences/'books').write_bytes(bytes([4]))
     # Real ZIP/EPUB/PNG path: same-size and same-mtime image replacement must retire old pixels.
     source=card/'books/A-tall.epub';original=source.read_bytes();st=source.stat()
     image=next(png(320,480,value) for value in range(128,255) if len(png(320,480,value))==len(png(320,480)))

@@ -16,19 +16,27 @@
 
 typedef enum {
     IF_UPDATE_STABLE, ///< 稳定通道，也是默认值 / Stable channel and default value
-    IF_UPDATE_BETA ///< 测试通道 / Beta channel
+    IF_UPDATE_BETA, ///< 测试通道 / Beta channel
+    IF_UPDATE_CHANNEL_COUNT
 } if_update_channel_t;
 typedef enum {
     IF_UPDATE_IDLE, IF_UPDATE_CHECKING, IF_UPDATE_AVAILABLE, IF_UPDATE_CURRENT,
     IF_UPDATE_DOWNLOADING, IF_UPDATE_VERIFYING, IF_UPDATE_READY, IF_UPDATE_FAILED, IF_UPDATE_CANCELLED
 } if_update_state_t;
 typedef struct {
+    if_update_state_t state; ///< 通道查询结果 / Feed check result
+    bool downgrade; ///< 可手动安装的较早版本 / Earlier version available for manual installation
+    char version[33], message[128];
+} if_update_offer_t;
+typedef struct {
     if_update_state_t state; ///< 当前阶段 / Current phase
     bool busy; ///< 包含任务及联网收尾 / Includes worker and network teardown
+    bool installing; ///< 整体状态指向一次安装 / Overall phase refers to an installation
     if_update_channel_t channel; ///< 本次检查绑定的通道，默认稳定版 / Channel bound to this check; stable by default
     bool downgrade; ///< 可手动安装的较早版本 / Earlier version available for manual installation
     uint32_t revision, received, total;
     char current[33], version[33], message[128];
+    if_update_offer_t offers[IF_UPDATE_CHANNEL_COUNT]; ///< 各通道独立结果 / Independent feed results
 } if_update_status_t;
 /// 只读快照，不包含凭据。/ Read-only snapshot without credentials.
 void if_update_get_status(if_update_status_t *out);
@@ -36,7 +44,10 @@ void if_update_get_status(if_update_status_t *out);
 esp_err_t if_update_check(void);
 /// UI任务选择通道并检查；忙时拒绝切换，清除旧候选。/ Check the selected channel; reject switches while busy and discard the previous candidate.
 esp_err_t if_update_check_channel(if_update_channel_t channel);
-/// 用户明确确认后开始下载及安装。/ Download/install only after explicit confirmation.
+/// 同次任务核对两个通道，共享联网与收尾。/ Check both feeds in one network session.
+esp_err_t if_update_check_all(void);
+/// 用户明确确认后安装选中通道的已核验清单。/ Install the selected validated feed after explicit confirmation.
+esp_err_t if_update_install_channel(if_update_channel_t channel);
 esp_err_t if_update_install(void);
 /// UI任务有界轮询，收回已完成任务及临时网络。/ UI owner reaps completed work and its temporary network.
 void if_update_poll(void);

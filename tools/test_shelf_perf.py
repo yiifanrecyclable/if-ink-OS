@@ -45,6 +45,14 @@ int main(int argc,char **argv){assert(argc==2);unsigned before=logs();
  if(!strcmp(argv[1],"r1t6"))strcpy(descriptor.version,"0.2.1-beta-r1t6");
  if(!strcmp(argv[1],"beta3t1"))strcpy(descriptor.version,"0.2.2-beta.3t1");
  if(!strcmp(argv[1],"beta3t2"))strcpy(descriptor.version,"0.2.2-beta.3t2");
+ if(!strcmp(argv[1],"beta3t"))strcpy(descriptor.version,"0.2.4-beta3t");
+ if(!strcmp(argv[1],"beta4t"))strcpy(descriptor.version,"0.2.4-beta4t");
+ if(!strcmp(argv[1],"beta5t"))strcpy(descriptor.version,"0.2.4-beta5t");
+ if(!strcmp(argv[1],"beta6t"))strcpy(descriptor.version,"0.2.4-beta6t");
+ if(!strcmp(argv[1],"beta7t"))strcpy(descriptor.version,"0.2.4-beta7t");
+ if(!strcmp(argv[1],"beta8t"))strcpy(descriptor.version,"0.2.4-beta8t");
+ if(!strcmp(argv[1],"beta9t"))strcpy(descriptor.version,"0.2.4-beta9t");
+ if(!strcmp(argv[1],"beta2t"))strcpy(descriptor.version,"0.2.4-beta2t");
  if(!strcmp(argv[1],"formal"))strcpy(descriptor.version,"0.2.1");
  if(!strcmp(argv[1],"oom"))test_alloc_fail=true;
  shelf_perf_init();shelf_perf_request(0,123);
@@ -72,6 +80,9 @@ int main(int argc,char **argv){assert(argc==2);unsigned before=logs();
  if(!strcmp(argv[1],"t7"))for(int stage=SP_COVER_SOURCE;stage<=SP_COVER_PERSIST_WRITE;++stage){SHELF_PERF_SCOPE(cover,stage,1,1);test_us+=60;}
  if(!strcmp(argv[1],"r1t5"))for(int stage=SP_BANNER_LAYER_KEY;stage<=SP_BANNER_LAYER_COMPOSE;++stage){SHELF_PERF_SCOPE(banner,stage,2,1);test_us+=200;}
  if(!strcmp(argv[1],"r1t6")){SHELF_PERF_SCOPE(notice,SP_WAKE_NOTICE,1,0);test_us+=250;}
+ if(!strcmp(argv[1],"beta4t"))shelf_perf_event(SP_SHELF_READER_COVERS,9,3072,2048,0);
+ if(!strcmp(argv[1],"beta5t")){SHELF_PERF_SCOPE(snapshot,SP_PROGRESS_SNAPSHOT,1,42);test_us+=25;}
+ if(!strcmp(argv[1],"beta9t")){SHELF_PERF_SCOPE(cover,SP_COVER_VERIFIED_HIT,1,1);test_us+=70;}
  if(!strcmp(argv[1],"full"))for(int i=0;i<3000;++i)shelf_perf_event(SP_INPUT,i,0,0,0);
  pthread_t task;assert(!pthread_create(&task,NULL,other,NULL));assert(!pthread_join(task,NULL));
  shelf_perf_poll(true); // Active capture must not create files.
@@ -101,18 +112,20 @@ with tempfile.TemporaryDirectory(prefix='shelf-perf-',dir=R/'build') as tmp:
  (p/'test.c').write_text(SOURCE)
  cmd=['cc','-std=gnu11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-pthread','-DIFINK_INKBUDDY=1','-DSHELF_PERF_HOST_TEST','-DPICO_SIM_CARD_PATH="unused"','-include',str(R/'tools/simulator/fs.h'),'-I'+str(headers),'-I'+str(R/'tools/simulator/include'),'-I'+str(R/'main'),'-I'+str(R/'main/apps'),str(p/'test.c'),str(R/'main/shelf_perf.c'),str(R/'tools/simulator/fs.c'),'-o',str(p/'test')]
  subprocess.run(cmd,check=True)
- for mode in ('normal','t2','t3','t4','t5','t6','t7','r1t2','r1t3','r1t4','r1t5','r1t6','beta3t1','beta3t2','full','expiry','formal','oom'):
+ shelf_modes=('beta2t','beta3t','beta4t','beta5t','beta6t','beta7t','beta8t','beta9t')
+ for mode in ('normal','t2','t3','t4','t5','t6','t7','r1t2','r1t3','r1t4','r1t5','r1t6','beta3t1','beta3t2',*shelf_modes,'full','expiry','formal','oom'):
   card=p/mode;card.mkdir();env={**os.environ,'PICO_SIM_CARD_ROOT':str(card),'ASAN_OPTIONS':'detect_leaks=0'}
   subprocess.run([str(p/'test'),mode],env=env,check=True)
   logs=list(card.glob('diagnostics/*.csv'))
   if mode in ('formal','oom'):assert not logs;continue
   version='beta.3t1' if mode=='beta3t1' else 'beta.3t2' if mode=='beta3t2' else 'r9'+mode if mode in ('t2','t3','t4','t5','t6','t7') else 'r9t1'
   if mode in ('r1t2','r1t3','r1t4','r1t5','r1t6'):version=mode
-  expected='0.2.2-beta.3t1' if mode=='beta3t1' else '0.2.2-beta.3t2' if mode=='beta3t2' else '0.2.1-beta-'+version if mode in ('r1t2','r1t3','r1t4','r1t5','r1t6') else '0.2.0-'+version
+  if mode in shelf_modes:version=mode
+  expected='0.2.4-'+mode if mode in shelf_modes else '0.2.2-beta.3t1' if mode=='beta3t1' else '0.2.2-beta.3t2' if mode=='beta3t2' else '0.2.1-beta-'+version if mode in ('r1t2','r1t3','r1t4','r1t5','r1t6') else '0.2.0-'+version
   assert len(logs)==1;raw=logs[0].read_text();assert raw.startswith('# shelf_perf schema=1 version='+expected+' ');assert raw.endswith('# complete=1\n')
   assert logs[0].name=='shelf-perf-'+version+'-0001.csv'
   rows=list(csv.DictReader(io.StringIO('\n'.join(line for line in raw.splitlines() if not line.startswith('#')))))
-  assert len(rows)==(2048 if mode=='full' else 18 if mode=='t7' else 10 if mode=='r1t3' else 11 if mode in ('r1t4','r1t5') else 7 if mode=='r1t6' else 14 if mode=='t6' else 13 if mode=='t5' else 6),(mode,len(rows))
+  assert len(rows)==(2048 if mode=='full' else 18 if mode=='t7' else 10 if mode=='r1t3' else 11 if mode in ('r1t4','r1t5') else 7 if mode in ('r1t6','beta4t','beta5t','beta9t') else 14 if mode=='t6' else 13 if mode=='t5' else 6),(mode,len(rows))
   stages={x['stage']:x for x in rows};assert stages['capacity']['duration_us']=='700' and stages['scan']['duration_us']=='1000';assert stages['scan']['request']=='1'
   if mode in ('t5','t6','t7'):
    for name in ('nav_switch','nav_exit','nav_font','nav_enter','nav_present','nav_render','nav_output'):assert stages[name]['duration_us']=='25'
@@ -130,6 +143,12 @@ with tempfile.TemporaryDirectory(prefix='shelf-perf-',dir=R/'build') as tmp:
     assert stages['banner_layer_'+name]['duration_us']=='200' and stages['banner_layer_'+name]['b']=='1'
   if mode=='r1t6':
    assert stages['wake_notice']['duration_us']=='250' and stages['wake_notice']['a']=='1' and stages['wake_notice']['b']=='0'
+  if mode=='beta4t':
+   assert [stages['shelf_reader_covers'][key] for key in ('a','b','c','d')]==['9','3072','2048','0']
+  if mode=='beta5t':
+   assert [stages['progress_snapshot'][key] for key in ('a','b','duration_us')]==['1','42','25']
+  if mode=='beta9t':
+   assert [stages['cover_verified_hit'][key] for key in ('a','b','duration_us')]==['1','1','70']
   assert stages['enter']['b']=='123';assert ("dropped=0" not in raw)==(mode=='full');assert all(int(x['end_us'])>=int(x['start_us']) for x in rows)
   if mode=='normal':
    previous=logs[0].read_bytes();subprocess.run([str(p/'test'),mode],env=env,check=True);assert logs[0].read_bytes()==previous;assert len(list(card.glob('diagnostics/*.csv')))==2

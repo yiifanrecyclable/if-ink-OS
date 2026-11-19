@@ -41,6 +41,20 @@ int main(int argc,char **argv){
   for(size_t i=0;i<(size_t)w*h;++i)assert(out[i]==first);
   bool again=fitted?book_cover_load_fitted_gray(argv[2],"ignored",argv[4],out,false,&pending,&w,&h):book_cover_load_gray(argv[2],"ignored",argv[4],out,false,&pending);
   assert(again&&extracts==e&&decodes==d&&generated==g);
+  if(getenv("COVER_WARM_CORRUPT")){
+   FILE *f=fopen(argv[5],"wb");assert(f&&fwrite("broken",1,6,f)==6&&!fclose(f));
+   assert(!book_cover_load_fitted_gray(argv[2],"ignored",argv[4],out,false,&pending,&w,&h)&&pending);
+   assert(extracts==e&&decodes==d);
+   assert(book_cover_load_fitted_gray(argv[2],"ignored",argv[4],out,true,&pending,&w,&h));
+   assert(extracts==e+1&&decodes==d+1&&out[0]==first);
+  }
+  if(getenv("COVER_WARM_NEW_EPOCH")){
+   ++epoch;
+   assert(!book_cover_load_fitted_gray(argv[2],"ignored",argv[4],out,false,&pending,&w,&h)&&pending);
+   assert(extracts==e&&decodes==d);
+   assert(book_cover_load_fitted_gray(argv[2],"ignored",argv[4],out,true,&pending,&w,&h));
+   assert(extracts==e+1&&decodes==d&&out[0]==first);
+  }
  }
  printf("{\"ok\":%d,\"probe\":%d,\"extract\":%u,\"decode\":%u,\"auto\":%u,\"first\":%u,\"width\":%u,\"height\":%u}\n",ok,probe,e,d,g,first,w,h);
 }
@@ -53,10 +67,10 @@ with tempfile.TemporaryDirectory(prefix='cover-persist-',dir=R/'build') as tmp:
  card=p/'card';(card/'books').mkdir(parents=True);path='/sdcard/books/A.epub';source=card/'books/A.epub';source.write_bytes(b'A-image-source!!')
  env={**os.environ,'PICO_SIM_CARD_ROOT':str(card),'PICO_TEST_FATFS_RENAME':'1','ASAN_OPTIONS':'detect_leaks=0'}
  epoch=0;cases=0
- def run(path=path,fitted=True,author='Author',**fault):
+ def run(path=path,fitted=True,author='Author',fault_target='unused',**fault):
   global epoch,cases
   epoch+=1;cases+=1
-  v=subprocess.run([str(binary),str(epoch),path,str(int(fitted)),author,'unused'],env={**env,**fault},capture_output=True,text=True)
+  v=subprocess.run([str(binary),str(epoch),path,str(int(fitted)),author,fault_target],env={**env,**fault},capture_output=True,text=True)
   assert v.returncode==0,v.stderr+v.stdout
   return json.loads(v.stdout)
  cache=card/'.readpico/covers'
@@ -64,7 +78,18 @@ with tempfile.TemporaryDirectory(prefix='cover-persist-',dir=R/'build') as tmp:
  def persistent():return target if target is not None else next(cache.glob('*-fit3.bin'))
  def assert_decode(v,first=65):assert v['ok'] and not v['probe'] and v['extract']==1 and v['decode']==1 and v['first']==first,v
  def assert_reuse(v,first=65):assert v['ok'] and not v['probe'] and v['extract']==1 and v['decode']==0 and v['auto']==0 and v['first']==first,v
- assert_decode(run());target=persistent();blob=persistent().read_bytes();assert_reuse(run());assert persistent().read_bytes()==blob
+ assert_decode(run());target=persistent();blob=persistent().read_bytes()
+ raw=next(cache.glob('*-fit2.bin'))
+ raw.unlink()
+ assert set(cache.iterdir())=={persistent()}
+ assert_reuse(run())
+ assert set(cache.iterdir())=={persistent()} and persistent().read_bytes()==blob
+ assert_reuse(run(COVER_WARM_NEW_EPOCH='1'))
+ assert not raw.exists()
+ assert_reuse(run(COVER_WARM_CORRUPT='1',fault_target='/sdcard/.readpico/covers/'+persistent().name))
+ assert persistent().read_bytes()==blob
+ raw.unlink()
+ assert_reuse(run());assert not raw.exists()
  # Cross-process restart, same size and mtime replacement: content must win.
  st=source.stat();source.write_bytes(b'B-image-source!!');os.utime(source,ns=(st.st_atime_ns,st.st_mtime_ns));assert_decode(run(),66);assert_reuse(run(),66)
  source.write_bytes(b'A-image-source!!');os.utime(source,ns=(st.st_atime_ns,st.st_mtime_ns));assert_decode(run());assert_reuse(run())
@@ -111,4 +136,4 @@ with tempfile.TemporaryDirectory(prefix='cover-persist-',dir=R/'build') as tmp:
  # Cached raw data binds template/format, and old epoch cache cannot act as a cross-session proof.
  assert all(not x.name.endswith('.tmp') for x in cache.iterdir())
  assert 'No full-book digest and no hashing on scan/allow_decode=false paths' in (R/'main/book/book_cover_store.c').read_text()
- print(f'PASS {cases} fresh-process cover cases: same-size/mtime replacement, current raw image SHA, crop/fit isolation, full path/author, corruption and truncation, missing source, decoder/OOM fallback, fsync/open/rename failures, epoch race, generated art and conservative external-font handling; no heavy cache-only probes.')
+ print(f'PASS {cases} fresh-process cover cases: write-free verified hits, same-session corruption and epoch rollover, same-size/mtime replacement, current raw image SHA, crop/fit isolation, full path/author, corruption and truncation, missing source, decoder/OOM fallback, fsync/open/rename failures, epoch race, generated art and conservative external-font handling; no heavy cache-only probes.')

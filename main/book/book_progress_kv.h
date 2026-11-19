@@ -29,6 +29,8 @@ esp_err_t progress_kv_set_blob(progress_kv_handle_t h, const char *key, const vo
 esp_err_t progress_kv_set_str(progress_kv_handle_t h, const char *key, const char *data);
 esp_err_t progress_kv_set_u32(progress_kv_handle_t h, const char *key, uint32_t data);
 esp_err_t progress_kv_erase_key(progress_kv_handle_t h, const char *key);
+// In-memory revision of potential progress writes; does not change persistence.
+unsigned progress_kv_revision(void);
 esp_err_t progress_kv_commit(progress_kv_handle_t h);
 
 /// 导出有效键，合并TF与未被覆盖的旧NVS；false提前结束，不重复路径。

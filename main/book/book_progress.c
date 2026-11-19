@@ -16,6 +16,8 @@
 #include "book_policy.h"
 #include "book_store.h"
 #include "book_progress_kv.h"
+#include "book_recent_disk.h"
+#include "book_shelf_disk.h"
 
 #include <inttypes.h>
 #include <stdatomic.h>
@@ -166,6 +168,9 @@ esp_err_t book_progress_copy_for_move(const char *source,const char *target,uint
             uint8_t existing[RECORD_CAP];size_t existing_len=sizeof(existing);
             err=progress_kv_get_blob(h,to,existing,&existing_len);
             if(err==ESP_ERR_NVS_NOT_FOUND){
+                book_recent_disk_invalidate();
+                if (book_shelf_disk_book_path(source) || book_shelf_disk_book_path(target))
+                    book_shelf_disk_invalidate();
                 err=progress_kv_set_blob(h,to,record,HEADER_SIZE+path_len);
                 if(err==ESP_OK)err=progress_kv_commit(h);
             }else if(err==ESP_OK&&(existing_len!=HEADER_SIZE+path_len||memcmp(existing,record,existing_len)))
@@ -185,7 +190,7 @@ esp_err_t book_progress_copy_for_move(const char *source,const char *target,uint
     return warn_error(err);
 }
 
-esp_err_t book_progress_save(const char* path, const book_progress_t* progress) {
+esp_err_t book_progress_save_with_sequence(const char* path, const book_progress_t* progress, uint32_t* sequence_out) {
     if (!path_valid(path) || progress == NULL || !book_text_size_valid(progress->px) ||
         progress->pct > 100) return ESP_ERR_INVALID_ARG;
     uint8_t data[RECORD_CAP] = {'R', 'P', 'B', 2};
@@ -219,7 +224,12 @@ esp_err_t book_progress_save(const char* path, const book_progress_t* progress) 
     if (err == ESP_OK) err = progress_kv_set_blob(h, key, data, HEADER_SIZE + path_len);
     if (err == ESP_OK) err = progress_kv_commit(h);
     progress_kv_close(h);
+    if (err == ESP_OK && sequence_out) *sequence_out = sequence;
     return warn_error(err);
+}
+
+esp_err_t book_progress_save(const char* path, const book_progress_t* progress) {
+    return book_progress_save_with_sequence(path, progress, NULL);
 }
 
 esp_err_t book_progress_clear(const char* path) {

@@ -3,6 +3,7 @@
  * English: Bounded preferences stay in NVS; per-file records use SD with full-path collision checks.
  */
 #include "content_library.h"
+#include "book_shelf_disk.h"
 #include "book_policy.h"
 #include "nvs.h"
 #include "record_store.h"
@@ -290,6 +291,7 @@ esp_err_t content_book_pin_set(const char *path,bool pinned){
     e=records_get_str(h,key,stored,&len);
     if(e==ESP_OK&&(len<2||len>sizeof(stored)||stored[len-1]!=0||strnlen(stored,len)!=len-1||strcmp(stored,path)))e=ESP_ERR_INVALID_RESPONSE;
     if(e==ESP_OK||e==ESP_ERR_NVS_NOT_FOUND){
+        book_shelf_disk_invalidate();
         if(pinned)e=records_set_str(h,key,path);
         else{e=records_erase_key(h,key);if(e==ESP_ERR_NVS_NOT_FOUND)e=ESP_OK;}
         if(e==ESP_OK)e=records_commit(h);

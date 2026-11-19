@@ -12,8 +12,11 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='banner-layers-') as te
     work=Path(temp);card=work/'card';out=work/'build/simulator';out.mkdir(parents=True)
     for folder in ('books','markdown/attachments','fonts','banner pic/sub'):(card/folder).mkdir(parents=True)
     shutil.copyfile(ROOT/'assets/fonts/PicoSans-Medium.ttf',card/'fonts/PicoSans-Medium.ttf')
+    shutil.copyfile(ROOT/'assets/fonts/PicoSans-Medium.ttf',card/'fonts/Alternate.ttf')
     shutil.copyfile(ROOT/'assets/banner/default-banner.png',card/'banner pic/默认背景.png')
     (card/'banner pic/dark.png').write_bytes(png(684,300,0));(card/'banner pic/broken.png').write_bytes(b'invalid png')
+    for i in range(8):
+        (card/f'banner pic/sub/background-{i}.png').write_bytes(png(68,30,32+i*16))
     (out/'titles.txt').write_text('');env={**os.environ,'PICO_SIM_CARD_ROOT':str(card),'PICO_SIM_HOME_DAY':'20733'}
     def render(native='settings-21',events=''):
         p=subprocess.run([str(ROOT/'build/simulator/render'),native,'','0','48','build/simulator/frame.bin','build/simulator/titles.txt','0',','.join(['60']*30),'builtin',events,''],cwd=work,env=env,capture_output=True,text=True,timeout=30)
@@ -38,19 +41,37 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='banner-layers-') as te
     font_entry=tap(342,864)
     info,_=render(events=font_entry+';'+tap(612,300));assert info['quote_size']==120 and not config.exists()
     info,_=render(events=font_entry+';p,432,300,432,300;m,432,300,612,300;c,432,300,612,300');assert info['quote_size']==96 and not config.exists()
-    info,_=render(events=font_entry+';'+tap(340,550));assert info['settings_page']==21 and info['banner_font'].endswith('PicoSans-Medium.ttf') and not config.exists()
+    info,_=render(events=font_entry+';'+tap(340,460));assert info['settings_page']==21 and info['banner_font'].endswith('Alternate.ttf') and not config.exists()
+    info,_=render(events=font_entry+';'+tap(340,460)+';'+font_entry+';'+tap(340,550))
+    assert info['settings_page']==21 and not info['banner_font'] and not config.exists()
     # Folder browsing, broken image rejection, exact home/preview parity and opaque black halo fixture.
     picker=tap(342,476)
-    info,_=render(events=picker);assert info['settings_page']==31
+    info,grid=render(events=picker);assert info['settings_page']==31
     paths=info['banner_items'];step=info['banner_draft'][8]
+    assert info['banner_draft'][10]==6
+    def tile(i):return 189+306*(i%2),366+step*(i//2)
+    def choose_tile(i):
+        x,y=tile(i)
+        return tap(x,y+20)
     index=next(i for i,p in enumerate(paths) if p.endswith('/sub'))
-    assert render(events=picker+';'+tap(342,366+index*step+20))[0]['settings_page']==31
+    enter_sub=picker+';'+choose_tile(index)
+    sub,_=render(events=enter_sub);assert sub['settings_page']==31 and sub['banner_draft'][6:8]==[6,8]
+    second,_=render(events=enter_sub+';k,2,0,0,0');assert second['banner_draft'][6:8]==[2,8] and second['banner_draft'][9]==1
+    back,_=render(events=enter_sub+';k,2,0,0,0;k,0,0,0,0');assert back['banner_items']==sub['banner_items']
+    parent,_=render(events=enter_sub+';'+tap(600,316));assert parent['banner_items']==paths
     assert render(events=picker+';'+tap(600,316))[0]['settings_page']==31
     broken=next(i for i,p in enumerate(paths) if p.endswith('/broken.png'))
-    assert render(events=picker+';'+tap(342,366+broken*step+20))[0]['settings_page']==31 and not config.exists()
+    assert render(events=picker+';'+choose_tile(broken))[0]['settings_page']==31 and not config.exists()
     dark=next(i for i,p in enumerate(paths) if p.endswith('/dark.png'))
-    choose=picker+';'+tap(342,366+dark*step+20)
+    x,y=tile(dark)
+    env['PICO_SIM_DEFER_BANNER_THUMBS']='1'
+    _,placeholder=render(events=picker)
+    del env['PICO_SIM_DEFER_BANNER_THUMBS']
+    assert tone(grid,x,y+step//3)==0 and tone(placeholder,x,y+step//3)!=0
+    choose=picker+';'+choose_tile(dark)
     info,all_on=render(events=choose);assert len(set(all_on[356*342:358*342]))==1 and all_on[356*342]!=255;assert info['banner_draft'][:2]==[1,1] and info['banner_draft'][11]==1
+    _,selected=render(events=choose+';'+picker)
+    assert tone(selected,x-147,y+step//3)==0 and tone(grid,x-147,y+step//3)==15
     info,date_only=render(events=choose+';'+off);assert info['banner_draft'][11]==0
     info,text_only=render(events=choose+';'+tap(590,568));assert info['banner_draft'][1]==0
     for frame in (all_on,date_only,text_only):assert any(tone(frame,x,y)==15 for y in range(56,356) for x in range(36,648))
@@ -163,4 +184,4 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='banner-layers-') as te
     config.write_bytes(b'broken snapshot')
     info,_=render(events=tap(480,1098))
     assert not info.get('quote_committed',False) and config.read_bytes()==b'broken snapshot'
-    print('PASS: independent background/date/text, text/date halos, four alignment icons and full-height text movement, font/size drafts, short height sliders, file browsing, Save/Cancel, missing-image fallback and v1 migration.')
+    print('PASS: Banner thumbnail grid, placeholders, selection outline, paging, folders, layered preview, Save/Cancel, missing-image fallback and v1 migration.')

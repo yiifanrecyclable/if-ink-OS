@@ -2,21 +2,54 @@
  * 中文：Banner草稿控件与TF图片浏览器；只有保存写入配置。
  * English: Draft banner controls and TF image browsing; only Save persists configuration.
  */
+#include "file_thumbnail.h"
+#include "file_thumbnail_ui.h"
+
 #ifndef PICO_HOST_SIMULATOR
 // TF卡FatFS不支持符号链接；宿主检查仍拒绝符号链接。/ FatFS has no symlinks; host checks still reject links.
 #define banner_image_stat stat
 #else
 #define banner_image_stat lstat
 #endif
-#define BANNER_PICK_MAX_ROWS 10
-typedef struct {char path[CONTENT_BANNER_IMAGE_BYTES],name[128];bool folder;} banner_pick_item_t;
-static banner_pick_item_t s_banner_items[BANNER_PICK_MAX_ROWS];
+enum { BANNER_PICK_TOP = 366, BANNER_PICK_COLUMNS = 2, BANNER_PICK_ROWS = 3,
+       BANNER_PICK_ITEMS = BANNER_PICK_COLUMNS * BANNER_PICK_ROWS };
+typedef struct {
+    char path[CONTENT_BANNER_IMAGE_BYTES], name[128];
+    uint8_t *thumbnail;
+    unsigned width, height;
+    bool folder;
+} banner_pick_item_t;
+static banner_pick_item_t s_banner_items[BANNER_PICK_ITEMS];
 static char s_banner_directory[CONTENT_BANNER_IMAGE_BYTES];
 static int s_banner_image_page,s_banner_image_total,s_banner_image_count;
-static int banner_image_note_top(void){return UI_NAV_PAGER_TOP-3*ui_text_line_height(UI_TEXT_CAPTION)-10;}
-static int banner_image_rows(void){int rows=ui_list_visible_rows(366,banner_image_note_top()-40,font_list_step());return rows>BANNER_PICK_MAX_ROWS?BANNER_PICK_MAX_ROWS:rows;}
+static int s_banner_thumb_next;
+static int64_t s_banner_thumb_next_ms;
+static bool s_banner_thumb_row_changed;
+static EpdRect s_banner_thumb_area;
+static const char *const banner_image_notes[]={UI_MSG("支持 PNG、JPG/JPEG 格式。"),UI_MSG("推荐尺寸：684×300 像素。"),
+    UI_MSG("其他尺寸将等比例缩放、居中裁切。"),UI_MSG("设置背景图会减慢首页加载速度")};
+
+static bool banner_picker_page(void){return s_page==SETTINGS_BANNER_IMAGE||s_page==SETTINGS_BANNER_BROWSER;}
+static int banner_image_note_top(void){return UI_NAV_PAGER_TOP-4*ui_text_line_height(UI_TEXT_CAPTION)-10;}
+static EpdRect banner_image_cell(int index){
+    const int width = 612 / BANNER_PICK_COLUMNS;
+    const int height = (banner_image_note_top() - 42 - BANNER_PICK_TOP) / BANNER_PICK_ROWS;
+    return (EpdRect){36 + index % BANNER_PICK_COLUMNS * width,
+        BANNER_PICK_TOP + index / BANNER_PICK_COLUMNS * height, width, height};
+}
+static void banner_picker_clear(void){
+    for(int i=0;i<BANNER_PICK_ITEMS;++i){free(s_banner_items[i].thumbnail);s_banner_items[i]=(banner_pick_item_t){0};}
+    s_banner_image_count=s_banner_thumb_next=0;
+    s_banner_thumb_next_ms=0;
+    s_banner_thumb_row_changed=false;
+    s_banner_thumb_area=(EpdRect){0};
+}
+static int banner_image_pages(void){
+    return s_banner_image_total ? 1 + (s_banner_image_total - 1) / BANNER_PICK_ITEMS : 1;
+}
 static void banner_image_scan(void){
-    s_banner_image_count=s_banner_image_total=0;int rows=banner_image_rows();
+    banner_picker_clear();
+    s_banner_image_total=0;
     // 文件夹优先，逐页枚举；不把整张卡的目录存入内存。/ Folders first; enumerate one page without retaining the whole card listing.
     for(int pass=0;pass<2;++pass){
         DIR *dir=opendir(s_banner_directory);if(!dir)break;struct dirent *entry;
@@ -28,7 +61,7 @@ static void banner_image_scan(void){
             if(folder!=(pass==0))continue;
             if(!folder&&(!S_ISREG(st.st_mode)||st.st_size<=0||st.st_size>2*1024*1024||!content_banner_image_valid(path)))continue;
             int index=s_banner_image_total++;
-            if(index<s_banner_image_page*rows||s_banner_image_count>=rows)continue;
+            if(index<s_banner_image_page*BANNER_PICK_ITEMS||s_banner_image_count>=BANNER_PICK_ITEMS)continue;
             banner_pick_item_t *item=&s_banner_items[s_banner_image_count++];
             ui_snprintf(item->path,sizeof(item->path),"%s",path);ui_snprintf(item->name,sizeof(item->name),"%.*s",(int)sizeof(item->name)-1,entry->d_name);item->folder=folder;
         }
@@ -124,7 +157,7 @@ static void banner_editor_draw(uint8_t *fb){
             if(i<3)epd_fill_rect((EpdRect){36,BANNER_TEXT_ROW_TOP+(i+1)*BANNER_TEXT_ROW_H,612,1},UI_GRAY_ITEM_LINE,fb);
         }
         banner_caption(fb,banner_text_row_center(0),s_banner_draft.text);
-        banner_caption(fb,banner_text_row_center(1),s_banner_draft.font[0]?system_font_label(s_banner_draft.font):UI_MSG("跟随系统字体"));
+        banner_caption(fb,banner_text_row_center(1),quote_font_label(s_banner_draft.font[0]?s_banner_draft.font:quote_system_font_path()));
         for(int i=0;i<4;++i)quote_alignment_draw(fb,i,s_banner_draft.align==i);
         banner_height_draw(fb,2,banner_text_row_center(3),ui_banner_text_y(&s_banner_draft),0,CONTENT_BANNER_TEXT_MAX);
     }
@@ -132,6 +165,63 @@ static void banner_editor_draw(uint8_t *fb){
     for(int i=0;i<2;++i)banner_footer_draw(fb,i);
     ui_nav_draw(fb,0);
 }
+static void banner_picker_draw_cell(uint8_t *fb,int index){
+    const banner_pick_item_t *item=&s_banner_items[index];
+    EpdRect cell=banner_image_cell(index);
+    int text_height=ui_text_line_height(UI_TEXT_CAPTION);
+    EpdRect box={cell.x+8,cell.y+7,cell.width-16,cell.height-text_height-19};
+    if(!file_thumbnail_draw(fb,box,item->thumbnail,item->width,item->height))
+        ui_draw_icon(fb,box.x+box.width/2,box.y+box.height/2,60,
+                     item->folder?UI_ICON_FOLDER:UI_ICON_IMAGE,item->folder?UI_GRAY_BLACK:0x88);
+    epd_draw_rect(box,UI_GRAY_ITEM_LINE,fb);
+    if(!item->folder&&s_banner_draft.mode&&!strcmp(item->path,s_banner_draft.image))
+        for(int d=2;d<=4;++d)
+            epd_draw_rect((EpdRect){box.x-d,box.y-d,box.width+2*d,box.height+2*d},UI_GRAY_BLACK,fb);
+    char name[sizeof(item->name)];
+    ui_snprintf(name,sizeof(name),"%s",item->name);
+    int px=ui_text_effective_px(UI_TEXT_CAPTION);
+    while(*name&&ui_text_fixed_width_px(px,name)>box.width){
+        size_t len=strlen(name)-1;
+        while(len&&((unsigned char)name[len]&0xc0)==0x80)--len;
+        name[len]=0;
+    }
+    ui_text_fixed_vc(fb,cell.x+cell.width/2,box.y+box.height+text_height/2+6,px,name,EPD_DRAW_ALIGN_CENTER,false);
+}
+
+// 首帧先显示目录；每次空闲只读一张，整行齐备后再局部刷新。
+// Show the folder first; load one image per idle tick and refresh each completed row.
+static app_redraw_t banner_picker_tick(app_ctx_t *ctx){
+    if(s_banner_thumb_next>=s_banner_image_count||ctx->now_ms<s_banner_thumb_next_ms||
+       ctx->pressed||ctx->released||ctx->consumed||(ctx->touch&&ctx->touch->touched))return APP_REDRAW_NONE;
+    const int index=s_banner_thumb_next++;
+    const int first=index-index%BANNER_PICK_COLUMNS;
+    banner_pick_item_t *item=&s_banner_items[index];
+    if(!item->folder){
+        item->thumbnail=heap_caps_malloc(FILE_THUMB_BYTES,MALLOC_CAP_SPIRAM|MALLOC_CAP_8BIT);
+        if(item->thumbnail&&file_thumbnail_load(item->path,item->thumbnail,&item->width,&item->height)){
+            s_banner_thumb_row_changed=true;
+        }else{
+            free(item->thumbnail);
+            item->thumbnail=NULL;
+        }
+        s_banner_thumb_next_ms=esp_timer_get_time()/1000+120;
+    }
+    if((s_banner_thumb_next<first+BANNER_PICK_COLUMNS&&s_banner_thumb_next<s_banner_image_count)||
+       !s_banner_thumb_row_changed)return APP_REDRAW_NONE;
+    s_banner_thumb_row_changed=false;
+    EpdRect row=banner_image_cell(first);
+    row.width*=BANNER_PICK_COLUMNS;
+    s_banner_thumb_area=row;
+    epd_fill_rect(row,UI_GRAY_WHITE,ctx->fb);
+    for(int i=first;i<s_banner_thumb_next;++i)banner_picker_draw_cell(ctx->fb,i);
+    return APP_REDRAW_AREA;
+}
+
+static void banner_picker_finish(void){
+    banner_picker_clear();
+    s_page=SETTINGS_HOME_QUOTE;
+}
+
 static void banner_picker_draw(uint8_t *fb){
     back_header(fb,UI_MSG("选择背景图片"));
     EpdRect none={36,200,612,80};settings_option(fb,none,!s_banner_draft.mode);
@@ -140,36 +230,34 @@ static void banner_picker_draw(uint8_t *fb){
     char name[sizeof(s_banner_directory)];ui_snprintf(name,sizeof(name),"%s",s_banner_directory+7);if(!name[0])ui_snprintf(name,sizeof(name),"/");fit_value(name,410);
     ui_text_vc(fb,36,316,UI_TEXT_BODY,name,EPD_DRAW_ALIGN_LEFT,false);
     ui_text_vc(fb,648,316,UI_TEXT_BODY,UI_MSG("上一级"),EPD_DRAW_ALIGN_RIGHT,false);
-    for(int i=0;i<s_banner_image_count;++i){
-        EpdRect r={36,366+i*font_list_step(),612,font_list_step()-12};
-        char shown[160];ui_snprintf(shown,sizeof(shown),"%s%s",s_banner_items[i].folder?"▸ ":"",s_banner_items[i].name);fit_value(shown,580);
-        ui_text_vc(fb,48,r.y+r.height/2,UI_TEXT_BODY,shown,EPD_DRAW_ALIGN_LEFT,false);epd_fill_rect((EpdRect){36,r.y+r.height,612,1},UI_GRAY_ITEM_LINE,fb);
-    }
+    for(int i=0;i<s_banner_image_count;++i)banner_picker_draw_cell(fb,i);
     if(!s_banner_image_total)ui_text_vc(fb,342,500,UI_TEXT_BODY,UI_MSG("此文件夹内没有可用图片"),EPD_DRAW_ALIGN_CENTER,false);
     if(s_notice[0])ui_text_fixed_vc(fb,36,banner_image_note_top()-20,20,s_notice,EPD_DRAW_ALIGN_LEFT,false);
-    static const char *const notes[]={UI_MSG("支持 PNG、JPG/JPEG 格式。"),UI_MSG("推荐尺寸：684×300 像素。"),UI_MSG("其他尺寸将等比例缩放、居中裁切。")};
-    int step=ui_text_line_height(UI_TEXT_CAPTION),px=ui_text_effective_px(UI_TEXT_CAPTION);
-    for(int i=0;i<3;++i)ui_text_fixed_vc_gray(fb,36,banner_image_note_top()+i*step+step/2,px,notes[i],EPD_DRAW_ALIGN_LEFT,8,UI_INK_WHITE);
-    int rows=banner_image_rows(),pages=s_banner_image_total?(s_banner_image_total+rows-1)/rows:1;
-    ui_nav_draw_pager(fb,s_banner_image_total,UI_MSG("项"),s_banner_image_page,pages);ui_nav_draw(fb,0);
+    int step=ui_text_line_height(UI_TEXT_CAPTION);
+    for(int i=0;i<4;++i){
+        int px=ui_text_fit_px(UI_TEXT_CAPTION,banner_image_notes[i],612,step);
+        ui_text_fixed_vc_gray(fb,36,banner_image_note_top()+i*step+step/2,px,banner_image_notes[i],EPD_DRAW_ALIGN_LEFT,8,UI_INK_WHITE);
+    }
+    ui_nav_draw_pager(fb,s_banner_image_total,UI_MSG("项"),s_banner_image_page,banner_image_pages());ui_nav_draw(fb,0);
 }
 static app_redraw_t banner_picker_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev){
     if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
     int nav=ui_nav_hit(ev->x0,ev->y0);if(nav>=0){ui_nav_request(ctx,nav);return APP_REDRAW_NONE;}
-    if(settings_close_hit(ev)){s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;}
-    if(ev->y0>=200&&ev->y0<280){content_banner_config_t next=s_banner_draft;next.mode=0;if(banner_preview_apply(&next,false))s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;}
+    if(settings_close_hit(ev)){banner_picker_finish();return APP_REDRAW_PAGE;}
+    if(ev->y0>=200&&ev->y0<280){content_banner_config_t next=s_banner_draft;next.mode=0;if(banner_preview_apply(&next,false))banner_picker_finish();return APP_REDRAW_PAGE;}
     if(ev->y0>=286&&ev->y0<348&&ev->x0>=470){
         char *slash=strrchr(s_banner_directory,'/');if(slash&&slash>s_banner_directory+7)*slash=0;else ui_snprintf(s_banner_directory,sizeof(s_banner_directory),"/sdcard");
         s_banner_image_page=0;banner_image_scan();return APP_REDRAW_PAGE;
     }
     for(int direction=-1;direction<=1;direction+=2)if(ui_rect_hit(ui_nav_pager_rect(direction),ev->x0,ev->y0)){
-        int pages=(s_banner_image_total+banner_image_rows()-1)/banner_image_rows();
-        if(s_banner_image_page+direction<0||s_banner_image_page+direction>=pages)return APP_REDRAW_NONE;
+        if(s_banner_image_page+direction<0||s_banner_image_page+direction>=banner_image_pages())return APP_REDRAW_NONE;
         s_banner_image_page+=direction;banner_image_scan();return APP_REDRAW_PAGE;
     }
-    for(int i=0;i<s_banner_image_count;++i)if(ui_rect_hit((EpdRect){36,366+i*font_list_step(),612,font_list_step()-12},ev->x0,ev->y0)){
+    for(int i=0;i<s_banner_image_count;++i){
+        EpdRect cell=banner_image_cell(i);
+        if(!ui_rect_hit(cell,ev->x0,ev->y0)||!ui_rect_hit(cell,ev->x,ev->y))continue;
         if(s_banner_items[i].folder){ui_snprintf(s_banner_directory,sizeof(s_banner_directory),"%s",s_banner_items[i].path);s_banner_image_page=0;banner_image_scan();}
-        else {content_banner_config_t next=s_banner_draft;next.mode=1;ui_snprintf(next.image,sizeof(next.image),"%s",s_banner_items[i].path);if(banner_preview_apply(&next,true))s_page=SETTINGS_HOME_QUOTE;}
+        else {content_banner_config_t next=s_banner_draft;next.mode=1;ui_snprintf(next.image,sizeof(next.image),"%s",s_banner_items[i].path);if(banner_preview_apply(&next,true))banner_picker_finish();}
         return APP_REDRAW_PAGE;
     }
     return APP_REDRAW_NONE;
@@ -198,7 +286,7 @@ static app_redraw_t banner_editor_gesture(app_ctx_t *ctx,const ui_gesture_event_
     }
     if(!s_banner_draft.show_text)return APP_REDRAW_NONE;
     if(ev->y0>=BANNER_TEXT_ROW_TOP&&ev->y0<BANNER_TEXT_ROW_TOP+BANNER_TEXT_ROW_H){home_quote_editor_open();return APP_REDRAW_PAGE;}
-    if(ev->y0>=BANNER_TEXT_ROW_TOP+BANNER_TEXT_ROW_H&&ev->y0<BANNER_TEXT_ROW_TOP+2*BANNER_TEXT_ROW_H){ttf_font_scan();s_font_page=0;s_page=SETTINGS_QUOTE_FONT;s_notice[0]=0;return APP_REDRAW_PAGE;}
+    if(ev->y0>=BANNER_TEXT_ROW_TOP+BANNER_TEXT_ROW_H&&ev->y0<BANNER_TEXT_ROW_TOP+2*BANNER_TEXT_ROW_H){quote_font_picker_open();return APP_REDRAW_PAGE;}
     for(int i=0;i<4;++i)if(ui_rect_hit(quote_alignment_rect(i),ev->x0,ev->y0)){
         content_banner_config_t next=s_banner_draft;next.align=i;
         (void)banner_preview_apply(&next,true);return APP_REDRAW_PAGE;

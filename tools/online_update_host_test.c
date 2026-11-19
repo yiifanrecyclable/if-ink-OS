@@ -21,6 +21,9 @@ static bool online=true,boot_switched;
 static uint8_t image[32768];static char manifest[1024];static CC_SHA256_CTX digest;
 static esp_app_desc_t current={.magic_word=ESP_APP_DESC_MAGIC_WORD,.version="0.1.0-test.2",.project_name=IF_OTA_PROJECT};
 static if_update_channel_t requested_channel;
+static char dual_manifests[IF_UPDATE_CHANNEL_COUNT][sizeof(manifest)];
+static bool dual_mode;
+static unsigned dual_opens[IF_UPDATE_CHANNEL_COUNT];
 static esp_partition_t running={.address=0x10000,.size=IF_OTA_MAX_BYTES},target={.address=0x910000,.size=IF_OTA_MAX_BYTES},data={.address=0xd10000,.size=0x2000};
 static void (*pending_worker)(void*);static void *pending_arg;
 static struct {int token;} sems[8];static int sem_count;
@@ -54,14 +57,18 @@ int psa_hash_setup(psa_hash_operation_t *op,int alg){(void)alg;op->bytes=0;CC_SH
 int psa_hash_update(psa_hash_operation_t *op,const void *p,size_t n){op->bytes+=n;CC_SHA256_Update(&digest,p,(CC_LONG)n);return 0;}
 int psa_hash_finish(psa_hash_operation_t *op,uint8_t *out,size_t cap,size_t *n){(void)op;assert(cap>=32);CC_SHA256_Final(out,&digest);*n=32;return 0;}
 int psa_hash_abort(psa_hash_operation_t *op){(void)op;return 0;}
-struct FakeHttp {bool feed,redirect,blob,partial;size_t at,length,start;void *user;int (*event)(esp_http_client_event_t*);};
+struct FakeHttp {bool feed,redirect,blob,partial;size_t at,length,start;const char *manifest;void *user;int (*event)(esp_http_client_event_t*);};
 int esp_crt_bundle_attach(void *p){(void)p;return 0;}
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *cfg){
  assert(cfg->disable_auto_redirect&&cfg->crt_bundle_attach&&cfg->timeout_ms==15000);
  struct FakeHttp *h=calloc(1,sizeof(*h));assert(h);h->feed=strstr(cfg->url,"/contents/")!=NULL;
- if(h->feed)requested_channel=strstr(cfg->url,"/beta.json")?IF_UPDATE_BETA:IF_UPDATE_STABLE;
+ if(h->feed){
+  requested_channel=strstr(cfg->url,"/beta.json")?IF_UPDATE_BETA:IF_UPDATE_STABLE;
+  h->manifest=dual_mode?dual_manifests[requested_channel]:manifest;
+  if(dual_mode)++dual_opens[requested_channel];
+ }
  h->blob=strstr(cfg->url,"/git/blobs/")!=NULL;h->redirect=strstr(cfg->url,"/releases/assets/")!=NULL;
- h->length=h->feed?strlen(manifest):sizeof(image)-(fault==1?10:0)+(fault==2?1:0);
+ h->length=h->feed?strlen(h->manifest):sizeof(image)-(fault==1?10:0)+(fault==2?1:0);
  if(!h->feed&&!h->redirect)++asset_opens;
  h->user=cfg->user_data;h->event=cfg->event_handler;return h;
 }
@@ -88,7 +95,7 @@ int esp_http_client_read(esp_http_client_handle_t h,char *out,int cap){
   if(fault==23&&h->partial)atomic_store(&s_cancel,true);
  }
  size_t n=h->length-h->at;if(n>(size_t)cap)n=cap;if(n>121)n=121;
- for(size_t i=0;i<n;++i)out[i]=h->feed?manifest[h->at+i]:image[(h->at+i)%sizeof(image)];
+ for(size_t i=0;i<n;++i)out[i]=h->feed?h->manifest[h->at+i]:image[(h->at+i)%sizeof(image)];
  if(fault==24&&h->partial&&n)out[0]^=1;
  h->at+=n;if(fault==5&&!h->feed&&h->at>288)atomic_store(&s_cancel,true);return (int)n;
 }
@@ -222,6 +229,41 @@ static void channels(void){
  assert(if_update_check_channel((if_update_channel_t)99)==ESP_ERR_INVALID_ARG);
  strcpy(current.version,"0.1.0-test.2");prepare();
 }
+static void dual_channels(void){
+ fault=0;online=true;dual_mode=true;
+ strcpy(current.version,"0.2.2");
+ prepare_for("stable","0.2.3");strcpy(dual_manifests[IF_UPDATE_STABLE],manifest);
+ prepare_for("beta","0.2.4-beta.1");strcpy(dual_manifests[IF_UPDATE_BETA],manifest);
+ assert(if_update_check_all()==ESP_OK);
+ assert(s_status.offers[0].state==IF_UPDATE_CHECKING&&s_status.offers[1].state==IF_UPDATE_CHECKING);
+ assert(if_update_install_channel(IF_UPDATE_STABLE)==ESP_ERR_INVALID_STATE);
+ run_worker();
+ assert(dual_opens[0]==1&&dual_opens[1]==1);
+ assert(s_status.offers[0].state==IF_UPDATE_AVAILABLE&&!strcmp(s_status.offers[0].version,"0.2.3"));
+ assert(s_status.offers[1].state==IF_UPDATE_AVAILABLE&&!strcmp(s_status.offers[1].version,"0.2.4-beta.1"));
+ // The last HTTP request was beta. Confirming stable must still install the stable manifest.
+ prepare_for("stable","0.2.3");
+ assert(if_update_install_channel(IF_UPDATE_STABLE)==ESP_OK);run_worker();
+ assert(s_status.state==IF_UPDATE_READY&&s_status.channel==IF_UPDATE_STABLE);
+ assert(!strcmp(s_candidate.version,"0.2.3"));
+ assert(if_update_install_channel(IF_UPDATE_BETA)==ESP_ERR_INVALID_STATE);
+ // Invalid stable metadata must not clear a valid beta result or permit stale stable installation.
+ strcpy(dual_manifests[IF_UPDATE_STABLE],"{}");
+ assert(if_update_check_all()==ESP_OK);run_worker();
+ assert(s_status.offers[0].state==IF_UPDATE_FAILED&&s_status.offers[0].version[0]==0);
+ assert(s_status.offers[1].state==IF_UPDATE_AVAILABLE&&dual_opens[1]==2);
+ assert(if_update_install_channel(IF_UPDATE_STABLE)==ESP_ERR_INVALID_STATE);
+ prepare_for("beta","0.2.4-beta.1");
+ assert(if_update_install_channel(IF_UPDATE_BETA)==ESP_OK);run_worker();
+ assert(s_status.state==IF_UPDATE_READY&&s_status.channel==IF_UPDATE_BETA);
+ assert(if_update_check_all()==ESP_OK);
+ atomic_store(&s_cancel,true);
+ run_worker();
+ assert(s_status.offers[0].state==IF_UPDATE_CANCELLED&&s_status.offers[1].state==IF_UPDATE_CANCELLED);
+ assert(dual_opens[0]==2&&dual_opens[1]==2);
+ dual_mode=false;
+}
+
 int main(void){
  assert(init());prepare();policy();channels();
  for(fault=0;fault<=14;++fault){
@@ -255,5 +297,6 @@ int main(void){
  assert(s_status.state==IF_UPDATE_FAILED&&begins==1&&!writes&&!aborts&&!boots&&display_flash_depth==0);
  fault=15;online=false;assert(if_update_check()==ESP_ERR_NO_MEM&&!s_status.busy&&!online);
  assert(stops>=20);assert(display_flash_depth==0);
- puts("PASS: sequential erase, bounded reconnect/200-skip/206-Range/prefix recovery, EAGAIN/EOF and resumed-byte SHA256, production updater, real SHA256, stable version/product policy, redirects, confirmation boundary, truncation/overflow/disconnect/hash/identity/chip/write/end/boot failures, cancellation/commit race, slot isolation and WiFi cleanup");
+ dual_channels();
+ puts("PASS: independent dual-channel checks/cancellation/selection, sequential erase, bounded reconnect/200-skip/206-Range/prefix recovery, EAGAIN/EOF and resumed-byte SHA256, production updater, real SHA256, stable version/product policy, redirects, confirmation boundary, truncation/overflow/disconnect/hash/identity/chip/write/end/boot failures, cancellation/commit race, slot isolation and WiFi cleanup");
 }

@@ -23,6 +23,8 @@ unit=r'''
 typedef struct{int unused;}app_ctx_t;
 static uint32_t s_reading_end_day=20760,epoch=8;
 static bool s_reading_days_valid=true,builtin=true;
+static bool s_home_prepared_once;
+static enum { HOME_IDLE, HOME_RECENTS } s_home_load;
 static int weight=3,language,renders,failures;
 static char active[288]="builtin",system_font[288]="";
 static content_banner_config_t config;
@@ -48,7 +50,8 @@ static void rebuild(void){int before=renders;prepare_quote_bitmap();assert(rende
 static void reuse(void){int before=renders;uint8_t *p=s_quote_bitmap;prepare_quote_bitmap();assert(renders==before&&p==s_quote_bitmap&&s_quote_key_valid);for(unsigned i=0;i<684*300/2;++i)assert(p[i]==frame_value);}
 int main(void){
  memset(&config,0,sizeof(config));config.version=3;config.show_date=config.show_text=1;config.quote_px=96;strcpy(config.text,"quote");
- rebuild();reuse();home_exit(NULL);reuse(); /* Keep only the final, immutable 102600-byte bitmap. */
+ rebuild();reuse();home_exit(NULL);assert(s_home_load==HOME_RECENTS);reuse();
+ s_home_load=HOME_IDLE;s_home_prepared_once=true;home_exit(NULL);assert(s_home_load==HOME_IDLE);reuse();
  ++s_reading_end_day;rebuild();reuse();s_reading_days_valid=false;rebuild();
  ++language;rebuild();++weight;rebuild();
  strcpy(system_font,"/sdcard/fonts/system.ttf");rebuild();
@@ -71,7 +74,7 @@ int main(void){
 }
 '''
 # Media callback must discard the image before rebuilding even if metadata matches.
-assert '(void)ctx;clear_quote_bitmap();prepare_quote_bitmap();' in src
+assert 'clear_quote_bitmap();' in src.split('static void on_media_ready',1)[1].split('static app_redraw_t on_tick',1)[0]
 assert '(void)ctx;clear_quote_bitmap();' in src.split('static void on_media_lost',1)[1]
 with tempfile.TemporaryDirectory(prefix='home-banner-',dir=R/'build') as tmp:
  p=Path(tmp);(p/'test.c').write_text(unit)

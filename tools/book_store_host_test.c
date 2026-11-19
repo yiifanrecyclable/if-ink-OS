@@ -16,6 +16,9 @@
 #include "esp_vfs_fat.h"
 
 void book_index_cache_invalidate_all(void){}
+void record_store_lock(void){}
+void record_store_unlock(void){}
+bool record_store_ready(void){return false;}
 static bool sd_mounted;
 static bool sd_invalid_present;
 static int mount_calls, mount_error, mkdir_error, is_directory = 1, fat_error;

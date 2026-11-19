@@ -27,21 +27,63 @@ esp_err_t read_pico_transfer_import_wifi_backup(const read_pico_transfer_wifi_ba
 #include "ota_online.h"
 #include <stdlib.h>
 static if_update_status_t preview_update;
-void if_update_get_status(if_update_status_t *out){*out=preview_update;strcpy(out->current,"0.1.7");}
+void if_update_get_status(if_update_status_t *out){*out=preview_update;strcpy(out->current,"0.2.2");}
+static esp_err_t preview_check(unsigned mask,if_update_channel_t channel){
+    static const char *const versions[]={"0.2.3","0.2.4-beta.1"};
+    const char *mode=getenv("PICO_SIM_OTA_STATE");
+    bool slow_beta=mode&&!strcmp(mode,"slow-beta");
+    uint32_t revision=preview_update.revision;
+    preview_update=(if_update_status_t){.channel=channel,.revision=revision+1};
+    for(int i=0;i<IF_UPDATE_CHANNEL_COUNT;++i){
+        if(!(mask&(1u<<i)))continue;
+        if_update_offer_t *offer=&preview_update.offers[i];
+        bool available=mode&&(!strcmp(mode,"available")||!strcmp(mode,"downgrade")||
+                              (!strcmp(mode,"mixed")&&i==IF_UPDATE_BETA)||(slow_beta&&i==IF_UPDATE_STABLE));
+        offer->state=available?IF_UPDATE_AVAILABLE:IF_UPDATE_CURRENT;
+        if(mode&&!strcmp(mode,"mixed")&&i==IF_UPDATE_STABLE)offer->state=IF_UPDATE_FAILED;
+        if((mode&&!strcmp(mode,"checking"))||(slow_beta&&i==IF_UPDATE_BETA))offer->state=IF_UPDATE_CHECKING;
+        offer->downgrade=available&&i==IF_UPDATE_STABLE&&mode&&!strcmp(mode,"downgrade");
+        if(available)strcpy(offer->version,offer->downgrade?"0.2.1":versions[i]);
+        else if(offer->state==IF_UPDATE_CURRENT&&i==IF_UPDATE_STABLE)strcpy(offer->version,"0.2.2");
+        const char *text=available?"发现新版本，请确认后安装":offer->state==IF_UPDATE_CHECKING?"正在检查更新…":
+            offer->state==IF_UPDATE_FAILED?"检查失败，请检查网络与系统时间":
+            i==IF_UPDATE_STABLE?"当前无需升级":"此通道暂未发布版本";
+        strcpy(offer->message,text);
+    }
+    preview_update.state=preview_update.offers[channel].state;
+    if(mode&&!strcmp(mode,"busy")){
+        preview_update.state=IF_UPDATE_DOWNLOADING;preview_update.installing=true;
+        preview_update.total=3800000;preview_update.received=1120000;
+        strcpy(preview_update.message,"正在下载并安装…");
+    }
+    preview_update.busy=preview_update.state==IF_UPDATE_CHECKING||preview_update.installing||
+                        preview_update.offers[IF_UPDATE_BETA].state==IF_UPDATE_CHECKING;
+    return ESP_OK;
+}
 esp_err_t if_update_check_channel(if_update_channel_t channel){
     if(channel!=IF_UPDATE_STABLE&&channel!=IF_UPDATE_BETA)return ESP_ERR_INVALID_ARG;
-    memset(&preview_update,0,sizeof(preview_update));
-    preview_update.channel=channel;
-    const char *mode=getenv("PICO_SIM_OTA_STATE");
-    preview_update.state=mode&&!strcmp(mode,"available")?IF_UPDATE_AVAILABLE:IF_UPDATE_CURRENT;
-    if(mode&&!strcmp(mode,"busy")){preview_update.state=IF_UPDATE_DOWNLOADING;preview_update.busy=true;}
-    if(preview_update.state==IF_UPDATE_AVAILABLE){strcpy(preview_update.version,channel==IF_UPDATE_BETA?"0.1.8-beta.1":"0.1.8");preview_update.total=3800000;}
-    strcpy(preview_update.message,preview_update.state==IF_UPDATE_AVAILABLE?"发现新版本，请确认后安装":"模拟器仅预览，请在设备检查更新");
-    ++preview_update.revision;return ESP_OK;
+    return preview_check(1u<<channel,channel);
 }
 esp_err_t if_update_check(void){return if_update_check_channel(IF_UPDATE_STABLE);}
-esp_err_t if_update_install(void){preview_update.state=IF_UPDATE_FAILED;strcpy(preview_update.message,"模拟器不执行固件升级");++preview_update.revision;return ESP_ERR_NOT_SUPPORTED;}
+esp_err_t if_update_check_all(void){return preview_check((1u<<IF_UPDATE_CHANNEL_COUNT)-1,IF_UPDATE_STABLE);}
+esp_err_t if_update_install_channel(if_update_channel_t channel){
+    if(channel!=IF_UPDATE_STABLE&&channel!=IF_UPDATE_BETA)return ESP_ERR_INVALID_ARG;
+    if(preview_update.busy||preview_update.offers[channel].state!=IF_UPDATE_AVAILABLE)return ESP_ERR_INVALID_STATE;
+    preview_update.channel=channel;preview_update.state=IF_UPDATE_FAILED;preview_update.installing=true;
+    strcpy(preview_update.message,"模拟器不执行固件升级");++preview_update.revision;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+esp_err_t if_update_install(void){return if_update_install_channel(preview_update.channel);}
 void if_update_poll(void){}
-void if_update_close(void){}
+void if_update_close(void){
+    if(!preview_update.busy)return;
+    preview_update.state=IF_UPDATE_CANCELLED;preview_update.busy=false;
+    strcpy(preview_update.message,"操作已取消");++preview_update.revision;
+    for(int i=0;i<IF_UPDATE_CHANNEL_COUNT;++i)
+        if(preview_update.offers[i].state==IF_UPDATE_CHECKING){
+            preview_update.offers[i].state=IF_UPDATE_CANCELLED;
+            strcpy(preview_update.offers[i].message,"操作已取消");
+        }
+}
 
 esp_err_t read_pico_transfer_sync_time(uint32_t *utc){(void)utc;return ESP_ERR_NOT_SUPPORTED;}

@@ -76,9 +76,15 @@ bool simulator_document_menu(void){return s_document_menu;}
 bool simulator_document_delete_confirm(void){return s_document_delete_confirm;}
 const char *simulator_document_item(unsigned i){const document_entry_t *d=document_visible_at(i);return d?d->path:"";}
 const char *simulator_document_first(void){return simulator_document_item(0);}
-const char *simulator_shelf_item(unsigned i){return i<(unsigned)s_visible_count?s_shelf[i].path:"";}
+const char *simulator_shelf_item(unsigned i) {
+    const shelf_entry_t *row = i <= INT_MAX ? shelf_entry_at((int)i) : NULL;
+    return row ? row->path : "";
+}
 int simulator_list_progress(bool documents,unsigned i){
-    if (!documents) return i<(unsigned)s_visible_count&&s_shelf[i].has_progress?s_shelf[i].pct:-1;
+    if (!documents) {
+        const shelf_entry_t *row = i <= INT_MAX ? shelf_entry_at((int)i) : NULL;
+        return row && row->has_progress ? row->pct : -1;
+    }
     const document_entry_t *d=document_visible_at(i);return d&&d->has_progress?d->pct:-1;
 }
 bool simulator_content_sort_open(void){return s_sort_open;}
@@ -95,6 +101,7 @@ int simulator_content_card_geometry(unsigned i){
 unsigned simulator_document_selected_count(void){return document_selected_count();}
 bool simulator_document_batch_confirm(void){return s_document_batch_confirm;}
 unsigned simulator_content_sort_mode(bool documents){return documents?s_document_options.mode:s_book_options.mode;}
+bool simulator_shelf_indexed(void){return s_shelf_paged;}
 const char *simulator_book_path(void){return s_requested_open[0]?s_requested_open:s_path;}
 unsigned simulator_reader_bookmark_count(void){return bookmark_count();}
 unsigned simulator_reader_binding(unsigned slot){return reader_input_action(slot);}
@@ -122,7 +129,11 @@ bool simulator_toc_drag(void){return s_toc_jump_drag;}
 static void simulator_settle_covers(app_ctx_t *ctx){
  if(s_view!=SHELF&&s_view!=MANAGE)return;
  book_view_t view=s_view;s_view=SHELF;prepare_covers(ctx);
- for(int i=0;i<BOOK_ROWS&&s_cover_pending_mask;++i)(void)on_tick(ctx);
+ app_ctx_t idle=*ctx;idle.touch=NULL;idle.pressed=idle.released=idle.consumed=false;
+ for(int i=0;i<2*BOOK_ROWS&&s_cover_pending_mask;++i){
+     idle.now_ms=s_cover_next_ms+1;
+     (void)on_tick(&idle);
+ }
  s_view=view;
 }
 size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char *path,const char *events){
@@ -130,7 +141,10 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  if(panel==10)panel=READER_PANEL_SHORTCUTS;
  shelf_perf_init();
  s_reader_landscape_reverse = getenv("PICO_SIM_READER_REVERSE") != NULL;
- app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);scan_shelf(&ctx);s_scan_pending=false;
+ app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);
+ if(!getenv("PICO_SIM_SHELF_INDEX") || s_scan_pending)scan_shelf(&ctx);
+ s_scan_pending=false;
+ if(getenv("PICO_SIM_SHELF_INDEX"))shelf_index_publish();
  if(view==DOCUMENTS||view==DOCUMENT_BULK)ensure_documents();
  // -1只表示阅读续读；列表页必须从非负页码开始。/ -1 requests reader resume; list pages must start at a nonnegative index.
  ctx.leaf=(view!=READING&&view!=TOC)?(page<0?0:page):0;
@@ -162,6 +176,7 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  // Each host frame is a separate process; persist its current position to model the hardware leave-page save boundary.
  if(s_text&&(s_view==READING||s_view==TOC))save_progress();
  simulator_settle_covers(&ctx);render(&ctx,fb);
+ if(getenv("PICO_SIM_SHELF_INDEX") && s_view==SHELF && !s_sort_open) shelf_index_publish();
  if(s_view==READING&&s_reader_panel==READER_PANEL_FONT_PICKER&&!getenv("PICO_SIM_DEFER_FONT_NAMES")){
      ctx.consumed=ctx.pressed=ctx.released=false;
      for(int i=0;i<=(reader_landscape()?wide_detail_rows():reader_control_rows())+1&&!s_reader_names_settled;++i){

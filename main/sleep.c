@@ -47,6 +47,8 @@ static const char* TAG = "read_pico";
 
 #ifdef IFINK_WAKE_TIMING_TEST
 #include "shelf_perf.h"
+#endif
+#if defined(IFINK_WAKE_TIMING_TEST) || defined(IFINK_SHORT_STAGED_SLEEP)
 #define APP_LOCK_LIGHT_SLEEP_MS (60U * 1000U)
 #else
 #define APP_LOCK_LIGHT_SLEEP_MS (10U * 60U * 1000U)

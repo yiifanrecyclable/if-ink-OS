@@ -6,9 +6,11 @@
  * English: Title overrides use SD with legacy NVS reads; full paths reject hash collisions.
  */
 #include "book_title.h"
+#include "book_shelf_disk.h"
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <strings.h>
 #include "nvs.h"
@@ -18,6 +20,8 @@
 #define TITLE_MAX 120
 #define RECORD_MAX (TITLE_PATH_MAX + TITLE_MAX + 8)
 static const char *NS = "rp_titles";
+static atomic_uint s_title_revision;
+unsigned book_title_revision(void) { return atomic_load(&s_title_revision); }
 
 bool book_title_from_path(const char *path, char *out, size_t cap) {
     if (!path || !out || cap < 2) return false;
@@ -120,8 +124,10 @@ esp_err_t book_title_set(const char *path, const char *title) {
         char data[RECORD_MAX];
         size_t p = strlen(path) + 1, t = strlen(title) + 1;
         memcpy(data, path, p); memcpy(data + p, title, t);
+        if (book_shelf_disk_book_path(path)) book_shelf_disk_invalidate();
         err = records_set_blob(h, key, data, p + t);
         if (err == ESP_OK) err = records_commit(h);
+        atomic_fetch_add(&s_title_revision,1);
     }
     records_close(h);
     return err;
@@ -134,7 +140,12 @@ esp_err_t book_title_clear(const char *path) {
     key_for(path, key);
     err = get_record(h, key, path, old, &len);
     if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
-    else if (err == ESP_OK) { err = records_erase_key(h, key); if (err == ESP_OK) err = records_commit(h); }
+    else if (err == ESP_OK) {
+        if (book_shelf_disk_book_path(path)) book_shelf_disk_invalidate();
+        err = records_erase_key(h, key);
+        if (err == ESP_OK) err = records_commit(h);
+        atomic_fetch_add(&s_title_revision,1);
+    }
     records_close(h);
     return err;
 }

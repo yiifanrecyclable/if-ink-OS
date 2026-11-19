@@ -120,7 +120,7 @@ static int nvs_commit(nvs_handle_t h){assert(h==2);return ESP_OK;}
 static shelf_entry_t* s_shelf;
 static size_t s_shelf_capacity;
 static int s_count,s_visible_count;
-static char s_message[128],s_shelf_warning[128],s_storage[128];
+static char s_message[128],s_shelf_warning[128];
 static bool s_pending_invalidated,test_oom,test_degraded;
 static unsigned s_store_revision;
 typedef struct {char path[288];bool is_flash;} book_store_root_t;
@@ -147,7 +147,6 @@ static void* heap_caps_realloc(void* p,size_t n,int caps){(void)caps;return test
 static void* heap_caps_malloc(size_t n,int caps){(void)caps;return malloc(n);}
 static void* heap_caps_calloc(size_t count,size_t n,int caps){(void)caps;return test_oom?NULL:calloc(count,n);}
 static bool book_store_roots_degraded(void){return test_degraded;}
-static uint64_t book_store_free_bytes(const book_store_root_t* root){(void)root;return 1000000;}
 static int book_store_roots(book_store_root_t out[BOOK_STORE_ROOT_MAX],int* n){*n=test_root_count;memcpy(out,test_roots,sizeof(test_roots));return 0;}
 static bool book_progress_load(const char* p,uint32_t n,book_progress_t* out){
     for(int i=0;i<test_progress_count;i++)if(!strcmp(p,test_progress[i].path)&&n==test_progress[i].value.file_size){*out=test_progress[i].value;return true;}
@@ -306,7 +305,7 @@ static void ui_text(uint8_t* fb,int x,int y,int px,const char* text,int align,bo
 unit += function("book_layout_balanced_rect", layout_source) + "\n"
 unit += function("set_reader_view") + "\n"
 for name in ("inline_ink_gray", "reader_margin_width", "reader_margin_levels", "reader_margin_level_for", "reader_margin_for_level", "slider_index", "reader_margin_input", "reader_area", "reader_fullscreen_progress_area", "body_rect_for_tracking", "body_rect", "progress_rect", "copy_text", "reader_footer_strip_number", "favorite_key", "favorite_read_handle", "shelf_hidden_key", "shelf_hidden_read_handle", "shelf_hidden_load", "shelf_hidden_save", "shelf_rows", "shelf_matches", "compare_books", "sort_shelf", "shelf_reserve", "delete_retry_find", "delete_retry_reserve", "delete_retry_discard", "scan_shelf_dir", "shelf_backfill_visit", "shelf_backfill_read_books", "scan_shelf", "refresh_cached_progress",
-             "pending_find", "pending_reserve", "pending_restore", "pending_discard", "pending_mark_latest", "pending_drop_invalidated", "pending_flush", "reader_page_offset", "save_progress", "retry_progress", "layout_name", "manage_panel", "manage_rect", "batch_rect", "manage_back_rect", "bulk_filter_rect", "leaves", "selected_count", "clear_selection", "toggle_selection", "select_page", "bookmark_compact", "search_keys", "search_begin", "refresh_search_matches", "search_finish", "search_action", "refresh_capacity", "manage_apply", "manage_action", "batch_apply", "batch_action", "reader_manual_refresh", "apply_reader_option", "reader_return", "on_key", "on_key_long", "draw_wrapped_name", "open_requested_book", "on_enter", "book_on_exit"):
+             "pending_find", "pending_reserve", "pending_restore", "pending_discard", "pending_mark_latest", "pending_drop_invalidated", "pending_flush", "reader_page_offset", "save_progress", "retry_progress", "layout_name", "manage_panel", "manage_rect", "batch_rect", "manage_back_rect", "bulk_filter_rect", "leaves", "selected_count", "clear_selection", "toggle_selection", "select_page", "bookmark_compact", "search_keys", "search_begin", "refresh_search_matches", "search_finish", "search_action", "manage_apply", "manage_action", "batch_apply", "batch_action", "reader_manual_refresh", "apply_reader_option", "reader_return", "on_key", "on_key_long", "draw_wrapped_name", "open_requested_book", "on_enter", "book_on_exit"):
     unit += function(name) + "\n"
 for name in ( "shelf_turn_page", "shelf_page_arrow_rect", "reader_vertical_tap"):
     unit += function(name) + "\n"

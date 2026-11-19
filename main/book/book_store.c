@@ -15,6 +15,8 @@
  * Frozen: clear a matching regular replacement backup before deletion; restore backup-only books first and preserve recovery on failure.
  */
 #include "book_store.h"
+#include "book_shelf_disk.h"
+#include "record_store.h"
 #include "book_index_cache.h"
 #include "shelf_perf.h"
 #include "book_progress.h"
@@ -37,8 +39,16 @@ static wl_handle_t s_wl = WL_INVALID_HANDLE;
 static _Atomic unsigned s_revision;
 static bool s_roots_degraded;
 
-void book_store_notify_changed(void) { book_index_cache_invalidate_all();++s_revision; }
-void book_store_notify_list_changed(void) { atomic_fetch_add(&s_revision, 1); }
+void book_store_notify_list_changed(void) {
+    record_store_lock();
+    if (record_store_ready()) book_shelf_disk_invalidate();
+    atomic_fetch_add(&s_revision, 1);
+    record_store_unlock();
+}
+void book_store_notify_changed(void) {
+    book_index_cache_invalidate_all();
+    book_store_notify_list_changed();
+}
 unsigned book_store_revision(void) { return atomic_load(&s_revision); }
 bool book_store_roots_degraded(void) { return s_roots_degraded; }
 

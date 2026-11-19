@@ -11,10 +11,13 @@
  * Never mount/format cards or erase NVS partitions; without SD, legacy NVS remains read-only to avoid refilling it.
  */
 #include "book_progress_kv.h"
+#include "book_recent_disk.h"
+#include "book_shelf_disk.h"
 #include "record_store.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -23,6 +26,8 @@
 #define KV_MAX 312
 #define KV_HEAD 24
 static const char *const legacy_ns = "rp_books";
+static atomic_uint s_progress_revision;
+unsigned progress_kv_revision(void) { return atomic_load(&s_progress_revision); }
 
 typedef struct {
     bool exists, valid, deleted;
@@ -108,6 +113,8 @@ static esp_err_t sd_write(const char *key, nvs_type_t type, const void *data, si
         write32(bytes+16,checksum(bytes,bytes+KV_HEAD,len));
         char path[96]; slot_path(key,target,path);
         FILE *f=fopen(path,"wb"); if(!f) return ESP_FAIL;
+        // Even a failed sync/readback may have changed what subsequent readers see.
+        atomic_fetch_add(&s_progress_revision,1);
         bool ok=fwrite(bytes,1,KV_HEAD+len,f)==KV_HEAD+len;
         if(fflush(f)!=0) ok=false;
         if(fsync(fileno(f))!=0) ok=false;
@@ -184,7 +191,10 @@ static esp_err_t impl_progress_kv_set_u32(progress_kv_handle_t h,const char *k,u
 }
 static esp_err_t impl_progress_kv_erase_key(progress_kv_handle_t h,const char *k) {
     if(h.sd&&(!sd_ready()||records_commit(h.media_token)!=ESP_OK))return ESP_ERR_INVALID_STATE;
-    return h.sd?sd_write(k,NVS_TYPE_BLOB,NULL,0,true):ESP_ERR_INVALID_STATE;
+    if (!h.sd) return ESP_ERR_INVALID_STATE;
+    book_recent_disk_invalidate();
+    book_shelf_disk_invalidate();
+    return sd_write(k,NVS_TYPE_BLOB,NULL,0,true);
 }
 static esp_err_t impl_progress_kv_commit(progress_kv_handle_t h) { return h.sd?(sd_ready()?records_commit(h.media_token):ESP_ERR_INVALID_STATE):ESP_ERR_INVALID_STATE; }
 
@@ -202,8 +212,10 @@ static esp_err_t impl_progress_kv_list(progress_kv_visit_fn visit,void *ctx) {
             struct dirent *e;
             while(more && (e=readdir(d))) {
                 char key[16], suffix; if(!entry_key(e->d_name,key,&suffix)) continue;
-                slot_t slots[2]={read_slot(key,0),read_slot(key,1)};
+                slot_t slots[2];
+                slots[0]=read_slot(key,0);
                 if(suffix=='b' && slots[0].exists) continue;
+                slots[1]=read_slot(key,1);
                 int at=newest(slots);
                 if(at<0||(slots[0].exists&&!slots[0].valid)||(slots[1].exists&&!slots[1].valid)){closedir(d);return ESP_ERR_INVALID_RESPONSE;}
                 if(!slots[at].deleted) more=visit(key,slots[at].type,slots[at].data,slots[at].len,ctx);
@@ -239,6 +251,8 @@ static esp_err_t impl_progress_kv_list(progress_kv_visit_fn visit,void *ctx) {
 static esp_err_t impl_progress_kv_reset(void) {
     progress_kv_handle_t h; esp_err_t err=progress_kv_open(NVS_READWRITE,&h); if(err!=ESP_OK) return err;
     {
+        book_recent_disk_invalidate();
+        book_shelf_disk_invalidate();
         uint32_t one=1; err=sd_write("legacy_off",NVS_TYPE_U32,&one,4,false);
         DIR *d=err==ESP_OK?opendir(KV_DIR):NULL;
         if(err==ESP_OK && !d) err=ESP_FAIL;
@@ -259,7 +273,12 @@ static esp_err_t impl_progress_kv_migration_copy(const char *key,nvs_type_t type
     slot_t v[2]={read_slot(key,0),read_slot(key,1)};
     if((v[0].exists&&!v[0].valid)||(v[1].exists&&!v[1].valid))return ESP_ERR_INVALID_RESPONSE;
     int at=newest(v);esp_err_t err=ESP_OK;
-    if(at<0)err=sd_write(key,type,legacy_disabled()?NULL:value,legacy_disabled()?0:bytes,legacy_disabled());
+    if(at<0) {
+        book_recent_disk_invalidate();
+        book_shelf_disk_invalidate();
+        bool disabled=legacy_disabled();
+        err=sd_write(key,type,disabled?NULL:value,disabled?0:bytes,disabled);
+    }
     if(err!=ESP_OK)return err;
     v[0]=read_slot(key,0);v[1]=read_slot(key,1);
     at=newest(v);

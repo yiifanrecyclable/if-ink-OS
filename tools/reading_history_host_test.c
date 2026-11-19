@@ -6,6 +6,7 @@
 #include <time.h>
 #include "book_ticket.h"
 #include "reading_history_store.h"
+#include "record_store_media.h"
 #include "nvs.h"
 #include "read_pico_pmu.h"
 static time_t now;
@@ -20,6 +21,7 @@ int main(void){
     uint32_t heat[61]={0x52504831};unsigned slot=(jan1-1)%30;
     heat[1+slot]=jan1-1;heat[31+slot]=1200;
     assert(nvs_set_blob(h,"heatmap",heat,sizeof(heat))==ESP_OK);nvs_close(h);
+    record_store_media(true);
     book_ticket_archive_days();assert(reading_history_read(jan1-1)==1200);
     assert(reading_history_first(jan1)==jan1-1);
     assert(book_ticket_record(60,1)==ESP_OK);assert(book_ticket_record(70,1)==ESP_OK);
@@ -30,8 +32,11 @@ int main(void){
     assert(recent[0]==30&&recent[29]==30);
     char *card=strdup(getenv("PICO_SIM_CARD_ROOT"));assert(card);
     setenv("PICO_SIM_CARD_ROOT","missing-card",1);
-    assert(book_ticket_record(90,0)==ESP_OK); /* NVS retains totals while TF is absent. */
+    record_store_media(false);
+    assert(book_ticket_record(90,0)!=ESP_OK); /* Keep pending time in the caller while the card is absent. */
     setenv("PICO_SIM_CARD_ROOT",card,1);free(card);
+    record_store_media(true);
+    assert(book_ticket_record(90,0)==ESP_OK);
     book_ticket_archive_days();assert(reading_history_read(jan1+65)==120);
     assert(reading_history_merge(jan1+65,40));assert(reading_history_read(jan1+65)==120);
     /* Tear the newer 120-second copy; the earlier 30-second copy survives. */
@@ -46,6 +51,11 @@ int main(void){
     assert(!reading_history_first(19723));
     uint32_t range[3];reading_history_range(jan1-1,3,range);
     assert(range[0]==1200&&range[1]==130&&range[2]==30);
+    uint32_t batched[34];reading_history_range(jan1-2,34,batched);
+    for(unsigned i=0;i<34;++i)assert(batched[i]==reading_history_read(jan1-2+i));
+    // A short final slot pair must retain its complete first record.
+    uint32_t tail[4];reading_history_range(jan1+64,4,tail);
+    assert(tail[0]==30&&tail[1]==120&&!tail[2]&&!tail[3]);
     /* A settings reset retains the card-backed Home heatmap. */
     assert(nvs_open("rp_ticket",NVS_READWRITE,&h)==ESP_OK);assert(nvs_erase_key(h,"heatmap")==ESP_OK);nvs_close(h);
     assert(book_ticket_recent_days(recent,&end)&&recent[29]==120&&recent[0]==30);
@@ -60,10 +70,12 @@ int main(void){
     assert(reading_history_read(jan1+66)==123);
     assert(book_ticket_recent_days(recent,&end)&&recent[29]==123);
     setenv("PICO_SIM_CARD_ROOT","missing-card",1);
+    record_store_media(false);
     assert(book_ticket_record(63,1)!=ESP_OK);
     setenv("PICO_SIM_CARD_ROOT",getenv("HISTORY_TEST_CARD"),1);
     assert(!remove("build/simulator/nvs/rp_ticket"));
     assert(!rename("build/simulator/nvs/rp_ticket-old","build/simulator/nvs/rp_ticket"));
+    record_store_media(true);
     assert(book_ticket_record(64,1)==ESP_OK);
     assert(reading_history_read(jan1+66)==187);
     puts("reading history storage: migration, accumulation, 30-day rollover, missing card recovery, torn-copy recovery, leap year and multi-year retention OK");

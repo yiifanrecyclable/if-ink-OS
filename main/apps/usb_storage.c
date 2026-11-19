@@ -21,6 +21,9 @@
 #include "tinyusb_msc.h"
 #include "ttf_font.h"
 #include "book/record_store_media.h"
+#include "book/record_store.h"
+#include "book/book_recent_disk.h"
+#include "book/book_shelf_disk.h"
 
 static const char *TAG = "usb_storage";
 static sdmmc_card_t *s_card;
@@ -72,7 +75,11 @@ esp_err_t usb_storage_start(void) {
     // 字体文件在 SD 上，先关闭句柄再卸载。/ Close the SD-backed font before unmounting.
     ttf_font_unload();
     ttf_font_open_builtin();
+    record_store_lock();
+    book_recent_disk_invalidate();
+    book_shelf_disk_invalidate();
     record_store_media(false);
+    record_store_unlock();
     esp_err_t err = read_pico_sd_sync();
     if (err != ESP_OK) {
         read_pico_sd_info_t retained={0};

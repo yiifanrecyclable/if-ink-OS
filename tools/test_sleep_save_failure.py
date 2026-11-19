@@ -10,9 +10,8 @@ while depth:
  elif s[i]=='}':depth-=1
  i+=1
 function=s[a:i]
-timeout_guard = re.search(r'#ifdef IFINK_WAKE_TIMING_TEST\n#include "shelf_perf.h"\n'
-                          r'(#define APP_LOCK_LIGHT_SLEEP_MS[^\n]+)\n#else\n'
-                          r'(#define APP_LOCK_LIGHT_SLEEP_MS[^\n]+)\n#endif',s)
+timeout_guard = re.search(r'#if [^\n]+\n#define APP_LOCK_LIGHT_SLEEP_MS[^\n]+\n#else\n'
+                          r'#define APP_LOCK_LIGHT_SLEEP_MS[^\n]+\n#endif',s)
 assert timeout_guard
 
 code=r'''
@@ -26,7 +25,7 @@ typedef void *sc7a20h_handle_t;
 typedef int app_wake_source_t;
 #define APP_WAKE_TIMEOUT 3
 #define APP_WAKE_KEY 1
-#ifdef IFINK_WAKE_TIMING_TEST
+#if defined(IFINK_WAKE_TIMING_TEST) || defined(IFINK_SHORT_STAGED_SLEEP)
 #define EXPECTED_SLEEP_MS 60000
 #else
 #define EXPECTED_SLEEP_MS 600000
@@ -79,9 +78,9 @@ int main(void){int64_t ignore=0;
  waits=caches=pmu=0;transfer_ok=false;enter_lock_and_sleep(NULL,&ignore,NULL,true);assert(!waits&&!pmu);
  puts("PASS: persistent save/cache/handoff failure retains RAM in light sleep, timeouts stay locked, key wake works, active transfers are protected");}
 '''
-guard = "#ifdef IFINK_WAKE_TIMING_TEST\n" + timeout_guard[1] + "\n#else\n" + timeout_guard[2] + "\n#endif\n"
+guard = timeout_guard[0] + '\n'
 with tempfile.TemporaryDirectory(dir=R/'build',prefix='sleep-failure-') as d:
  p=Path(d);(p/'test.c').write_text(guard+code)
- for flags in ([], ['-DIFINK_WAKE_TIMING_TEST=1']):
+ for flags in ([], ['-DIFINK_WAKE_TIMING_TEST=1'], ['-DIFINK_SHORT_STAGED_SLEEP=1']):
   subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined',*flags,str(p/'test.c'),'-o',str(p/'test')],check=True)
   subprocess.run([str(p/'test')],check=True)

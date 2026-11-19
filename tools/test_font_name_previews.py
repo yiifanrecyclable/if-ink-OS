@@ -46,20 +46,21 @@ with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="name-previews-") as
     (card/"books/Book.txt").write_text("Book text and progress.\n\n" * 100)
     (card/"markdown/Doc.md").write_text("# Document\n\nText and progress.\n\n" * 100)
 
-    def render(view, path, panel, deferred):
+    def render(view, path, panel, deferred, events=""):
         env = {**os.environ, "PICO_SIM_CARD_ROOT": str(card)}
         if deferred:
             env["PICO_SIM_DEFER_FONT_NAMES"] = "1"
         else:
             env.pop("PICO_SIM_DEFER_FONT_NAMES", None)
         args = [str(BINARY), view, path, "1", "48", "build/simulator/frame.bin",
-                "build/simulator/titles.txt", str(panel), "0", "builtin", "", ""]
+                "build/simulator/titles.txt", str(panel), "0", "builtin", events, ""]
         result = subprocess.run(args, cwd=work, env=env, capture_output=True, text=True,
                                 check=True, timeout=30)
         return json.loads(result.stdout), (sim/"frame.bin").read_bytes()
 
     for view, path, panel in (
         ("settings-5", "", 0),
+        ("settings-22", "", 0),
         ("book-1", "/sdcard/books/Book.txt", 5),
         ("book-1", "/sdcard/markdown/Doc.md", 5),
     ):
@@ -68,7 +69,8 @@ with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="name-previews-") as
         if view.startswith("settings"):
             top, step, _ = settled["settings_geometry"][6:9]
             assert initial["settings_geometry"] == settled["settings_geometry"]
-            check_changed_area(before, after, 60, 570, top+step, top+2*step-12)
+            slot = 0 if view == "settings-22" else 1
+            check_changed_area(before, after, 60, 570, top+slot*step, top+(slot+1)*step-12)
         else:
             _, step, _ = settled["reader_controls_geometry"]
             top = 196  # UI_PAGE_Y(220) is the first picker row.
@@ -84,4 +86,45 @@ with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="name-previews-") as
     top, step, _ = settled["settings_geometry"][6:9]
     check_changed_area(before, after, 60, 570, top+2*step, top+3*step-12)
 
-print("PASS system (Chinese and English), book and Markdown name previews; unchanged geometry and safe fallback")
+    _, before = render("settings-22", "", 0, True)
+    settled, after = render("settings-22", "", 0, False)
+    top, step, _ = settled["settings_geometry"][6:9]
+    check_changed_area(before, after, 60, 570, top+step, top+2*step-12)
+
+    for index in range(25):
+        (card/"fonts"/f"Page Font {index:02}.ttf").write_bytes(reference)
+    (card/"fonts/System Face.ttf").write_bytes(reference)
+    catalogue = sorted((card/"fonts").glob("*.ttf"), key=lambda path:path.name.casefold())
+    state, _ = render("settings-22", "", 0, True)
+    top, step, rows = state["settings_geometry"][6:9]
+    assert len(catalogue) > 2*rows
+    last_page, last_row = divmod(len(catalogue)-1, rows)
+    def tap(x,y):return f"t,{x},{y},{x},{y}"
+    next_page = tap(626,1086)
+    prev_page = tap(58,1086)
+    picker = "settings-22", "", 0, True
+    last_pick = ";".join([next_page]*last_page+[tap(240,top+last_row*step+20)])
+    state, _ = render(*picker, last_pick)
+    assert state["settings_page"]==21 and state["banner_font"].endswith('/'+catalogue[-1].name)
+    first_pick = ";".join([next_page,prev_page,tap(240,top+step+20)])
+    state, _ = render(*picker, first_pick)
+    assert state["settings_page"]==21 and not state["banner_font"]  # Hei is the active system font, in slot 1.
+
+    explicit = catalogue[-1]
+    (sim/"nvs/read_pico/sys_font").write_bytes(f"/sdcard/fonts/{explicit.name}\0".encode())
+    state, frame = render(*picker)
+    y = top+last_row*step+(step-12)//2
+    assert (frame[y*342+609//2] >> 4)==0  # Default selection is visible on its own page.
+    state, _ = render(*picker, tap(240,y))
+    assert state["settings_page"]==21 and not state["banner_font"]
+
+    (sim/"nvs/read_pico/sys_font").unlink()
+    (card/"fonts").rename(card/"unused-fonts")
+    (card/"fonts").mkdir()
+    state, frame = render(*picker, next_page)
+    y = top+(step-12)//2
+    assert state["settings_page"]==22 and (frame[y*342+609//2] >> 4)==0
+    state, _ = render(*picker, tap(240,y))
+    assert state["settings_page"]==21 and not state["banner_font"]
+
+print("PASS self-rendered names in system, Banner, book and Markdown pickers; Banner default selection and multi-page touch paging; safe fallback")

@@ -125,7 +125,7 @@ static app_redraw_t reader_panel_item(app_ctx_t *ctx,int i,uint16_t x,uint16_t y
         int at=marks.count-(i-2)-1;
         if(s_bookmark_edit){s_bookmark_selected=UINT32_C(1)<<at;s_bookmark_delete_confirm=true;return APP_REDRAW_PAGE;}
         reader_bookmark_entry_t mark=marks.entries[at];reader_remember_jump();
-        if(load_chapter(ctx,mark.chapter,mark.byte_off,false)){s_reader_panel=READER_PANEL_NONE;save_progress();}return APP_REDRAW_PAGE;
+        if(load_saved_chapter(ctx,mark.chapter,mark.byte_off)){s_reader_panel=READER_PANEL_NONE;save_progress();}return APP_REDRAW_PAGE;
     }else if(s_reader_panel==READER_PANEL_REFRESH_SETTINGS||s_reader_panel==READER_PANEL_TURN_SETTINGS||s_reader_panel==READER_PANEL_STATS||s_reader_panel==READER_PANEL_STATS_RECENT){
         if(i==0)return reader_show_panel(READER_PANEL_BASIC);
         if(i==1)return reader_show_panel(READER_PANEL_SHORTCUTS);

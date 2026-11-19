@@ -30,6 +30,9 @@
 #include "ui_image_dither.h"
 #include "book_epub.h"
 #include "book_progress.h"
+#include "book_progress_kv.h"
+#include "book_progress_snapshot.h"
+#include "book_recent_index.h"
 #include "book_store.h"
 #include "book_title.h"
 #include "book_ticket.h"
@@ -41,6 +44,7 @@
 #include "display.h"
 #include "e0470_epaper_waveform.h"
 #include "esp_heap_caps.h"
+#include "esp_timer.h"
 #include "read_pico_sd.h"
 #include "settings.h"
 #include "ttf_font.h"
@@ -61,7 +65,7 @@ typedef struct {
 } home_book_t;
 
 static home_book_t s_current, s_recent[6];
-#define HOME_DOCUMENT_COUNT 6
+#define HOME_DOCUMENT_COUNT BOOK_RECENT_DOCUMENTS
 #define HOME_BANNER_HEIGHT 300
 #define HOME_RECORD_HEIGHT 340
 #define HOME_RECENT_HEIGHT 440
@@ -71,6 +75,12 @@ _Static_assert(HOME_RECENT_TOP+HOME_RECENT_HEIGHT==UI_NAV_TOP,"Home sections mus
 static document_entry_t s_recent_documents[HOME_DOCUMENT_COUNT];
 static size_t s_recent_document_count;
 static bool s_has_documents;
+static struct {
+    uint32_t media;
+    unsigned documents, progress, titles, books;
+    bool valid;
+} s_document_snapshot;
+static unsigned s_home_progress_revision, s_home_title_revision;
 #define HOME_DOCUMENT_X 272
 #define HOME_DOCUMENT_WIDTH (648 - HOME_DOCUMENT_X)
 typedef struct {
@@ -106,6 +116,10 @@ typedef struct {
 static home_cover_cache_t s_cover_cache[7];
 static int s_cover_next;
 static bool s_scan_pending;
+typedef enum { HOME_READY, HOME_RECENTS, HOME_BANNER, HOME_BOOKS } home_load_t;
+static home_load_t s_home_load;
+static bool s_home_prepared_once;
+static int64_t s_home_next_ms;
 static bool s_books_cache_valid;
 static bool s_cached_sd_present;
 static bool s_cached_sd_mounted;
@@ -176,10 +190,33 @@ static void scan_root(const char *root) {
     closedir(dir);
 }
 
+static bool load_recent_books(void) {
+    const book_recent_view_t *view = book_recent_index_get(true);
+    if (!view) return false;
+    for (uint32_t i = 0; i < view->book_count && i <= sizeof(s_recent) / sizeof(s_recent[0]); ++i) {
+        const book_recent_entry_t *entry = &view->books[i];
+        home_book_t *book = i ? &s_recent[i - 1] : &s_current;
+        copy_title(book->path, sizeof(book->path), entry->path);
+        copy_title(book->title, sizeof(book->title), entry->title);
+        book->has_progress = true;
+        book->progress = entry->progress;
+    }
+    return true;
+}
+
 static void scan_books(void) {
 #ifdef IFINK_WAKE_TONE_TEST
     SHELF_PERF_SCOPE(home_scan, SP_WAKE_HOME_SCAN, 0, 0);
 #endif
+    if (load_recent_books()) {
+        const char *ext = strrchr(s_current.path, '.');
+        if (ext && !strcasecmp(ext, ".epub")) {
+            char title[128];
+            (void)book_epub_metadata_cached(s_current.path, title, sizeof(title),
+                                           s_current.author, sizeof(s_current.author));
+        }
+        return;
+    }
     char last[BOOK_STORE_PATH_MAX];
     if (book_progress_last_path(last, sizeof(last)) && is_book(strrchr(last, '/') ? strrchr(last, '/') + 1 : last)) {
         struct stat st;
@@ -208,21 +245,21 @@ static void scan_books(void) {
     }
 }
 
-// 按持久阅读序号挑选四篇文档，不读取同步日期或置顶顺序，也不扫描整个入库列表。
-// Select four documents by persistent reading order, independent of sync dates/pins or a full import scan.
-static bool consider_document(const char *path, const book_progress_t *progress, void *unused) {
-    (void)unused;
-    if(!document_store_local_path(path))return true;
-    const char *name=strrchr(path,'/')+1;
+static bool recent_document_current(const char *path, const book_progress_t *progress) {
     struct stat st;
-    if (lstat(path, &st) || !S_ISREG(st.st_mode) || st.st_size < 0 ||
-        (uint64_t)st.st_size != progress->file_size) return true;
+    return !lstat(path, &st) && S_ISREG(st.st_mode) && st.st_size >= 0 &&
+        (uint64_t)st.st_size == progress->file_size;
+}
+
+// 按持久阅读序号挑选首页条目。/ Select Home entries by persistent reading order.
+static void insert_recent_document(const char *path, const book_progress_t *progress) {
+    const char *name = strrchr(path,'/') + 1;
     size_t slot = 0;
     while (slot < s_recent_document_count &&
            (s_recent_documents[slot].recent > progress->last_open_s ||
             (s_recent_documents[slot].recent == progress->last_open_s &&
              strcmp(s_recent_documents[slot].path, path) < 0))) ++slot;
-    if (slot >= HOME_DOCUMENT_COUNT) return true;
+    if (slot >= HOME_DOCUMENT_COUNT) return;
     if (s_recent_document_count < HOME_DOCUMENT_COUNT) ++s_recent_document_count;
     for (size_t i = s_recent_document_count - 1; i > slot; --i)
         s_recent_documents[i] = s_recent_documents[i - 1];
@@ -235,6 +272,32 @@ static bool consider_document(const char *path, const book_progress_t *progress,
     entry->recent = progress->last_open_s;
     entry->pct = progress->pct;
     entry->has_progress = true;
+}
+
+static bool consider_document(const char *path, const book_progress_t *progress, void *unused) {
+    (void)unused;
+    if (document_store_local_path(path) && recent_document_current(path, progress))
+        insert_recent_document(path, progress);
+    return true;
+}
+
+static bool apply_recent_progress_change(unsigned before, unsigned after) {
+    book_progress_t progress;
+    const char *path = book_progress_snapshot_change(before, after, &progress);
+    if (!path) return false;
+    if (!document_store_local_path(path)) return true;
+    if (!recent_document_current(path, &progress)) return false;
+    for (size_t i = 0; i < s_recent_document_count; ++i) {
+        if (strcmp(s_recent_documents[i].path, path)) continue;
+        // 序号退回时需要从完整列表重新选出被挤掉的候选。
+        // Rebuild from the complete list if this entry moves backward in reading order.
+        if (progress.last_open_s < s_recent_documents[i].recent) return false;
+        --s_recent_document_count;
+        memmove(&s_recent_documents[i], &s_recent_documents[i + 1],
+                (s_recent_document_count - i) * sizeof(s_recent_documents[0]));
+        break;
+    }
+    insert_recent_document(path, &progress);
     return true;
 }
 
@@ -245,22 +308,68 @@ static home_book_t *recent_book_row(size_t row) {
     return index<6&&s_recent[index].path[0]?&s_recent[index]:NULL;
 }
 static const char *recent_list_path(size_t row) {
+    if(s_home_load != HOME_READY) return NULL;
     if(s_has_documents)return row<s_recent_document_count?s_recent_documents[row].path:NULL;
     home_book_t *book=recent_book_row(row);return book?book->path:NULL;
 }
 
+static bool load_recent_document_summary(void) {
+    const book_recent_view_t *view = book_recent_index_get(true);
+    if (!view) return false;
+    s_recent_document_count = view->document_count;
+    for (size_t i = 0; i < s_recent_document_count; ++i) {
+        const book_recent_entry_t *source = &view->documents[i];
+        document_entry_t *entry = &s_recent_documents[i];
+        copy_title(entry->path, sizeof(entry->path), source->path);
+        copy_title(entry->name, sizeof(entry->name), source->title);
+        entry->size = source->progress.file_size;
+        entry->recent = source->progress.last_open_s;
+        entry->pct = source->progress.pct;
+        entry->has_progress = true;
+    }
+    return true;
+}
+
 static void refresh_recent_documents(void) {
-#ifdef IFINK_WAKE_TONE_TEST
-    SHELF_PERF_SCOPE(home_recents, SP_WAKE_HOME_RECENTS, 0, 0);
-#endif
+    SHELF_PERF_SCOPE(home_recents, SP_HOME_RECENTS_CACHE, 0, 0);
+    const uint32_t media = book_index_cache_epoch();
+    const unsigned docs = document_store_revision();
+    const unsigned progress = progress_kv_revision();
+    const unsigned titles = book_title_revision();
+    const unsigned books = book_store_revision();
+    if (s_document_snapshot.valid && s_document_snapshot.media == media &&
+        s_document_snapshot.documents == docs && s_document_snapshot.titles == titles &&
+        s_document_snapshot.books == books) {
+        if (s_document_snapshot.progress == progress) {
+            home_recents.b = 1;
+            return;
+        }
+        if (apply_recent_progress_change(s_document_snapshot.progress, progress)) {
+            s_document_snapshot.progress = progress;
+            home_recents.b = 2;
+            return;
+        }
+    }
+    s_document_snapshot.valid = false;
     // 文档存在就保留文档列，包括尚未阅读的文档。/ Keep the document column even if every document is unread.
     s_has_documents=document_store_has_local();
     s_recent_document_count = 0;
     memset(s_recent_documents, 0, sizeof(s_recent_documents));
-    if (book_progress_list(consider_document, NULL) != ESP_OK) {
+    // An unavailable directory can look empty. Do not retain the book-column fallback
+    // across entry; also skip the progress walk when no local document was found.
+    if (!s_has_documents) return;
+    if (load_recent_document_summary()) home_recents.b = 3;
+    else if (book_progress_snapshot_list(consider_document, NULL) != ESP_OK) {
         s_recent_document_count = 0;
         memset(s_recent_documents, 0, sizeof(s_recent_documents));
+        return;
     }
+    s_document_snapshot.media = media;
+    s_document_snapshot.documents = docs;
+    s_document_snapshot.progress = progress;
+    s_document_snapshot.titles = titles;
+    s_document_snapshot.books = books;
+    s_document_snapshot.valid = true;
 }
 
 static void refresh_progress(void) {
@@ -276,6 +385,8 @@ static void refresh_progress(void) {
 static void remember_scan_state(const read_pico_sd_info_t *sd) {
     s_books_cache_valid = true;
     s_cached_store_revision = book_store_revision();
+    s_home_progress_revision = progress_kv_revision();
+    s_home_title_revision = book_title_revision();
     s_cached_sd_present = sd->present;
     s_cached_sd_mounted = sd->mounted;
     ui_snprintf(s_cached_books_dir, sizeof(s_cached_books_dir), "%s", app_settings_books_dir());
@@ -560,10 +671,14 @@ static void prepare_quote_bitmap(void){
         (void)ui_banner_preview_config(&cfg,s_reading_end_day,s_reading_days_valid,&s_quote_bitmap,&fits);
     }
 }
-static void home_exit(app_ctx_t *ctx){(void)ctx;}
+static void home_exit(app_ctx_t *ctx) {
+    (void)ctx;
+    if (!s_home_prepared_once) s_home_load = HOME_RECENTS;
+}
 
 static void draw_home_banner(uint8_t *fb) {
-    if(s_quote_bitmap){ui_bitmap_draw(fb,(EpdRect){0,UI_STATUS_HEIGHT,UI_LOCK_WIDTH,300},s_quote_bitmap);return;}
+    SHELF_PERF_SCOPE(banner_paint,SP_HOME_BANNER_PAINT,0,0);
+    if(s_quote_bitmap && s_home_load == HOME_READY){ui_bitmap_draw(fb,(EpdRect){0,UI_STATUS_HEIGHT,UI_LOCK_WIDTH,300},s_quote_bitmap);return;}
     char date[160];ui_banner_date_line(s_reading_end_day,s_reading_days_valid,date,sizeof(date));
     content_banner_config_t cfg;content_banner_load(&cfg);
     ui_banner_positions_t p=ui_banner_positions(date);p.quote_align=cfg.align;p.quote_valign=cfg.valign;
@@ -575,18 +690,8 @@ static void draw_home_banner(uint8_t *fb) {
 
 #include "dashboard_history_ui.h"
 
-static void render(app_ctx_t *ctx, uint8_t *fb) {
-    SHELF_PERF_SCOPE(nav_render_perf,SP_NAV_RENDER,0,s_history_open);
-    if(s_history_open){history_render(fb);return;}
-    (void)ctx;
-    ui_clear_page(fb);
-    // 最近阅读分左右列，图书封面窄列、文档列表宽列。/ Recent reads use a narrow cover column and a wide document column.
-    epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_NAV_TOP}, UI_GRAY_WHITE, fb);
-    ui_nav_status(fb);
-    draw_home_banner(fb);
-    home_geometry_t g=home_geometry();
-    epd_fill_rect((EpdRect){36,g.recent_rule,612,2},0x68,fb);
-    ui_text_vc(fb,36,g.recent_title,UI_TEXT_TITLE,UI_MSG("最近阅读"),EPD_DRAW_ALIGN_LEFT,false);
+static void draw_featured_book(uint8_t *fb, home_geometry_t g) {
+    SHELF_PERF_SCOPE(featured_paint,SP_HOME_FEATURED_PAINT,0,0);
     home_book_t *featured=s_current.path[0]?&s_current:&s_recent[0];
     if(featured->path[0]) {
         unsigned pct=featured->has_progress?featured->progress.pct:0;if(pct>100)pct=100;
@@ -602,28 +707,48 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         draw_recent_title_layout(fb,&title,122,title_y+title.line_height/2,true);
         draw_recent_title_layout(fb,&caption,122,title_y+title_h+10+caption.line_height/2,true);
     } else draw_recent_title(fb,UI_MSG("暂无阅读图书"),122,g.content_y+(g.content_end-g.content_y)/2,172,true);
-    // 竖线起点随标题的实际墨迹上沿对齐。/ Align the divider start with the title's actual ink top.
-    int title_above=0,title_below=0;
-    ui_text_fixed_measure_px(ui_text_effective_px(UI_TEXT_TITLE),UI_MSG("最近阅读"),&title_above,&title_below);
-    int divider_top=g.recent_title+(title_above-title_below)/2-title_above;
-    epd_fill_rect((EpdRect){240,divider_top,2,g.list_y+g.rows*g.row_height+1-divider_top},0x68,fb);
-    for(int i=1;i<g.rows;++i)epd_fill_rect((EpdRect){HOME_DOCUMENT_X,g.list_y+i*g.row_height,HOME_DOCUMENT_WIDTH,1},0x88,fb);
-    for(size_t i=0;i<(size_t)g.rows;++i) {
-        if(!recent_list_path(i))break;
-        home_book_t *book=s_has_documents?NULL:recent_book_row(i);
-        unsigned pct=s_has_documents?s_recent_documents[i].pct:book->progress.pct;
-        int y=g.list_y+(int)i*g.row_height;char name[256];
-        copy_title(name,sizeof(name),s_has_documents?s_recent_documents[i].name:book->title);
-        recent_title_layout_t layout=recent_title_layout_role(name,HOME_DOCUMENT_WIDTH-36,UI_TEXT_BODY,1);
-        int title_h=layout.count*layout.line_height;
-        int top=y+(g.row_height-title_h-10)/2;
-        draw_recent_title_layout(fb,&layout,HOME_DOCUMENT_X,top+layout.line_height/2,false);
-        draw_recent_progress(fb,HOME_DOCUMENT_X,top+title_h+6,HOME_DOCUMENT_WIDTH-36,pct);
-        ui_text_vc(fb,646,y+g.row_height/2,UI_TEXT_BODY,"›",EPD_DRAW_ALIGN_RIGHT,false);
+}
+
+static void render(app_ctx_t *ctx, uint8_t *fb) {
+    SHELF_PERF_SCOPE(nav_render_perf,SP_NAV_RENDER,0,s_history_open);
+    if(s_history_open){history_render(fb);return;}
+    (void)ctx;
+    ui_clear_page(fb);
+    // 最近阅读分左右列，图书封面窄列、文档列表宽列。/ Recent reads use a narrow cover column and a wide document column.
+    epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_NAV_TOP}, UI_GRAY_WHITE, fb);
+    ui_nav_status(fb);
+    draw_home_banner(fb);
+    home_geometry_t g=home_geometry();
+    epd_fill_rect((EpdRect){36,g.recent_rule,612,2},0x68,fb);
+    ui_text_vc(fb,36,g.recent_title,UI_TEXT_TITLE,UI_MSG("最近阅读"),EPD_DRAW_ALIGN_LEFT,false);
+    if (s_home_load != HOME_READY) {
+        ui_text_vc(fb,UI_LOCK_WIDTH/2,g.content_y+72,UI_TEXT_BODY,UI_MSG("加载中"),EPD_DRAW_ALIGN_CENTER,false);
+    } else {
+        draw_featured_book(fb,g);
+        // 竖线起点随标题的实际墨迹上沿对齐。/ Align the divider start with the title's actual ink top.
+        int title_above=0,title_below=0;
+        ui_text_fixed_measure_px(ui_text_effective_px(UI_TEXT_TITLE),UI_MSG("最近阅读"),&title_above,&title_below);
+        int divider_top=g.recent_title+(title_above-title_below)/2-title_above;
+        epd_fill_rect((EpdRect){240,divider_top,2,g.list_y+g.rows*g.row_height+1-divider_top},0x68,fb);
+        for(int i=1;i<g.rows;++i)epd_fill_rect((EpdRect){HOME_DOCUMENT_X,g.list_y+i*g.row_height,HOME_DOCUMENT_WIDTH,1},0x88,fb);
+        for(size_t i=0;i<(size_t)g.rows;++i) {
+            if(!recent_list_path(i))break;
+            home_book_t *book=s_has_documents?NULL:recent_book_row(i);
+            unsigned pct=s_has_documents?s_recent_documents[i].pct:book->progress.pct;
+            int y=g.list_y+(int)i*g.row_height;char name[256];
+            copy_title(name,sizeof(name),s_has_documents?s_recent_documents[i].name:book->title);
+            recent_title_layout_t layout=recent_title_layout_role(name,HOME_DOCUMENT_WIDTH-36,UI_TEXT_BODY,1);
+            int title_h=layout.count*layout.line_height;
+            int top=y+(g.row_height-title_h-10)/2;
+            draw_recent_title_layout(fb,&layout,HOME_DOCUMENT_X,top+layout.line_height/2,false);
+            draw_recent_progress(fb,HOME_DOCUMENT_X,top+title_h+6,HOME_DOCUMENT_WIDTH-36,pct);
+            ui_text_vc(fb,646,y+g.row_height/2,UI_TEXT_BODY,"›",EPD_DRAW_ALIGN_RIGHT,false);
+        }
+        if(!recent_list_path(0))draw_recent_title(fb,s_has_documents?UI_MSG("暂无阅读文档"):UI_MSG("暂无其他阅读图书"),HOME_DOCUMENT_X,g.list_y+g.row_height/2,HOME_DOCUMENT_WIDTH-36,false);
     }
-    if(!recent_list_path(0))draw_recent_title(fb,s_has_documents?UI_MSG("暂无阅读文档"):UI_MSG("暂无其他阅读图书"),HOME_DOCUMENT_X,g.list_y+g.row_height/2,HOME_DOCUMENT_WIDTH-36,false);
     content_banner_config_t banner;content_banner_load(&banner);
     epd_fill_rect((EpdRect){banner.mode?0:36,UI_STATUS_HEIGHT+300,banner.mode?UI_LOCK_WIDTH:612,2},0x68,fb);
+    SHELF_PERF_SCOPE(history_paint,SP_HOME_HISTORY_PAINT,0,0);
     ui_text_vc(fb,36,g.heat_title,UI_TEXT_TITLE,UI_MSG("阅读打卡"),EPD_DRAW_ALIGN_LEFT,false);
     ui_text_vc(fb,648,g.heat_title,UI_TEXT_CAPTION,UI_MSG("更多"),EPD_DRAW_ALIGN_RIGHT,false);
     unsigned target_minutes=content_reading_target_minutes();
@@ -658,12 +783,13 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             }
         }
     }
+    shelf_perf_end(&history_paint);
     ui_nav_draw(fb, 0);
 }
 
 static bool present(app_ctx_t *ctx, app_redraw_t redraw) {
     if (redraw == APP_REDRAW_NONE) return true;
-    render(ctx, ctx->fb);
+    if (redraw != APP_REDRAW_AREA) render(ctx, ctx->fb);
     SHELF_PERF_SCOPE(nav_output_perf,SP_NAV_OUTPUT,0,redraw|((redraw==APP_REDRAW_FULL||s_home_force_full_once)?256:0));
     if (redraw == APP_REDRAW_AREA) guard_draw_result(ctx->hl, update_display_area_with(ctx->hl, &E0470_WAVEFORM, MODE_GL16, s_area));
     else if (redraw == APP_REDRAW_FULL || s_home_force_full_once) {
@@ -672,35 +798,35 @@ static bool present(app_ctx_t *ctx, app_redraw_t redraw) {
     }
     else guard_draw_result(ctx->hl, update_display_navigation_page(ctx->hl,
         (EpdRect){0,UI_STATUS_HEIGHT & ~31,UI_LOCK_WIDTH,(UI_NAV_TOP & ~31)-(UI_STATUS_HEIGHT & ~31)},ui_nav_rect()));
+    if (s_home_load != HOME_READY) s_home_next_ms = esp_timer_get_time()/1000 + 180;
     return true;
 }
 
-static void on_enter(app_ctx_t *ctx) {
-    (void)ctx;
-    s_history_open=false;
+static void prepare_home_books(void) {
+    SHELF_PERF_SCOPE(home_books,SP_HOME_BOOKS_PREPARE,0,0);
     read_pico_sd_info_t sd = {0};
     bool ready_at_entry = read_pico_sd_get_info(&sd) == ESP_OK && sd.mounted;
     unsigned store_revision = book_store_revision();
     uint32_t media_epoch = book_index_cache_epoch();
-    refresh_recent_documents();
-    s_home_force_full_once = app_settings_home_full_refresh();
-    {
-#ifdef IFINK_WAKE_TONE_TEST
-        SHELF_PERF_SCOPE(home_history, SP_WAKE_HOME_HISTORY, 0, 0);
-#endif
-        s_reading_days_valid = book_ticket_recent_days(s_reading_days, &s_reading_end_day);
-    }
-    prepare_quote_bitmap();
     esp_err_t sd_err = read_pico_sd_get_info(&sd);
     bool cache_matches = s_books_cache_valid && sd_err != ESP_ERR_NOT_FINISHED &&
                          s_cached_store_revision == book_store_revision() &&
+                         s_home_title_revision == book_title_revision() &&
                          s_cached_sd_present == sd.present && s_cached_sd_mounted == sd.mounted &&
                          !strcmp(s_cached_books_dir, app_settings_books_dir());
-    char last_path[BOOK_STORE_PATH_MAX] = {0};
-    (void)book_progress_last_path(last_path, sizeof(last_path));
-    bool last_changed = strcmp(last_path, s_cached_last_path) != 0;
+    const unsigned progress = progress_kv_revision();
+    bool progress_changed = s_home_progress_revision != progress;
+    bool last_changed = false;
+    if (cache_matches && progress_changed) {
+        char last_path[BOOK_STORE_PATH_MAX] = {0};
+        (void)book_progress_last_path(last_path, sizeof(last_path));
+        last_changed = strcmp(last_path, s_cached_last_path) != 0;
+    }
     if (cache_matches && !last_changed) {
-        refresh_progress();
+        if (progress_changed) {
+            refresh_progress();
+            s_home_progress_revision = progress;
+        }
         s_cover_next = 0;
         s_scan_pending = false;
         return;
@@ -727,18 +853,67 @@ static void on_enter(app_ctx_t *ctx) {
         remember_scan_state(&sd);
     }
 }
+static void on_enter(app_ctx_t *ctx) {
+    (void)ctx;
+    s_history_open=false;
+    s_home_force_full_once = app_settings_home_full_refresh();
+    {
+        SHELF_PERF_SCOPE(home_history, SP_HOME_HISTORY_READ, 0, 0);
+        s_reading_days_valid = book_ticket_recent_days(s_reading_days, &s_reading_end_day);
+    }
+    if (!s_home_prepared_once) {
+        // 先出首帧，再分段准备可延后的数据。/ Present first; prepare deferred content in separate idle ticks.
+        if (s_home_load == HOME_READY) s_home_load = HOME_RECENTS;
+        return;
+    }
+    refresh_recent_documents();
+    prepare_quote_bitmap();
+    prepare_home_books();
+}
+
+static app_redraw_t finish_home_entry(app_ctx_t *ctx) {
+    if (ctx->now_ms < s_home_next_ms || ctx->pressed || ctx->released || ctx->consumed)
+        return APP_REDRAW_NONE;
+    switch (s_home_load) {
+        case HOME_RECENTS: {
+            read_pico_sd_info_t sd = {0};
+            if (read_pico_sd_get_info(&sd) == ESP_ERR_NOT_FINISHED) return APP_REDRAW_NONE;
+            refresh_recent_documents();
+            s_home_load = HOME_BANNER;
+            break;
+        }
+        case HOME_BANNER:
+            prepare_quote_bitmap();
+            s_home_load = HOME_BOOKS;
+            break;
+        case HOME_BOOKS:
+            prepare_home_books();
+            s_home_load = HOME_READY;
+            s_home_prepared_once = true;
+            return APP_REDRAW_PAGE;
+        case HOME_READY: return APP_REDRAW_NONE;
+    }
+    s_home_next_ms = esp_timer_get_time()/1000 + 180;
+    return APP_REDRAW_NONE;
+}
+
 static void on_media_lost(app_ctx_t *ctx) {
     (void)ctx;clear_quote_bitmap();
     clear_cover_cache();
     memset(&s_current, 0, sizeof(s_current));
     memset(s_recent, 0, sizeof(s_recent));
     s_books_cache_valid = false;
+    if (!s_home_prepared_once) s_home_load = HOME_RECENTS;
     s_recent_document_count = 0;
+    s_document_snapshot.valid=false;
     s_has_documents=false;
     memset(s_recent_documents, 0, sizeof(s_recent_documents));
 }
 static void on_media_ready(app_ctx_t *ctx) {
-    (void)ctx;clear_quote_bitmap();prepare_quote_bitmap();
+    (void)ctx;
+    clear_quote_bitmap();
+    if (!s_home_prepared_once) s_home_load = HOME_RECENTS;
+    else prepare_quote_bitmap();
     s_books_cache_valid = false;
     s_scan_pending = true;
 }
@@ -746,6 +921,7 @@ static void on_media_ready(app_ctx_t *ctx) {
 static app_redraw_t on_tick(app_ctx_t *ctx) {
     if(s_history_open)return APP_REDRAW_NONE;
     if (ctx->touch && ctx->touch->touched) return APP_REDRAW_NONE;
+    if (s_home_load != HOME_READY) return finish_home_entry(ctx);
     if (s_scan_pending) {
         read_pico_sd_info_t info = {0};
         if (read_pico_sd_get_info(&info) == ESP_ERR_NOT_FINISHED) return APP_REDRAW_NONE;
@@ -771,10 +947,14 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
     }
     // 只更新续读卡片，不再逐本刷新首页。/ Update only the current-read card, never flash covers one by one.
     if (cover_changed) {
-        render(ctx, ctx->fb);
-        int top=home_geometry().list_y;s_area=(EpdRect){28,top,620,UI_NAV_TOP-top};
+        SHELF_PERF_SCOPE(cover_paint,SP_NAV_RENDER,0,2);
+        home_geometry_t g=home_geometry();
+        s_area=(EpdRect){28,g.content_y,212,UI_NAV_TOP-g.content_y};
+        epd_fill_rect(s_area,UI_GRAY_WHITE,ctx->fb);
+        draw_featured_book(ctx->fb,g);
         return APP_REDRAW_AREA;
     }
+    book_recent_index_flush();
     return APP_REDRAW_NONE;
 }
 
@@ -797,7 +977,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
             ui_nav_request(ctx, 1);
         return APP_REDRAW_NONE;
     }
-    if (ev->x0 >= 28 && ev->x0 < 216 && ev->y0 >= g.content_y && ev->y0 < UI_NAV_TOP) {
+    if (s_home_load == HOME_READY && ev->x0 >= 28 && ev->x0 < 216 && ev->y0 >= g.content_y && ev->y0 < UI_NAV_TOP) {
         home_book_t *featured = s_current.path[0] ? &s_current : &s_recent[0];
         if (featured->path[0] && app_book_request_open_from_home(featured->path)) ui_nav_request(ctx, 1);
         return APP_REDRAW_NONE;

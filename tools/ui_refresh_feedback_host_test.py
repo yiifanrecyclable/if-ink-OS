@@ -68,6 +68,8 @@ static int s_water_turn_dir;
 static bool system_scale, landscape, wide_panel;
 static enum EpdRotation rotation;
 static int s_visible_count, s_cover_pending_mask;
+static struct { bool ready; } s_covers[9];
+static int shelf_rows(void){return 9;}
 static bool s_scan_pending;
 static int64_t s_cover_next_ms;
 static unsigned pushes;

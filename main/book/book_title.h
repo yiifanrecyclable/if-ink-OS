@@ -12,6 +12,7 @@
 
 bool book_title_get(const char *path, char *out, size_t cap);
 esp_err_t book_title_get_checked(const char *path,char *out,size_t cap);
+unsigned book_title_revision(void);
 esp_err_t book_title_set(const char *path, const char *title);
 esp_err_t book_title_clear(const char *path);
 /// 以实际文件名（去扩展名）生成系统统一显示书名。/ Derive the shared display title from the real filename without its extension.

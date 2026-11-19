@@ -63,6 +63,10 @@ int main(void) {
               "前￼后\n￼注释");
     assert(t.count == 2 && !t.image_count && t.link_count == 2);
     assert(t.links[0].start == 3 && t.links[0].end == 6 && !strcmp(t.links[0].image_label, "12"));
+    // 0.2.3 placed an on-disk image between two newline separators. Its saved offsets still locate the same text.
+    assert(html_position_convert(&t.positions, 4, true) == 3);
+    assert(html_position_convert(&t.positions, 8, true) == 6);
+    assert(html_position_convert(&t.positions, 6, false) == 8);
     assert(!strcmp(t.links[0].anchor, "call") && !strcmp(t.links[1].image_label, "*") && t.links[1].backlink);
     html_text_free(&t);
     t = parse("<p>A<a href='#details'><img src='cover.png' width='240px' height='32' alt='1'/></a>B</p>"

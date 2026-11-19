@@ -4,6 +4,13 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.5 beta 1 / 2026-11-19
+
+- 首页先显示基础界面，再分段补齐最近阅读、Banner 和封面。书架复用卡上的索引和已有封面，批量处理新增封面，并在需要操作图书时校验数据。/ Home shows the basic page first, then fills in recent reading, the Banner, and the cover in stages. Reuse card indexes and existing covers, batch new covers, and validate books before making changes.
+- 缓存 Banner 缩略图和字体名称预览，减少重复加载。/ Cache Banner thumbnails and font-name previews to reduce repeated loading.
+- 在线升级同时显示稳定和 Beta 通道的检查结果。点选通道后仍需确认安装。/ See both Stable and Beta offers at once, select either channel, and confirm installation separately.
+- 修复 EPUB 正文与注释往返的定位，支持跳到书目中未列入阅读顺序的 XHTML 注释。修复 0.2.3 EPUB 进度与书签的位置换算。早期 0.2.4 Beta 保存的部分位置仍可能偏移。/ Fix return positions for reciprocal EPUB notes and support note targets in manifest XHTML outside the spine. Fix EPUB progress and bookmark migration from 0.2.3. Some positions saved by early 0.2.4 Beta builds may still shift.
+
 ## 0.2.4 beta 1 / 2026-11-17
 
 - EPUB 注释支持正文与注释双向跳转，底栏根据当前位置提供返回正文或返回注释。/ EPUB notes support navigation in both directions, with contextual return to the text or note.

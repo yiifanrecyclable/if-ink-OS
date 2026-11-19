@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory(prefix='history-',dir=R/'build') as tmp:
     binary=base/'storage-test'
     flags=['cc','-std=gnu11','-Wall','-Wextra','-Werror','-Wno-unused-parameter','-Wno-unused-function','-fsanitize=address,undefined','-fno-omit-frame-pointer','-ffunction-sections','-fdata-sections','-Dtime=history_test_time','-DPICO_SIM_CARD_PATH="unused"','-include','tools/simulator/fs.h']
     for inc in ('tools/simulator/include','main','main/app','main/book','main/font','main/ui','components/sc7a20h/include','components/read_pico_pmu/include','components/read_pico_transfer/include'):flags+=['-I'+inc]
-    subprocess.run(flags+['tools/reading_history_host_test.c','main/book/reading_history_store.c','main/book/book_ticket.c','tools/simulator/fs.c','tools/simulator/nvs.c','-Wl,-dead_strip','-o',str(binary)],cwd=R,check=True)
+    subprocess.run(flags+['tools/reading_history_host_test.c','main/book/reading_history_store.c','main/book/book_ticket.c','main/book/record_store.c','tools/simulator/fs.c','tools/simulator/nvs.c','-Wl,-dead_strip','-o',str(binary)],cwd=R,check=True)
     subprocess.run([str(binary)],cwd=base,env=env,check=True)
     # Independent fixture with more than two years; daily rows cross month and year boundaries.
     store=card/'.readpico/reading'
@@ -32,6 +32,7 @@ with tempfile.TemporaryDirectory(prefix='history-',dir=R/'build') as tmp:
     # Remove prior test NVS: migration has already been tested above.
     import shutil
     shutil.rmtree(out/'nvs',ignore_errors=True)
+    shutil.rmtree(card/'.readpico/records',ignore_errors=True)
     (out/'titles.txt').write_text('')
     env['PICO_SIM_HOME_DAY']=str(today_day)
     seconds=[values.get(d,0) for d in range(today_day-29,today_day+1)]
@@ -81,5 +82,5 @@ with tempfile.TemporaryDirectory(prefix='history-',dir=R/'build') as tmp:
     shutil.rmtree(store)
     seconds[:]=[0]*30
     empty=frame(opened);assert empty['history_state'][3:5]==[1,1] and not any(empty['history_seconds'])
-    assert not list(card.rglob('*.bin'))
+    assert not list(store.glob('*.bin'))
 print('reading history UI: daily totals, target persistence and saturation, year boundary, >2-year archive, paging, return, S/M/L/XL and empty data passed')

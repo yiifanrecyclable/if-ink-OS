@@ -47,7 +47,9 @@ static const char *const names[]={"unknown","boot","enter","reuse","scan","roots
 #ifdef IFINK_INKBUDDY
     , "inkbuddy_memory", "inkbuddy_crc", "inkbuddy_present", "inkbuddy_unchanged"
 #endif
-    , "doc_store", "doc_verify_us", "doc_titles", "doc_progress", "doc_order", "doc_reuse"
+    , "doc_store", "doc_verify_us", "doc_titles", "doc_progress", "doc_order", "doc_reuse",
+      "shelf_cover_batch", "home_recents_cache", "home_history_read", "home_history_paint", "shelf_backfill",
+      "home_banner_paint", "home_featured_paint", "home_books_prepare", "shelf_reader_covers", "progress_snapshot", "recent_index", "shelf_index", "cover_verified_hit"
 };
 _Static_assert(sizeof(names)/sizeof(names[0])==SP_STAGE_COUNT,"Timing stage names must match the exported stage IDs");
 static bool enabled(void){return owner()&&s_active;}
@@ -61,7 +63,8 @@ void shelf_perf_init(void){
     if(strncmp(v,"0.2.0-r9t",9) && strcmp(v,"0.2.1-beta-r1t2") &&
        strcmp(v,"0.2.1-beta-r1t3") && strcmp(v,"0.2.1-beta-r1t4") &&
        strcmp(v,"0.2.1-beta-r1t5") && strcmp(v,"0.2.1-beta-r1t6") &&
-       strcmp(v,"0.2.2-beta-r1t1")
+       strcmp(v,"0.2.2-beta-r1t1") && strcmp(v,"0.2.4-beta2t") && strcmp(v,"0.2.4-beta3t") &&
+       strcmp(v,"0.2.4-beta4t") && strcmp(v,"0.2.4-beta5t") && strcmp(v,"0.2.4-beta6t") && strcmp(v,"0.2.4-beta7t") && strcmp(v,"0.2.4-beta8t") && strcmp(v,"0.2.4-beta9t")
 #ifdef IFINK_INKBUDDY
        && strcmp(v,"0.2.1-beta-r2t2") && strcmp(v,"0.2.2-beta.3t1") && strcmp(v,"0.2.2-beta.3t2") && strcmp(v,"0.2.3-beta.2t1")
 #endif

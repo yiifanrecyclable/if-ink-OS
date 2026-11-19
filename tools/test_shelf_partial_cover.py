@@ -42,7 +42,9 @@ static int physical_w,physical_h,preset=100,locks,scaled;
 static bool tracing;
 static EpdRect allowed;
 enum {SHELF,BULK};static int s_view=SHELF;
-static struct {char name[256];} s_shelf[18];
+typedef struct {char name[256];} shelf_entry_t;
+static shelf_entry_t s_shelf[18];
+static const shelf_entry_t *shelf_entry_at(int index){return &s_shelf[index];}
 static struct {uint8_t *gray;unsigned width,height;} s_covers[9];
 static int app_settings_system_font_size(void){return preset;}
 static int ui_text_line_height(int role){(void)role;return preset/4+8;}
@@ -67,7 +69,7 @@ for n in ['epd_draw_hline','epd_draw_vline','epd_fill_rect','epd_fill_circle_hel
 for n in ['ui_gray_level','clamp_radius','draw_arc','ui_draw_round_rect','ui_fill_round_rect']:unit+=function(kit,n)
 unit+=function((R/'main/ui/ui_image_dither.c').read_text(),'ui_image_dither_gray')
 for n in ['shelf_grid_side','shelf_rows','shelf_cell_height','row_rect','shelf_cover_height','shelf_cover_top','shelf_caption_width','shelf_image_rect','draw_shelf_cover','render_shelf_cover']:unit+=function(book,n)
-pending=book.split('if (s_view == SHELF && !s_scan_pending && ctx->now_ms >= s_cover_next_ms &&',1)[1].split('// 目录暂借',1)[0]
+pending=function(book,'shelf_cover_tick')
 assert 'render_shelf_cover(ctx, row);' in pending and 'render(ctx, ctx->fb);' not in pending
 unit+=r'''
 static EpdRect band(int row){EpdRect c=row_rect(row);return (EpdRect){c.x,c.y,c.width,shelf_cover_top(c)-c.y+shelf_cover_height()};}

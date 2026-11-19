@@ -47,6 +47,8 @@ typedef struct {
 typedef struct {
     html_text_t text;
     size_t text_cap, block_cap, start;
+    size_t stored_len, stored_images, position_cap;
+    bool stored_block, stored_space;
     size_t link_cap, link_start;
     char link_href[HTML_LINK_HREF_CAP];
     char link_image_label[HTML_NOTE_LABEL_CAP];
@@ -275,6 +277,7 @@ void html_text_free(html_text_t* text) {
     free(text->blocks);
     free(text->cells);
     free(text->styles);
+    free(text->positions.large);
     for (size_t i = 0; i < text->image_count; ++i) free(text->images[i]);
     free(text->images);
     for (size_t i = 0; i < text->link_count; ++i) free(text->links[i].href);
@@ -321,8 +324,12 @@ static esp_err_t finish_block(writer_t* w) {
     return ESP_OK;
 }
 
+static bool blank_cp(uint32_t cp) {
+    return cp == 0xa0 || (cp < 128 && ascii_space((unsigned char)cp));
+}
+
 static esp_err_t emit(writer_t* w, uint32_t cp) {
-    if (cp == 0xa0 || (cp < 128 && ascii_space((unsigned char)cp))) {
+    if (blank_cp(cp)) {
         if (w->active) w->space = true;
         return ESP_OK;
     }
@@ -352,6 +359,66 @@ static esp_err_t emit(writer_t* w, uint32_t cp) {
     memcpy(w->text.utf8 + w->text.len, bytes, n);
     w->text.len += n;
     return ESP_OK;
+}
+
+// 同时计数旧版排版的字节位置，无需第二份正文。/ Count legacy positions without keeping a second text buffer.
+static size_t glyph_bytes(uint32_t cp) {
+    return cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
+}
+
+static void finish_stored_block(writer_t *w) {
+    w->stored_block = w->stored_space = false;
+}
+
+static size_t emit_stored(writer_t *w, uint32_t cp) {
+    if (blank_cp(cp)) {
+        w->stored_space = w->stored_block;
+        return w->stored_len;
+    }
+    if (w->stored_block ? w->stored_space : w->stored_len != 0) ++w->stored_len;
+    size_t start = w->stored_len;
+    w->stored_len += glyph_bytes(cp);
+    w->stored_block = true;
+    w->stored_space = false;
+    return start;
+}
+
+static esp_err_t position_checkpoint(writer_t *w, size_t stored, size_t layout) {
+    html_positions_t *map = &w->text.positions;
+    size_t count = map->count;
+    html_position_t *positions = map->large ? map->large : map->small;
+    html_position_t previous = count ? positions[count - 1] : (html_position_t){0};
+    if (stored + previous.layout == layout + previous.stored) return ESP_OK;
+    size_t cap = map->large ? w->position_cap : sizeof(map->small) / sizeof(map->small[0]);
+    if (count == cap) {
+        cap *= 2;
+        positions = heap_caps_realloc(map->large, cap * sizeof(*positions), PSRAM_CAPS);
+        if (!positions) return ESP_ERR_NO_MEM;
+        if (!map->large) memcpy(positions, map->small, sizeof(map->small));
+        map->large = positions;
+        w->position_cap = cap;
+    }
+    positions[map->count++] = (html_position_t){stored, layout};
+    return ESP_OK;
+}
+
+size_t html_position_convert(const html_positions_t *map, size_t offset, bool to_layout) {
+    const html_position_t *positions = map->large ? map->large : map->small;
+    size_t low = 0, high = map->count;
+    while (low < high) {
+        size_t mid = low + (high - low) / 2;
+        size_t from = to_layout ? positions[mid].stored : positions[mid].layout;
+        if (from <= offset) low = mid + 1;
+        else high = mid;
+    }
+    html_position_t previous = low ? positions[low - 1] : (html_position_t){0};
+    size_t target = to_layout ? previous.layout + (offset - previous.stored) :
+                               previous.stored + (offset - previous.layout);
+    if (low < map->count) {
+        size_t next = to_layout ? positions[low].layout : positions[low].stored;
+        if (target > next) target = next;
+    }
+    return target;
 }
 
 // 实体查找有固定上限；未知名称原样保留，非法数值替换为 U+FFFD。
@@ -664,9 +731,10 @@ static bool image_note_label(writer_t *w, const char *attrs, const char *end, co
     return true;
 }
 
-static esp_err_t add_image_note(writer_t *w) {
+static esp_err_t add_image_note(writer_t *w, size_t stored) {
     esp_err_t err = emit(w, HTML_NOTE_IMAGE_CP);
     if (err != ESP_OK) return err;
+    const size_t start = w->text.len - glyph_bytes(HTML_NOTE_IMAGE_CP);
     size_t links = w->text.link_count;
     finish_link(w);
     if (links == w->text.link_count) {
@@ -674,7 +742,7 @@ static esp_err_t add_image_note(writer_t *w) {
         w->text.len -= 2;
         w->text.utf8[w->text.len - 1] = '*';
     }
-    return ESP_OK;
+    return stored == SIZE_MAX ? ESP_OK : position_checkpoint(w, stored, start);
 }
 
 static bool explicit_note_container(const char *name, const char *attrs, const char *end) {
@@ -817,13 +885,24 @@ esp_err_t html_to_blocks_with_css_target(const char* html, size_t len,
                     char path[HTML_IMAGE_PATH_MAX + 1] = {0};
                     bool object = name_equal(name, "object");
                     bool has_path = image_attr(html + at, html + end, object, path);
+                    size_t stored = SIZE_MAX;
+                    if (has_path && w->stored_images < HTML_IMAGE_MAX) {
+                        ++w->stored_images;
+                        finish_stored_block(w);
+                        stored = emit_stored(w, HTML_NOTE_IMAGE_CP);
+                        finish_stored_block(w);
+                    }
                     if (!object && w->link_href[0] && w->text.len == w->link_start &&
                         image_ends_link(html + pos, len - pos) &&
                         image_note_label(w, html + at, html + end, has_path ? path : ""))
-                        err = add_image_note(w);
+                        err = add_image_note(w, stored);
                     else {
                         note_has_rich_content(w);
-                        if (has_path) err = add_image(w, path);
+                        if (has_path && w->text.image_count < HTML_IMAGE_MAX) {
+                            err = add_image(w, path);
+                            if (err == ESP_OK && stored != SIZE_MAX)
+                                err = position_checkpoint(w, stored, w->text.blocks[w->text.count - 1].offset);
+                        }
                     }
                     if (err != ESP_OK) goto fail;
                     continue;
@@ -831,6 +910,7 @@ esp_err_t html_to_blocks_with_css_target(const char* html, size_t len,
                 if (!closing && !self_closing && (name_equal(name, "head") || name_equal(name, "style") || name_equal(name, "script"))) {
                     memcpy(skip, name, sizeof(skip));
                 } else if (block_tag(name)) {
+                    finish_stored_block(w);
                     err = finish_block(w);
                     if (err != ESP_OK) goto fail;
                     w->block_anchor_len = 0;
@@ -862,13 +942,17 @@ esp_err_t html_to_blocks_with_css_target(const char* html, size_t len,
         size_t n = html[pos] == '&' ? entity(html + pos, len - pos, &cp) : 0;
         if (!n) n = utf8(html + pos, len - pos, &cp);
         if (!n) { err = ESP_ERR_INVALID_RESPONSE; goto fail; }
+        size_t stored = emit_stored(w, cp);
         err = emit(w, cp);
+        if (err == ESP_OK && !blank_cp(cp))
+            err = position_checkpoint(w, stored, w->text.len - glyph_bytes(cp));
         if (err != ESP_OK) goto fail;
         pos += n;
     }
     if (w->note.depth && w->note.matched) w->text.note_kind = HTML_NOTE_NONE;
     finish_link(w);
     err = finish_block(w);
+    if (err == ESP_OK) err = position_checkpoint(w, w->stored_len, w->text.len);
     if (err == ESP_OK) err = reserve_text(w, 0);
     if (err != ESP_OK) goto fail;
     w->text.utf8[w->text.len] = 0;

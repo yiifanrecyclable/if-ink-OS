@@ -81,7 +81,8 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='input-pages-') as tmp:
     matched=events(search,letters('test'),done)
     opened,_=render('book-8',events(matched,tap(340,180)))
     assert opened['book_view']==1 and opened['book_path']=='/sdcard/markdown/Test.md',opened['book_path']
-    returned,_=render('book-8',events(matched,tap(340,180),tap(600,100),tap(60,110)))
+    guide_exit=('k,1,0,0,0',) if opened['reader_panel'] else ()
+    returned,_=render('book-8',events(matched,tap(340,180),*guide_exit,tap(58,90)))
     assert returned['book_view']==8 and [p for p in returned['document_items'] if p]==[opened['book_path']], (returned['book_view'],returned['reader_panel'],returned['document_items'])
     info,_=render('transfer-3',events(letters('short'),done));assert info['transfer_view']==3
     info,_=render('transfer-3',events(letters('dummy'),cancel));assert info['transfer_view']==2
@@ -90,8 +91,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='input-pages-') as tmp:
     assert render('settings-21',tap(340,800))[0]['settings_page']==23
     assert render('settings-21',tap(340,864))[0]['settings_page']==22
     config=build/'nvs/if_content/banner_v1'
-    info,_=render('settings-22',tap(340,550));assert info['settings_page']==21 and info['banner_font']=='/sdcard/fonts/PicoSans-Medium.ttf' and not config.exists()
-    assert render('settings-22',tap(340,460))[0]['banner_font']==''
+    info,_=render('settings-22',tap(340,460));assert info['settings_page']==21 and not info['banner_font'] and not config.exists()
     info,_=render('settings-23',events(banner_clear,language,letters('abc'),cancel));assert info['settings_page']==21 and not config.exists()
     info,_=render('settings-23',events(banner_clear,language,letters('abc'),done));assert info['settings_page']==21 and info['banner_text']=='abc' and not config.exists()
     info,_=render('settings-23',events(banner_clear,language,letters('abc'),done,tap(500,1098)));assert info['quote_settings_committed'] and config.exists();saved=config.read_bytes()

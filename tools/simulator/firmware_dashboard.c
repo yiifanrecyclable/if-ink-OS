@@ -8,7 +8,9 @@
 #include "app_registry.h"
 extern int simulator_route;
 void simulator_dashboard(uint8_t *fb,const uint32_t *days,const char *events){
- app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);on_tick(&ctx);on_tick(&ctx);
+ app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);
+ for (int i=0;i<3 && s_home_load!=HOME_READY;++i) {ctx.now_ms=s_home_next_ms+1;on_tick(&ctx);}
+ on_tick(&ctx);on_tick(&ctx);
  s_reading_days_valid=true;memcpy(s_reading_days,days,30*sizeof(*days));
  const char *day=getenv("PICO_SIM_HOME_DAY");if(day){unsigned long value=strtoul(day,NULL,10);if(value>=19723&&value<50000)s_reading_end_day=(uint32_t)value;}
  prepare_quote_bitmap();

@@ -58,7 +58,14 @@ typedef struct {
 
 typedef enum { HTML_NOTE_NONE, HTML_NOTE_PARAGRAPH, HTML_NOTE_EXPLICIT } html_note_kind_t;
 
+typedef struct { uint32_t stored, layout; } html_position_t;
 typedef struct {
+    html_position_t small[4], *large;
+    size_t count;
+} html_positions_t;
+
+typedef struct {
+    html_positions_t positions; ///< Sparse correspondence with the 0.2.3 position format.
     html_link_t *links;
     size_t link_count;
     size_t note_start, note_end; ///< Normalized text range enclosing the requested anchor.
@@ -74,6 +81,9 @@ typedef struct {
     char** images; ///< 相对图片路径 / Relative image paths
     size_t image_count; ///< 图片数 / Image count
 } html_text_t;
+
+/// Convert between persisted EPUB positions and this chapter's layout offsets.
+size_t html_position_convert(const html_positions_t *positions, size_t offset, bool to_layout);
 
 /// 输出须为空；成功交出所有权，失败清空输出；空输入成功且零块。/ Output must be empty; success transfers ownership, failure clears output; empty input succeeds with zero blocks.
 esp_err_t html_to_blocks(const char* html, size_t len, html_text_t* out);

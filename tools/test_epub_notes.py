@@ -52,23 +52,28 @@ def write_short_note_sample(path):
         <p>这是短注释的第二段。</p></aside><p>这句在注释范围之外。</p>''', 20)
 
 
-def write_epub(path, href, section_boundary=False, marker='[1]'):
+def write_epub(path, href, section_boundary=False, marker='[1]', spine_notes=True, multiple_notes=False):
     with ZipFile(path, 'w', ZIP_DEFLATED) as epub:
         epub.writestr('META-INF/container.xml', '<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>')
-        epub.writestr('OPS/book.opf', '''<package><metadata><title>Annotations</title></metadata>
+        note_ref = '<itemref idref="notes"/>' if spine_notes else ''
+        epub.writestr('OPS/book.opf', f'''<package><metadata><title>Annotations</title></metadata>
           <manifest><item id="body" href="body.xhtml" media-type="application/xhtml+xml"/>
           <item id="notes" href="appendix/notes.xhtml" media-type="application/xhtml+xml"/></manifest>
-          <spine><itemref idref="body"/><itemref idref="notes"/></spine></package>''')
+          <spine><itemref idref="body"/>{note_ref}</spine></package>''')
         filler = '<p>正文一直继续。 Paragraph after paragraph.</p>' * 96
         lead = '<p>正文开始。 Before the note. </p>' * 19 if section_boundary else ''
         role = ' role="doc-backlink"' if section_boundary else ''
+        other_marker = '<p id="second">B marker <a epub:type="noteref" href="appendix/notes.xhtml#fn2">[2]</a>.</p>' if multiple_notes else ''
         epub.writestr('OPS/body.xhtml', '<html><body>' +
                       lead + f'<p id="passage">正文 Marker <a id="call" href="{href}">{marker}</a> continues.</p>' + filler +
+                      other_marker +
                       '<p id="same"><a href="#passage">[R]</a> Same chapter note.</p>'
                       '<p>Untyped continuation.</p></body></html>')
+        other_note = ('<p>A few lines separate the two notes.</p><p id="fn2">'
+                      '<a role="doc-backlink" href="../body.xhtml#second">[2]</a> Second note.</p>') if multiple_notes else ''
         epub.writestr('OPS/appendix/notes.xhtml', '<html><body><p id="fn1">' +
-                      f'<a{role} href="../body.xhtml#{"same" if role else "call"}">[R]</a> Cross chapter note.</p>' +
-                      filler + '</body></html>')
+                      f'<a{role} href="../body.xhtml#{"passage" if role else "call"}">[R]</a> Cross chapter note.</p>' +
+                      other_note + (filler if spine_notes else '') + '</body></html>')
 
 
 def raw(x, y, wide, reverse):
@@ -118,6 +123,8 @@ def main():
         write_epub(card / 'books/Later.epub', 'appendix/notes.xhtml#fn1', section_boundary=True)
         write_epub(card / 'books/External.epub', 'https://example.invalid/notes#fn1')
         write_epub(card / 'books/Superscript.epub', 'appendix/notes.xhtml#fn1', marker='¹²³')
+        write_epub(card / 'books/Auxiliary.epub', 'appendix/notes.xhtml#fn1', spine_notes=False)
+        write_epub(card / 'books/TwoNotes.epub', 'appendix/notes.xhtml#fn1', multiple_notes=True)
         write_image_note_sample(card / 'books' / IMAGE_NOTE_SAMPLE)
         write_short_note_sample(card / 'books' / SHORT_NOTE_SAMPLE)
         write_image_epub(card / 'books/ShortParagraph.epub',
@@ -362,6 +369,28 @@ def main():
                 break
         else:
             raise AssertionError('later annotation must appear beyond the first page')
+
+        for book in ('Auxiliary', 'TwoNotes'):
+            original, frame = render(book)
+            source = find_marker(frame, False, False, False)
+            assert source is not None
+            target, frame = render(book, source)
+            assert target['reader_note_open'] and target['reader_chapter'] != original['reader_chapter'], target
+            first = find_marker(frame, False, False, False)
+            assert first is not None
+            returned, _ = render(book, source, first)
+            assert not returned['reader_note_open'] and returned['reader_offset'] == original['reader_offset'], returned
+            if book == 'Auxiliary':
+                stayed, _ = render(book, source, key=0)
+                assert stayed['reader_note_open'] and stayed['reader_chapter'] == target['reader_chapter'], stayed
+                resumed, _ = render(book, page='-1')
+                assert resumed['reader_chapter'] == 0 and resumed['reader_offset'] == original['reader_offset'], resumed
+            else:
+                second = find_marker(frame, False, False, False, exclude=first)
+                assert second is not None
+                different, _ = render(book, source, second)
+                assert different['reader_note_open'] and different['reader_chapter'] == 0, different
+                assert different['reader_offset'] > original['reader_offset'], different
 
         (nvs / 'bk_rule').write_bytes(b'\x01')
         for book in ('Cross', 'Superscript'):

@@ -2549,13 +2549,28 @@ static void name_preview_collect(void) {
         return;
     }
     size_t bytes = (size_t)s_name_job.stride * s_name_job.height;
-    name_preview_t *entry;
-    do {
-        entry = &s_names[0];
-        for (size_t i = 1; i < NAME_PREVIEW_SLOTS; ++i)
-            if (s_names[i].used < entry->used) entry = &s_names[i];
-        name_preview_evict(entry);
-    } while (s_name_bytes + bytes > NAME_PREVIEW_BYTES);
+    if (bytes > NAME_PREVIEW_BYTES) {
+        heap_caps_free(s_name_job.mask);
+        s_name_job.mask = NULL;
+        s_name_job.stride = s_name_job.height = 0;
+        bytes = 0;
+    }
+    // 内存不足时只淘汰占用像素内存的项；空槽和纯文字回退腾不出空间。
+    // Enforce the byte limit by evicting masks; empty slots and text fallbacks free no bytes.
+    while (s_name_bytes > NAME_PREVIEW_BYTES - bytes) {
+        name_preview_t *oldest = NULL;
+        for (size_t i = 0; i < NAME_PREVIEW_SLOTS; ++i) {
+            name_preview_t *item = &s_names[i];
+            if (item->mask && (!oldest || item->used < oldest->used)) oldest = item;
+        }
+        if (!oldest) { heap_caps_free(s_name_job.mask); return; }
+        name_preview_evict(oldest);
+    }
+    // 内存足够后再找槽位，优先使用空槽。/ Pick a slot after making room, preferring an empty one.
+    name_preview_t *entry = &s_names[0];
+    for (size_t i = 1; i < NAME_PREVIEW_SLOTS; ++i)
+        if (s_names[i].used < entry->used) entry = &s_names[i];
+    name_preview_evict(entry);
     *entry = s_name_job;
     entry->used = ++s_name_clock;
     s_name_bytes += bytes;
@@ -2968,6 +2983,9 @@ static uint32_t vertical_form(uint32_t cp) {
 void ttf_draw_vertical_px(uint8_t *fb, int center_x, int top, int height, int px,
                           const char *text, int tracking) {
     if (!fb || !text || !font_ready) return;
+    // 深睡续读的第一帧可能直接画竖排；不要依赖横排先初始化灰阶表。
+    // A cold resume can draw vertical text first; initialize coverage without a prior horizontal draw.
+    ttf_cover_lut_init();
     int bottom = top + height;
     while (*text && top < bottom) {
         uint32_t cp = decode_utf8(&text);
