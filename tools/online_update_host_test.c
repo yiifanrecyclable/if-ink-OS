@@ -4,6 +4,7 @@
  */
 #include <assert.h>
 #include <CommonCrypto/CommonDigest.h>
+#include <Security/Security.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +25,13 @@ static if_update_channel_t requested_channel;
 static char dual_manifests[IF_UPDATE_CHANNEL_COUNT][sizeof(manifest)];
 static bool dual_mode;
 static unsigned dual_opens[IF_UPDATE_CHANNEL_COUNT];
+static uint8_t signed_feed[OTA_MIRROR_LIMIT];
+static size_t signed_feed_size;
+static unsigned mirror_feed_opens,mirror_asset_opens;
+static bool mirror_drop,github_resumed;
+static bool stats_opt_in;
+static unsigned stats_reports;
+static SecKeyRef test_signing_key,imported_verify_key;
 static esp_partition_t running={.address=0x10000,.size=IF_OTA_MAX_BYTES},target={.address=0x910000,.size=IF_OTA_MAX_BYTES},data={.address=0xd10000,.size=0x2000};
 static void (*pending_worker)(void*);static void *pending_arg;
 static struct {int token;} sems[8];static int sem_count;
@@ -57,26 +65,64 @@ int psa_hash_setup(psa_hash_operation_t *op,int alg){(void)alg;op->bytes=0;CC_SH
 int psa_hash_update(psa_hash_operation_t *op,const void *p,size_t n){op->bytes+=n;CC_SHA256_Update(&digest,p,(CC_LONG)n);return 0;}
 int psa_hash_finish(psa_hash_operation_t *op,uint8_t *out,size_t cap,size_t *n){(void)op;assert(cap>=32);CC_SHA256_Final(out,&digest);*n=32;return 0;}
 int psa_hash_abort(psa_hash_operation_t *op){(void)op;return 0;}
-struct FakeHttp {bool feed,redirect,blob,partial;size_t at,length,start;const char *manifest;void *user;int (*event)(esp_http_client_event_t*);};
+int psa_import_key(const psa_key_attributes_t *a,const uint8_t *point,size_t size,mbedtls_svc_key_id_t *key){
+ assert(a->type==PSA_ECC_FAMILY_SECP_R1&&a->bits==256&&a->usage==PSA_KEY_USAGE_VERIFY_MESSAGE);
+ assert(a->algorithm==PSA_ALG_ECDSA(PSA_ALG_SHA_256)&&size==65&&point==ota_mirror_public_key);
+ assert(!imported_verify_key);
+ if(test_signing_key)imported_verify_key=SecKeyCopyPublicKey(test_signing_key);
+ else{
+  const void *keys[]={kSecAttrKeyType,kSecAttrKeyClass},*values[]={kSecAttrKeyTypeECSECPrimeRandom,kSecAttrKeyClassPublic};
+  CFDictionaryRef attrs=CFDictionaryCreate(NULL,keys,values,2,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
+  CFDataRef raw=CFDataCreate(NULL,point,(CFIndex)size);
+  imported_verify_key=SecKeyCreateWithData(raw,attrs,NULL);
+  CFRelease(raw);CFRelease(attrs);
+ }
+ *key=1;return imported_verify_key?PSA_SUCCESS:-1;
+}
+int psa_verify_message(mbedtls_svc_key_id_t key,psa_algorithm_t alg,const uint8_t *body,size_t len,const uint8_t *sig,size_t sig_len){
+ assert(key==1&&alg==PSA_ALG_ECDSA(PSA_ALG_SHA_256)&&sig_len==64&&imported_verify_key);
+ CFDataRef data=CFDataCreate(NULL,body,(CFIndex)len),signature=CFDataCreate(NULL,sig,(CFIndex)sig_len);
+ bool valid=SecKeyVerifySignature(imported_verify_key,kSecKeyAlgorithmECDSASignatureMessageRFC4754SHA256,data,signature,NULL);
+ CFRelease(data);CFRelease(signature);return valid?PSA_SUCCESS:-1;
+}
+int psa_destroy_key(mbedtls_svc_key_id_t key){assert(key==1&&imported_verify_key);CFRelease(imported_verify_key);imported_verify_key=NULL;return PSA_SUCCESS;}
+struct FakeHttp {bool feed,redirect,blob,partial,mirror_feed,mirror_asset;size_t at,length,start;const uint8_t *manifest;void *user;int (*event)(esp_http_client_event_t*);};
 int esp_crt_bundle_attach(void *p){(void)p;return 0;}
+void ota_stats_add_headers(esp_http_client_handle_t h,const char *version){
+ assert(h->mirror_feed&&version==current.version);
+ if(stats_opt_in)++stats_reports;
+}
+void ota_stats_flush_withdrawal(void){}
 esp_http_client_handle_t esp_http_client_init(const esp_http_client_config_t *cfg){
- assert(cfg->disable_auto_redirect&&cfg->crt_bundle_attach&&cfg->timeout_ms==15000);
- struct FakeHttp *h=calloc(1,sizeof(*h));assert(h);h->feed=strstr(cfg->url,"/contents/")!=NULL;
- if(h->feed){
+ struct FakeHttp *h=calloc(1,sizeof(*h));assert(h);
+ h->mirror_feed=!strcmp(cfg->url,IF_OTA_MIRROR_FEED_URL);
+ h->mirror_asset=!strncmp(cfg->url,IF_OTA_MIRROR_ROOT "/images/",sizeof(IF_OTA_MIRROR_ROOT "/images/")-1);
+ assert(cfg->disable_auto_redirect&&cfg->crt_bundle_attach&&cfg->timeout_ms==
+        (h->mirror_feed||h->mirror_asset?OTA_MIRROR_CONNECT_MS:OTA_CONNECT_MS));
+ h->feed=h->mirror_feed||strstr(cfg->url,"/contents/")!=NULL;
+ if(h->mirror_feed){
+  ++mirror_feed_opens;h->manifest=signed_feed;h->length=signed_feed_size;
+ }else if(h->feed){
   requested_channel=strstr(cfg->url,"/beta.json")?IF_UPDATE_BETA:IF_UPDATE_STABLE;
-  h->manifest=dual_mode?dual_manifests[requested_channel]:manifest;
+  const char *json=dual_mode?dual_manifests[requested_channel]:manifest;
+  h->manifest=(const uint8_t *)json;h->length=strlen(json);
   if(dual_mode)++dual_opens[requested_channel];
  }
  h->blob=strstr(cfg->url,"/git/blobs/")!=NULL;h->redirect=strstr(cfg->url,"/releases/assets/")!=NULL;
- h->length=h->feed?strlen(h->manifest):sizeof(image)-(fault==1?10:0)+(fault==2?1:0);
+ if(h->mirror_asset){
+  char expected[128];snprintf(expected,sizeof(expected),IF_OTA_MIRROR_ROOT "/images/%s.bin",s_candidate.version);
+  assert(!strcmp(expected,cfg->url));++mirror_asset_opens;
+ }
+ if(!h->feed)h->length=sizeof(image)-(fault==1?10:0)+(fault==2?1:0);
  if(!h->feed&&!h->redirect)++asset_opens;
  h->user=cfg->user_data;h->event=cfg->event_handler;return h;
 }
 esp_err_t esp_http_client_set_header(esp_http_client_handle_t h,const char *k,const char *v){(void)h;assert(strcmp(k,"Authorization"));if(!strcmp(k,"Accept-Encoding"))assert(!strcmp(v,"identity"));
- if(!strcmp(k,"Range")&&fault>=18&&fault!=21&&fault!=26){
+ if(!strcmp(k,"Range")&&((fault>=18&&fault!=21&&fault!=26)||mirror_drop)){
   unsigned offset=0;assert(sscanf(v,"bytes=%u-",&offset)==1);h->partial=true;h->start=h->at=offset;
+  if(mirror_drop&&h->blob)github_resumed=true;
  }return ESP_OK;}
-esp_err_t esp_http_client_open(esp_http_client_handle_t h,int size){assert(!size);if(!h->feed&&fault==25&&failed_opens++<2)return ESP_FAIL;return fault==9?ESP_FAIL:ESP_OK;}
+esp_err_t esp_http_client_open(esp_http_client_handle_t h,int size){assert(!size);if(h->mirror_feed&&!signed_feed_size)return ESP_FAIL;if(!h->feed&&fault==25&&failed_opens++<2)return ESP_FAIL;return fault==9?ESP_FAIL:ESP_OK;}
 int64_t esp_http_client_fetch_headers(esp_http_client_handle_t h){
  if(h->redirect){esp_http_client_event_t e={.event_id=HTTP_EVENT_ON_HEADER,.user_data=h->user,.header_key="Location",.header_value=fault==10?"http://evil.test/file":"https://release-assets.githubusercontent.com/path?sig=ok"};h->event(&e);return 0;}
  if(h->partial){char range[96];snprintf(range,sizeof(range),"bytes %u-%u/%u",(unsigned)h->start+(fault==19?1:0),(unsigned)h->length-1-(fault==22?1:0),(unsigned)h->length);
@@ -84,10 +130,11 @@ int64_t esp_http_client_fetch_headers(esp_http_client_handle_t h){
  return fault==2?0:(int64_t)(h->length-h->start);
 }
 int esp_http_client_get_status_code(esp_http_client_handle_t h){return h->blob&&(fault==10||fault==16)?404:h->redirect?302:h->partial?206:200;}
-esp_err_t esp_http_client_set_timeout_ms(esp_http_client_handle_t h,int ms){(void)h;assert(ms==15000);return ESP_OK;}
+esp_err_t esp_http_client_set_timeout_ms(esp_http_client_handle_t h,int ms){assert(ms==(h->mirror_feed?OTA_MIRROR_CONNECT_MS:OTA_CONNECT_MS));return ESP_OK;}
 esp_err_t esp_http_client_set_user_data(esp_http_client_handle_t h,void *p){h->user=p;return ESP_OK;}
 int esp_http_client_read(esp_http_client_handle_t h,char *out,int cap){
  assert(display_flash_depth==0);
+ if(mirror_drop&&h->mirror_asset&&h->at>=2048)return -1;
  if(fault==11&&!h->feed&&h->at>=288)return -1;
  if(!h->feed){
   if(fault==20&&h->at>=288&&eagains++<3)return -ESP_ERR_HTTP_EAGAIN;
@@ -264,7 +311,86 @@ static void dual_channels(void){
  dual_mode=false;
 }
 
-int main(void){
+static void sign_test_feed(void){
+ // 公开测试标量 1，仅用于宿主故障注入。/ Public test scalar 1, used only for host fault injection.
+ static const uint8_t test_key[97]={
+  0x04,0x6b,0x17,0xd1,0xf2,0xe1,0x2c,0x42,0x47,0xf8,0xbc,0xe6,0xe5,0x63,0xa4,0x40,
+  0xf2,0x77,0x03,0x7d,0x81,0x2d,0xeb,0x33,0xa0,0xf4,0xa1,0x39,0x45,0xd8,0x98,0xc2,
+  0x96,0x4f,0xe3,0x42,0xe2,0xfe,0x1a,0x7f,0x9b,0x8e,0xe7,0xeb,0x4a,0x7c,0x0f,0x9e,
+  0x16,0x2b,0xce,0x33,0x57,0x6b,0x31,0x5e,0xce,0xcb,0xb6,0x40,0x68,0x37,0xbf,0x51,
+  0xf5,[96]=1,
+ };
+ const void *keys[]={kSecAttrKeyType,kSecAttrKeyClass},*values[]={kSecAttrKeyTypeECSECPrimeRandom,kSecAttrKeyClassPrivate};
+ CFDictionaryRef attrs=CFDictionaryCreate(NULL,keys,values,2,&kCFTypeDictionaryKeyCallBacks,&kCFTypeDictionaryValueCallBacks);
+ CFDataRef raw=CFDataCreate(NULL,test_key,sizeof(test_key));
+ CFErrorRef error=NULL;
+ test_signing_key=SecKeyCreateWithData(raw,attrs,&error);
+ if(error){CFShow(error);CFRelease(error);}
+ CFRelease(raw);CFRelease(attrs);assert(test_signing_key);
+
+ size_t stable=strlen(dual_manifests[IF_UPDATE_STABLE]),beta=strlen(dual_manifests[IF_UPDATE_BETA]);
+ memcpy(signed_feed,"IFOTA001",8);
+ signed_feed[8]=(uint8_t)(stable>>8);signed_feed[9]=(uint8_t)stable;
+ signed_feed[10]=(uint8_t)(beta>>8);signed_feed[11]=(uint8_t)beta;
+ memcpy(signed_feed+OTA_MIRROR_HEADER,dual_manifests[IF_UPDATE_STABLE],stable);
+ memcpy(signed_feed+OTA_MIRROR_HEADER+stable,dual_manifests[IF_UPDATE_BETA],beta);
+ size_t len=OTA_MIRROR_HEADER+stable+beta;
+ CFDataRef body=CFDataCreate(NULL,signed_feed,(CFIndex)len);
+ CFDataRef signature=SecKeyCreateSignature(test_signing_key,kSecKeyAlgorithmECDSASignatureMessageRFC4754SHA256,body,NULL);
+ assert(signature&&CFDataGetLength(signature)==OTA_MIRROR_SIGNATURE);
+ memcpy(signed_feed+len,CFDataGetBytePtr(signature),OTA_MIRROR_SIGNATURE);
+ signed_feed_size=len+OTA_MIRROR_SIGNATURE;
+ CFRelease(signature);CFRelease(body);
+}
+
+static void mirror_routes(void){
+ fault=0;online=true;dual_mode=true;mirror_feed_opens=0;
+ stats_opt_in=true;stats_reports=0;
+ unsigned stable_opens=dual_opens[IF_UPDATE_STABLE],beta_opens=dual_opens[IF_UPDATE_BETA];
+ prepare_for("stable","0.2.3");strcpy(dual_manifests[IF_UPDATE_STABLE],manifest);
+ prepare_for("beta","0.2.4-beta.1");strcpy(dual_manifests[IF_UPDATE_BETA],manifest);
+ sign_test_feed();
+
+ assert(if_update_check_all()==ESP_OK);run_worker();
+ assert(mirror_feed_opens==1&&dual_opens[0]==stable_opens&&dual_opens[1]==beta_opens);
+ assert(stats_reports==1);
+ assert(s_candidates[0].prefer_mirror&&s_candidates[1].prefer_mirror);
+ assert(!strcmp(s_candidates[0].version,"0.2.3")&&!strcmp(s_candidates[1].version,"0.2.4-beta.1"));
+
+ mirror_asset_opens=0;mirror_drop=true;github_resumed=false;
+ prepare_for("stable","0.2.3");
+ assert(if_update_install_channel(IF_UPDATE_STABLE)==ESP_OK);run_worker();
+ assert(mirror_asset_opens==1&&github_resumed&&asset_opens==2);
+ assert(stats_reports==1);
+ assert(s_status.state==IF_UPDATE_READY&&!memcmp(flashed,image,sizeof(image)));
+ mirror_drop=false;
+
+ signed_feed[signed_feed_size-1]^=1;
+ assert(if_update_check_all()==ESP_OK);run_worker();
+ assert(mirror_feed_opens==2&&dual_opens[0]==stable_opens+1&&dual_opens[1]==beta_opens+1);
+ assert(stats_reports==2);
+ assert(!s_candidates[0].prefer_mirror&&!s_candidates[1].prefer_mirror);
+
+ signed_feed_size=0;
+ stats_opt_in=false;
+ assert(if_update_check_all()==ESP_OK);run_worker();
+ assert(mirror_feed_opens==3&&dual_opens[0]==stable_opens+2&&dual_opens[1]==beta_opens+2);
+ assert(stats_reports==2);
+ assert(s_status.offers[0].state==IF_UPDATE_AVAILABLE&&s_status.offers[1].state==IF_UPDATE_AVAILABLE);
+ CFRelease(test_signing_key);test_signing_key=NULL;dual_mode=false;
+}
+
+static void verify_released_feed(const char *path){
+ FILE *file=fopen(path,"rb");assert(file);
+ size_t len=fread(signed_feed,1,sizeof(signed_feed),file);
+ assert(!ferror(file)&&fgetc(file)==EOF);fclose(file);
+ if_update_candidate_t candidates[IF_UPDATE_CHANNEL_COUNT];
+ assert(parse_mirror_feed(signed_feed,len,candidates));
+ assert(candidates[0].available&&candidates[1].available);
+ printf("PASS: deployed P-256 signed stable/beta pair (%s, %s)\n",candidates[0].version,candidates[1].version);
+}
+
+int main(int argc,char **argv){
  assert(init());prepare();policy();channels();
  for(fault=0;fault<=14;++fault){
   begins=writes=aborts=ends=boots=0;boot_switched=false;online=false;prepare();
@@ -298,5 +424,8 @@ int main(void){
  fault=15;online=false;assert(if_update_check()==ESP_ERR_NO_MEM&&!s_status.busy&&!online);
  assert(stops>=20);assert(display_flash_depth==0);
  dual_channels();
+ mirror_routes();
+ if(argc==2)verify_released_feed(argv[1]);
+ puts("PASS: one signed mirror check for both channels, invalid/unreachable mirror fallback, image continuation on GitHub");
  puts("PASS: independent dual-channel checks/cancellation/selection, sequential erase, bounded reconnect/200-skip/206-Range/prefix recovery, EAGAIN/EOF and resumed-byte SHA256, production updater, real SHA256, stable version/product policy, redirects, confirmation boundary, truncation/overflow/disconnect/hash/identity/chip/write/end/boot failures, cancellation/commit race, slot isolation and WiFi cleanup");
 }

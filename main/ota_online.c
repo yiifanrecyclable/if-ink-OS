@@ -8,6 +8,8 @@
 #include "display_io.h"
 #include "time_service.h"
 #include "ota_online_policy.h"
+#include "ota_mirror_key.h"
+#include "ota_stats.h"
 #include "cloud_sync.h"
 #include "usb_storage.h"
 #include "esp_app_desc.h"
@@ -59,6 +61,11 @@ static bool init(void){
     return s_lock&&s_finished;
 }
 #define OTA_CONNECT_MS 15000
+#define OTA_MIRROR_CONNECT_MS 3500
+#define OTA_MIRROR_FEED_US 5000000LL
+#define OTA_MIRROR_HEADER 12u
+#define OTA_MIRROR_SIGNATURE 64u
+#define OTA_MIRROR_LIMIT (OTA_MIRROR_HEADER + 2 * IF_OTA_MANIFEST_LIMIT + OTA_MIRROR_SIGNATURE)
 #define OTA_STALL_US 30000000LL
 #define OTA_TRANSFER_US 600000000LL
 #define OTA_CONNECTION_LIMIT 6
@@ -79,21 +86,23 @@ static esp_err_t header_event(esp_http_client_event_t *event){
     return ESP_OK;
 }
 static void http_dispose(esp_http_client_handle_t http){if(http){esp_http_client_close(http);esp_http_client_cleanup(http);}}
-static esp_err_t http_open(const char *initial,bool asset,uint32_t limit,uint32_t offset,uint32_t *skip,esp_http_client_handle_t *out){
+static esp_err_t http_open(const char *initial,bool asset,bool mirror,uint32_t limit,uint32_t offset,uint32_t *skip,esp_http_client_handle_t *out){
     *out=NULL;if(skip)*skip=0;char *url=malloc(2048);http_headers_t *headers=calloc(1,sizeof(*headers));
     if(!url||!headers){free(url);free(headers);return ESP_ERR_NO_MEM;}
     ui_snprintf(url,2048,"%s",initial);esp_err_t err=ESP_FAIL;
+    int timeout=mirror?OTA_MIRROR_CONNECT_MS:OTA_CONNECT_MS;
     for(int redirects=0;redirects<=3&&!atomic_load(&s_cancel);++redirects){
         memset(headers,0,sizeof(*headers));
         esp_http_client_config_t config={.url=url,.crt_bundle_attach=esp_crt_bundle_attach,
-            .disable_auto_redirect=true,.timeout_ms=OTA_CONNECT_MS,.buffer_size=4096,.buffer_size_tx=1024,
+            .disable_auto_redirect=true,.timeout_ms=timeout,.buffer_size=4096,.buffer_size_tx=1024,
             .event_handler=header_event,.user_data=headers};
         esp_http_client_handle_t http=esp_http_client_init(&config);
         if(!http){err=ESP_ERR_NO_MEM;break;}
         esp_http_client_set_header(http,"User-Agent","if-ink-OS-updater/1");
         esp_http_client_set_header(http,"Accept-Encoding","identity");
-        esp_http_client_set_header(http,"Accept",asset&&!strstr(initial,"/git/blobs/")?"application/octet-stream":"application/vnd.github.raw+json");
+        esp_http_client_set_header(http,"Accept",mirror||(asset&&!strstr(initial,"/git/blobs/"))?"application/octet-stream":"application/vnd.github.raw+json");
         esp_http_client_set_header(http,"Cache-Control","no-cache");
+        if(mirror&&!asset)ota_stats_add_headers(http,esp_app_get_description()->version);
         if(asset&&offset&&offset<limit){
             char range[40];snprintf(range,sizeof(range),"bytes=%u-",(unsigned)offset);
             esp_http_client_set_header(http,"Range",range);
@@ -114,12 +123,12 @@ static esp_err_t http_open(const char *initial,bool asset,uint32_t limit,uint32_
                 // 回调所用内存需活到关闭HTTP连接。读取阶段不再接收头事件。
                 // Header userdata must outlive the handle; remove it before releasing the header buffer.
                 esp_http_client_set_user_data(http,NULL);
-                esp_http_client_set_timeout_ms(http,OTA_CONNECT_MS);*out=http;break;
+                esp_http_client_set_timeout_ms(http,asset?OTA_CONNECT_MS:timeout);*out=http;break;
             }
-            if(asset&&(code==301||code==302||code==303||code==307||code==308)&&if_update_redirect_allowed(headers->location)){
+            if(asset&&!mirror&&(code==301||code==302||code==303||code==307||code==308)&&if_update_redirect_allowed(headers->location)){
                 strcpy(url,headers->location);http_dispose(http);continue;
             }
-            if(code==403||code==429)ESP_LOGW(TAG,"GitHub request limited (%d)",code);
+            if(!mirror&&(code==403||code==429))ESP_LOGW(TAG,"GitHub request limited (%d)",code);
             err=ESP_ERR_INVALID_RESPONSE;
         }else if(err==ESP_OK)err=ESP_FAIL;
         http_dispose(http);break;
@@ -127,26 +136,73 @@ static esp_err_t http_open(const char *initial,bool asset,uint32_t limit,uint32_
     if(!*out&&err==ESP_OK)err=ESP_FAIL;
     free(headers);free(url);return *out?ESP_OK:err;
 }
-static esp_err_t check_manifest(if_update_channel_t channel,if_update_candidate_t *candidate){
-    const char *feed=channel==IF_UPDATE_BETA?IF_OTA_BETA_FEED_URL:IF_OTA_FEED_URL;
-    esp_http_client_handle_t http=NULL;esp_err_t err=http_open(feed,false,IF_OTA_MANIFEST_LIMIT,0,NULL,&http);
-    char *json=err==ESP_OK?malloc(IF_OTA_MANIFEST_LIMIT+1):NULL;
-    if(err==ESP_OK&&!json)err=ESP_ERR_NO_MEM;
-    size_t total=0;int64_t deadline=esp_timer_get_time()+30000000;
+static esp_err_t fetch_feed(const char *url,bool mirror,uint32_t limit,uint8_t **out,size_t *length){
+    *out=NULL;*length=0;
+    int64_t deadline=esp_timer_get_time()+(mirror?OTA_MIRROR_FEED_US:OTA_STALL_US);
+    esp_http_client_handle_t http=NULL;esp_err_t err=http_open(url,false,mirror,limit,0,NULL,&http);
+    uint8_t *body=err==ESP_OK?malloc(limit+1):NULL;
+    if(err==ESP_OK&&!body)err=ESP_ERR_NO_MEM;
+    size_t total=0;
     while(err==ESP_OK&&!atomic_load(&s_cancel)){
         if(esp_timer_get_time()>deadline){err=ESP_ERR_TIMEOUT;break;}
-        int n=esp_http_client_read(http,json+total,(int)(IF_OTA_MANIFEST_LIMIT-total));
+        int n=esp_http_client_read(http,(char *)body+total,(int)(limit+1-total));
         if(n<0){err=ESP_FAIL;break;}
         if(!n){if(!esp_http_client_is_complete_data_received(http))err=ESP_ERR_INVALID_SIZE;break;}
         total+=(size_t)n;
-        if(total==IF_OTA_MANIFEST_LIMIT){err=ESP_ERR_INVALID_SIZE;break;}
+        if(total>limit){err=ESP_ERR_INVALID_SIZE;break;}
     }
     http_dispose(http);
-    if(err==ESP_OK&&!atomic_load(&s_cancel)){
-        json[total]=0;
-        if(!if_update_parse_manifest_channel(json,total,channel,candidate))err=ESP_ERR_INVALID_RESPONSE;
+    if(err==ESP_OK&&atomic_load(&s_cancel))err=ESP_ERR_INVALID_STATE;
+    if(err==ESP_OK&&esp_timer_get_time()>deadline)err=ESP_ERR_TIMEOUT;
+    if(err==ESP_OK){
+        body[total]=0;*out=body;*length=total;
+    }else{
+        free(body);
     }
-    free(json);return err;
+    return err;
+}
+static esp_err_t check_manifest(if_update_channel_t channel,if_update_candidate_t *candidate){
+    const char *feed=channel==IF_UPDATE_BETA?IF_OTA_BETA_FEED_URL:IF_OTA_FEED_URL;
+    uint8_t *body;size_t length;
+    esp_err_t err=fetch_feed(feed,false,IF_OTA_MANIFEST_LIMIT,&body,&length);
+    if(err==ESP_OK&&!if_update_parse_manifest_channel((const char *)body,length,channel,candidate))
+        err=ESP_ERR_INVALID_RESPONSE;
+    free(body);return err;
+}
+static bool verify_mirror_feed(const uint8_t *body,size_t length){
+    if(psa_crypto_init()!=PSA_SUCCESS)return false;
+    psa_key_attributes_t attributes=PSA_KEY_ATTRIBUTES_INIT;
+    const psa_algorithm_t alg=PSA_ALG_ECDSA(PSA_ALG_SHA_256);
+    psa_set_key_type(&attributes,PSA_KEY_TYPE_ECC_PUBLIC_KEY(PSA_ECC_FAMILY_SECP_R1));
+    psa_set_key_bits(&attributes,256);
+    psa_set_key_usage_flags(&attributes,PSA_KEY_USAGE_VERIFY_MESSAGE);
+    psa_set_key_algorithm(&attributes,alg);
+    mbedtls_svc_key_id_t key;
+    if(psa_import_key(&attributes,ota_mirror_public_key,sizeof(ota_mirror_public_key),&key)!=PSA_SUCCESS)
+        return false;
+    bool valid=psa_verify_message(key,alg,body,length,body+length,OTA_MIRROR_SIGNATURE)==PSA_SUCCESS;
+    psa_destroy_key(key);
+    return valid;
+}
+static bool parse_mirror_feed(const uint8_t *body,size_t length,if_update_candidate_t candidates[IF_UPDATE_CHANNEL_COUNT]){
+    if(length<OTA_MIRROR_HEADER+OTA_MIRROR_SIGNATURE||memcmp(body,"IFOTA001",8))return false;
+    size_t stable=(size_t)body[8]<<8|body[9],beta=(size_t)body[10]<<8|body[11];
+    size_t signed_length=OTA_MIRROR_HEADER+stable+beta;
+    if(!stable||stable>IF_OTA_MANIFEST_LIMIT||!beta||beta>IF_OTA_MANIFEST_LIMIT||
+       signed_length+OTA_MIRROR_SIGNATURE!=length||!verify_mirror_feed(body,signed_length))return false;
+    const char *json=(const char *)body+OTA_MIRROR_HEADER;
+    if(!if_update_parse_manifest_channel(json,stable,IF_UPDATE_STABLE,&candidates[IF_UPDATE_STABLE])||
+       !if_update_parse_manifest_channel(json+stable,beta,IF_UPDATE_BETA,&candidates[IF_UPDATE_BETA]))return false;
+    for(int i=0;i<IF_UPDATE_CHANNEL_COUNT;++i)candidates[i].prefer_mirror=candidates[i].available;
+    return true;
+}
+static bool check_mirror(if_update_candidate_t candidates[IF_UPDATE_CHANNEL_COUNT]){
+    uint8_t *body;size_t length;
+    esp_err_t err=fetch_feed(IF_OTA_MIRROR_FEED_URL,true,OTA_MIRROR_LIMIT,&body,&length);
+    bool valid=err==ESP_OK&&parse_mirror_feed(body,length,candidates);
+    free(body);
+    if(!valid&&!atomic_load(&s_cancel))ESP_LOGI(TAG,"OTA mirror feed unavailable or invalid; trying GitHub");
+    return valid;
 }
 // 清单与显示结果同锁发布。/ Publish the manifest and its display result under the same lock.
 static void publish_offer(if_update_channel_t channel,if_update_state_t state,const char *message,
@@ -172,6 +228,9 @@ static const char *network_error(bool ready,esp_err_t error,bool install) {
 }
 
 static void check_offers(unsigned channels,esp_err_t network_result,bool ready) {
+    if_update_candidate_t mirror_candidates[IF_UPDATE_CHANNEL_COUNT];
+    if(network_result==ESP_OK&&!atomic_load(&s_cancel))ota_stats_flush_withdrawal();
+    bool mirror=network_result==ESP_OK&&!atomic_load(&s_cancel)&&check_mirror(mirror_candidates);
     // 两行同时进入检查状态，逐个完成HTTPS请求，避免并行TLS的峰值内存。
     // Both rows enter checking together. Fetch sequentially to avoid two live TLS contexts.
     for(int i=0;i<IF_UPDATE_CHANNEL_COUNT;++i){
@@ -179,7 +238,10 @@ static void check_offers(unsigned channels,esp_err_t network_result,bool ready) 
         if_update_channel_t channel=(if_update_channel_t)i;
         if_update_candidate_t candidate={0};
         esp_err_t result=network_result;
-        if(result==ESP_OK&&!atomic_load(&s_cancel))result=check_manifest(channel,&candidate);
+        if(result==ESP_OK&&!atomic_load(&s_cancel)){
+            if(mirror)candidate=mirror_candidates[channel];
+            else result=check_manifest(channel,&candidate);
+        }
         if(atomic_load(&s_cancel)){
             publish_offer(channel,IF_UPDATE_CANCELLED,ui_message(UI_MSG("操作已取消")),NULL);
         }else if(result!=ESP_OK){
@@ -230,12 +292,19 @@ typedef struct {
 } image_stream_t;
 static esp_err_t stream_connect(image_stream_t *stream){
     http_dispose(stream->http);stream->http=NULL;
-    while(stream->connections<OTA_CONNECTION_LIMIT&&!atomic_load(&s_cancel)){
+    const unsigned mirror_attempts=s_candidate.prefer_mirror?1u:0u;
+    while(stream->connections<OTA_CONNECTION_LIMIT+mirror_attempts&&!atomic_load(&s_cancel)){
         if(esp_timer_get_time()>=stream->deadline)return ESP_ERR_TIMEOUT;
         unsigned attempt=stream->connections++;
         if(attempt)vTaskDelay(pdMS_TO_TICKS(500));
-        const char *url=attempt%2?s_candidate.asset_url:s_candidate.blob_url;
-        esp_err_t err=http_open(url,true,s_candidate.size,stream->offset,&stream->skip,&stream->http);
+        bool mirror=attempt<mirror_attempts;
+        char mirror_url[sizeof(IF_OTA_MIRROR_ROOT)+48];
+        const char *url;
+        if(mirror){
+            snprintf(mirror_url,sizeof(mirror_url),IF_OTA_MIRROR_ROOT "/images/%s.bin",s_candidate.version);
+            url=mirror_url;
+        }else url=(attempt-mirror_attempts)%2?s_candidate.asset_url:s_candidate.blob_url;
+        esp_err_t err=http_open(url,true,mirror,s_candidate.size,stream->offset,&stream->skip,&stream->http);
         if(err==ESP_OK){stream->last_data=esp_timer_get_time();return ESP_OK;}
         if(err==ESP_ERR_NO_MEM)return err;
         ESP_LOGW(TAG,"download connection %u failed (%d), offset=%u",attempt+1,(int)err,(unsigned)stream->offset);

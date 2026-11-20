@@ -7,6 +7,7 @@
 #include <stddef.h>
 typedef struct {
     bool available;
+    bool prefer_mirror; ///< 签名清单可用，下载先试国内镜像 / Signed feed available, try the domestic image first
     if_update_channel_t channel; ///< 通过校验的清单通道 / Validated manifest channel
     char version[33], asset_url[160], blob_url[160];
     uint32_t size;

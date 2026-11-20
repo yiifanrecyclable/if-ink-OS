@@ -4,6 +4,11 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.5 / 2026-11-20
+
+- 在线升级优先检查国内签名镜像，国内线路不可用时回退 GitHub。/ Prefer the signed domestic OTA mirror and fall back to GitHub when unavailable.
+- 在线升级页新增自愿装机统计。开启后检查更新发送安装随机编号和当前固件版本，可随时关闭。/ Optional update statistics share the installation ID and current version only with explicit consent.
+
 ## 0.2.5 beta 1 / 2026-11-19
 
 - 首页先显示基础界面，再分段补齐最近阅读、Banner 和封面。书架复用卡上的索引和已有封面，批量处理新增封面，并在需要操作图书时校验数据。/ Home shows the basic page first, then fills in recent reading, the Banner, and the cover in stages. Reuse card indexes and existing covers, batch new covers, and validate books before making changes.

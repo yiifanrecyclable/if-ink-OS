@@ -19,6 +19,7 @@ unit='''#include "ota_online.h"
 #include <stdio.h>
 #include <string.h>
 #define UI_PAGE_Y(y) ((y)-24)
+#define UI_NAV_TOP 1136
 #define ui_snprintf snprintf
 #define UI_MSG(text) (text)
 #define SETTINGS_ROW_H 64
@@ -38,6 +39,8 @@ static bool s_online_drawn_valid,s_online_progress_only;
 static int64_t s_online_drawn_at;
 static unsigned fills,texts;static char shown[64];
 static bool s_online_confirm,s_online_pending;
+static bool s_online_stats_save_failed,stats_enabled;
+bool ota_stats_enabled(void){return stats_enabled;}
 static if_update_channel_t s_online_channel;
 static bool strict_progress;
 static unsigned channel_labels,dots;
@@ -86,7 +89,7 @@ static void ui_draw_button(uint8_t *fb,EpdRect r,const char *label,bool disabled
  (void)fb;(void)r;(void)disabled;assert(button_count<2);buttons[button_count++]=label;
 }
 '''
-unit+='\n'.join(extract(n) for n in ['online_action_rect','online_versions_top','online_channel_rect','online_channel_name','online_offer_selectable','online_channel_draw','online_progress_rect','online_progress_draw','online_remember','online_stage_changed','online_update_rect','online_status_redraw','online_confirm_rect','online_draw'])
+unit+='\n'.join(extract(n) for n in ['online_action_rect','online_stats_rect','online_versions_top','online_channel_rect','online_channel_name','online_offer_selectable','online_channel_draw','online_stats_note','online_progress_rect','online_progress_draw','online_remember','online_stage_changed','online_update_rect','online_status_redraw','online_confirm_rect','online_draw'])
 unit+='''
 int main(void){
  if_update_status_t status={.state=IF_UPDATE_DOWNLOADING,.busy=true,.revision=1,.total=100000};
@@ -106,7 +109,7 @@ int main(void){
  assert(online_status_redraw(30002,&status)==APP_REDRAW_AREA&&!s_online_progress_only);
  online_remember(&status);
  EpdRect stage=online_update_rect(false);
- assert(stage.x==36&&stage.width==612&&stage.y==166&&stage.height==888);
+ assert(stage.x==36&&stage.width==612&&stage.y==166&&stage.y+stage.height==UI_NAV_TOP);
  EpdRect progress=online_update_rect(true);assert(progress.y==596&&progress.height==164);
  online_remember(&status);
  status.offers[IF_UPDATE_BETA].state=IF_UPDATE_FAILED;
@@ -122,7 +125,10 @@ int main(void){
  drawn_status=(if_update_status_t){.state=IF_UPDATE_AVAILABLE};
  drawn_status.offers[0]=(if_update_offer_t){.state=IF_UPDATE_AVAILABLE,.version="0.2.3"};
  drawn_status.offers[1]=(if_update_offer_t){.state=IF_UPDATE_AVAILABLE,.downgrade=true,.version="0.2.1-beta.1"};
- online_draw(pixels);assert(channel_labels==3&&button_count==1&&!strcmp(buttons[0],"检查更新"));
+ online_draw(pixels);assert(channel_labels==3&&button_count==2&&!strcmp(buttons[0],"检查更新"));
+ assert(!strcmp(buttons[1],"同意统计上报"));
+ button_count=0;stats_enabled=true;online_draw(pixels);
+ assert(button_count==2&&!strcmp(buttons[1],"关闭统计上报"));
  assert(title_y>UI_PAGE_Y(210)+SETTINGS_ROW_H&&title_y<channel_y[0]&&channel_y[0]<channel_y[1]&&dots==0);
  assert(channel_y[1]-channel_y[0]>SETTINGS_ROW_H);
  assert(pixels[online_versions_top()*684+36]==UI_GRAY_BLACK);

@@ -131,6 +131,7 @@ static bool s_boot_pending;
 static bool s_upgrade_confirm, s_local_pending, s_upgrade_restart;
 static pico_ota_info_t s_local_update;
 static bool s_online_pending, s_online_confirm;
+static bool s_online_stats_save_failed;
 static if_update_channel_t s_online_channel;
 static uint32_t s_online_seen;
 static if_update_status_t s_online_drawn;
@@ -656,6 +657,7 @@ static void online_close(void){
     if(status.state==IF_UPDATE_READY)esp_restart();
 }
 static EpdRect online_action_rect(void){return (EpdRect){36,UI_PAGE_Y(990),612,88};}
+static EpdRect online_stats_rect(void){return (EpdRect){36,UI_PAGE_Y(900),612,60};}
 static int online_versions_top(void){return UI_PAGE_Y(210)+SETTINGS_ROW_H;}
 static EpdRect online_channel_rect(if_update_channel_t channel){
     const int heading_height=SETTINGS_ROW_H;
@@ -689,6 +691,10 @@ static void online_text(uint8_t *fb,int y,const char *text){
     int px=ui_text_fit_px(UI_TEXT_CAPTION,text,612,60);
     ui_text_fixed_vc(fb,342,y,px,text,EPD_DRAW_ALIGN_CENTER,false);
 }
+static void online_stats_note(uint8_t *fb,int y,const char *text){
+    int px=ui_text_fit_px(UI_TEXT_CAPTION,text,612,22);
+    ui_text_fixed_vc(fb,342,y,px,text,EPD_DRAW_ALIGN_CENTER,false);
+}
 static EpdRect online_progress_rect(void){return (EpdRect){36,UI_PAGE_Y(620),612,164};}
 static void online_progress_draw(uint8_t *fb,const if_update_status_t *status){
     epd_fill_rect(online_progress_rect(),0xff,fb);
@@ -719,7 +725,7 @@ static bool online_stage_changed(const if_update_status_t *status){
 }
 static EpdRect online_update_rect(bool progress_only){
     if(progress_only)return online_progress_rect();
-    return (EpdRect){36,UI_PAGE_Y(190),612,UI_PAGE_Y(1078)-UI_PAGE_Y(190)};
+    return (EpdRect){36,UI_PAGE_Y(190),612,UI_NAV_TOP-UI_PAGE_Y(190)};
 }
 static app_redraw_t online_status_redraw(int64_t now_ms,const if_update_status_t *status){
     bool stage_changed=online_stage_changed(status);
@@ -767,7 +773,16 @@ static void online_draw(uint8_t *fb){
         if(!s_online_pending&&status.state!=IF_UPDATE_VERIFYING)
             ui_draw_button(fb,online_action_rect(),status.state==IF_UPDATE_READY?UI_MSG("立即重启"):
                 status.busy?UI_MSG("取消"):UI_MSG("检查更新"),false);
+        if(!s_online_pending&&!status.busy&&status.state!=IF_UPDATE_READY){
+            const char *label=ota_stats_enabled()?UI_MSG("关闭统计上报"):UI_MSG("同意统计上报");
+            if(s_online_stats_save_failed)label=UI_MSG("保存失败，请重试");
+            const EpdRect stats=online_stats_rect();
+            ui_draw_button(fb,stats,label,false);
+        }
     }
+    online_stats_note(fb,1070,UI_MSG("在线升级功能会上报本机序列号和固件版本，"));
+    online_stats_note(fb,1093,UI_MSG("用于统计固件装机数量"));
+    online_stats_note(fb,1120,UI_MSG("自愿开启 · ifink.revcloud.top/privacy/"));
     online_remember(&status);
     ui_nav_draw(fb,3);
 }
@@ -1317,6 +1332,10 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
                     (void)if_update_install_channel(s_online_channel);
                 return APP_REDRAW_AREA;
             }
+        }else if(!s_online_pending&&!status.busy&&status.state!=IF_UPDATE_READY&&
+                 ui_rect_hit(online_stats_rect(),ev->x0,ev->y0)){
+            s_online_stats_save_failed=ota_stats_set_enabled(!ota_stats_enabled())!=ESP_OK;
+            return APP_REDRAW_AREA;
         }else if(ui_rect_hit(online_action_rect(),ev->x0,ev->y0)){
             if(s_online_pending||status.state==IF_UPDATE_VERIFYING)return APP_REDRAW_NONE;
             if(status.busy)online_close();
@@ -1424,6 +1443,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     if (s_page == SETTINGS_FIRMWARE_INFO) {
         if (ui_rect_hit(firmware_update_rect(0),ev->x0,y)) {
             s_page=SETTINGS_ONLINE_UPDATE;s_online_pending=true;s_online_confirm=false;
+            s_online_stats_save_failed=false;
             s_online_seen=0;s_online_drawn_valid=s_online_progress_only=false;s_online_drawn_at=s_online_reboot_at=0;
             return APP_REDRAW_PAGE;
         }

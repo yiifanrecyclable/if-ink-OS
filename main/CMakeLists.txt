@@ -38,6 +38,7 @@ idf_component_register(
         "ota_update.c"
         "ota_online.c"
         "ota_online_policy.c"
+        "ota_stats.c"
         "display.c"
         "display_profiles.c"
         "sleep.c"

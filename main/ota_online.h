@@ -9,6 +9,8 @@
 #define IF_OTA_REPOSITORY_ID "1412628734"
 #define IF_OTA_FEED_URL "https://api.github.com/repositories/" IF_OTA_REPOSITORY_ID "/contents/ota/stable.json?ref=main"
 #define IF_OTA_BETA_FEED_URL "https://api.github.com/repositories/" IF_OTA_REPOSITORY_ID "/contents/ota/beta.json?ref=main"
+#define IF_OTA_MIRROR_ROOT "https://ifink.revcloud.top/ota"
+#define IF_OTA_MIRROR_FEED_URL IF_OTA_MIRROR_ROOT "/feeds.v1"
 #define IF_OTA_PROJECT "Read_Pico_IF"
 #define IF_OTA_LAYOUT "if-16m-ota-v1"
 #define IF_OTA_MAX_BYTES 4194304u
@@ -53,3 +55,6 @@ esp_err_t if_update_install(void);
 void if_update_poll(void);
 /// 离开/锁屏先取消并等待后台结束；不更改运行槽。/ Cancel/join before exit or sleep; never modify the running slot.
 void if_update_close(void);
+/// 可选统计默认关闭；只在用户确认后保存。/ Optional statistics default off and require an explicit choice.
+bool ota_stats_enabled(void);
+esp_err_t ota_stats_set_enabled(bool enabled);
