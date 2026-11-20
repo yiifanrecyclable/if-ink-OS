@@ -24,6 +24,7 @@ unit='''#include "ota_online.h"
 #define UI_MSG(text) (text)
 #define SETTINGS_ROW_H 64
 #define UI_GRAY_BLACK 0
+#define UI_GRAY_WHITE 0xff
 #define UI_GRAY_ITEM_LINE 0xc0
 #define UI_TEXT_BODY 27
 #define UI_TEXT_CAPTION 20
@@ -49,6 +50,8 @@ static if_update_status_t drawn_status;
 static char prompt[96];
 static const char *buttons[2];
 static unsigned button_count;
+static unsigned checkbox_outlines,checkbox_marks,checkbox_labels;
+static int caption_px=UI_TEXT_CAPTION,wrapped_labels;
 static unsigned gray_install_count;
 static uint8_t pixels[684*1216];
 static void epd_fill_rect(EpdRect a,int gray,uint8_t *fb){
@@ -57,6 +60,13 @@ static void epd_fill_rect(EpdRect a,int gray,uint8_t *fb){
 }
 static void epd_fill_circle(int x,int y,int radius,int gray,uint8_t *fb){
  (void)fb;assert(radius==8&&gray==UI_GRAY_BLACK);++dots;dot_x=x;dot_y=y;
+}
+static void epd_draw_rect(EpdRect box,int gray,uint8_t *fb){
+ (void)fb;assert((box.width==34||box.width==32)&&box.width==box.height&&gray==UI_GRAY_BLACK);
+ ++checkbox_outlines;
+}
+static void epd_draw_line(int x0,int y0,int x1,int y1,int gray,uint8_t *fb){
+ (void)fb;assert(x0<x1&&y0!=y1&&gray==UI_GRAY_WHITE);++checkbox_marks;
 }
 static void online_text(uint8_t *fb,int y,const char *text){
  (void)fb;
@@ -67,13 +77,24 @@ void if_update_get_status(if_update_status_t *out){*out=drawn_status;}
 static void back_header(uint8_t *fb,const char *title){(void)fb;(void)title;}
 static void row(uint8_t *fb,int y,const char *title,const char *value){(void)fb;(void)y;(void)title;(void)value;}
 static void ui_nav_draw(uint8_t *fb,int tab){(void)fb;(void)tab;}
-static int ui_text_fit_px(int role,const char *text,int width,int cap){(void)text;(void)width;(void)cap;return role;}
+static int ui_text_effective_px(int role){return role==UI_TEXT_CAPTION?caption_px:role;}
+static int ui_text_fit_px(int role,const char *text,int width,int cap){(void)text;(void)width;(void)cap;return ui_text_effective_px(role);}
+static int ui_text_fixed_width_px(int px,const char *text){
+ (void)text;return px*22;
+}
 static void ui_text_vc(uint8_t *fb,int x,int y,int px,const char *text,int align,bool invert){
  (void)fb;(void)px;(void)align;(void)invert;
  assert(strcmp(text,"安装新版本")&&strcmp(text,"安装较早版本"));
  if(!strcmp(text,"在线版本")){assert(x==54);title_y=y;}
  if(!strcmp(text,"稳定版")){assert(x>54);channel_labels|=1;channel_x[0]=x;channel_y[0]=y;}
  if(!strcmp(text,"测试版")){assert(x>54);channel_labels|=2;channel_x[1]=x;channel_y[1]=y;}
+ if(!strcmp(text,"同意上报本机序列号和当前版本用于统计装机数量")){
+     assert(x>80&&y<1032&&align==EPD_DRAW_ALIGN_LEFT&&px==caption_px);++checkbox_labels;
+ }
+ if(!strcmp(text,"同意上报本机序列号和当前版本")||!strcmp(text,"用于统计装机数量")){
+     assert(x>80&&y>936&&y<1024&&align==EPD_DRAW_ALIGN_LEFT&&px==caption_px);++wrapped_labels;
+ }
+ if(!strcmp(text,"0.2.3")||!strcmp(text,"0.2.1-beta.1"))assert(px==caption_px);
 }
 static void ui_text_fixed_vc(uint8_t *fb,int x,int y,int px,const char *text,int align,bool invert){
  ui_text_vc(fb,x,y,px,text,align,invert);
@@ -89,7 +110,7 @@ static void ui_draw_button(uint8_t *fb,EpdRect r,const char *label,bool disabled
  (void)fb;(void)r;(void)disabled;assert(button_count<2);buttons[button_count++]=label;
 }
 '''
-unit+='\n'.join(extract(n) for n in ['online_action_rect','online_stats_rect','online_versions_top','online_channel_rect','online_channel_name','online_offer_selectable','online_channel_draw','online_stats_note','online_progress_rect','online_progress_draw','online_remember','online_stage_changed','online_update_rect','online_status_redraw','online_confirm_rect','online_draw'])
+unit+='\n'.join(extract(n) for n in ['online_action_rect','online_stats_rect','online_versions_top','online_channel_rect','online_channel_name','online_offer_selectable','online_channel_draw','online_stats_draw','online_progress_rect','online_progress_draw','online_remember','online_stage_changed','online_update_rect','online_status_redraw','online_confirm_rect','online_draw'])
 unit+='''
 int main(void){
  if_update_status_t status={.state=IF_UPDATE_DOWNLOADING,.busy=true,.revision=1,.total=100000};
@@ -125,10 +146,16 @@ int main(void){
  drawn_status=(if_update_status_t){.state=IF_UPDATE_AVAILABLE};
  drawn_status.offers[0]=(if_update_offer_t){.state=IF_UPDATE_AVAILABLE,.version="0.2.3"};
  drawn_status.offers[1]=(if_update_offer_t){.state=IF_UPDATE_AVAILABLE,.downgrade=true,.version="0.2.1-beta.1"};
- online_draw(pixels);assert(channel_labels==3&&button_count==2&&!strcmp(buttons[0],"检查更新"));
- assert(!strcmp(buttons[1],"同意统计上报"));
+ EpdRect action=online_action_rect(),stats=online_stats_rect();
+ assert(stats.y+stats.height<action.y&&action.y+action.height<UI_NAV_TOP);
+ online_draw(pixels);assert(channel_labels==3&&button_count==1&&!strcmp(buttons[0],"检查更新"));
+ assert(checkbox_outlines==2&&!checkbox_marks&&checkbox_labels==1);
  button_count=0;stats_enabled=true;online_draw(pixels);
- assert(button_count==2&&!strcmp(buttons[1],"关闭统计上报"));
+ assert(button_count==1&&!strcmp(buttons[0],"检查更新"));
+ assert(checkbox_outlines==2&&checkbox_marks==6&&checkbox_labels==2);
+ button_count=0;caption_px=35;online_draw(pixels);
+ assert(wrapped_labels==2&&checkbox_labels==2);
+ caption_px=UI_TEXT_CAPTION;
  assert(title_y>UI_PAGE_Y(210)+SETTINGS_ROW_H&&title_y<channel_y[0]&&channel_y[0]<channel_y[1]&&dots==0);
  assert(channel_y[1]-channel_y[0]>SETTINGS_ROW_H);
  assert(pixels[online_versions_top()*684+36]==UI_GRAY_BLACK);

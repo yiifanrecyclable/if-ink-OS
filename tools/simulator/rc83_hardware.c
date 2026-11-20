@@ -7,6 +7,7 @@
 #include "ota_update.h"
 #include "esp_app_desc.h"
 #include "settings.h"
+#include "settings_storage.h"
 #include "read_pico_transfer.h"
 const esp_app_desc_t *esp_app_get_description(void){
 #ifdef SHELF_PERF_HOST_TEST
@@ -28,9 +29,17 @@ esp_err_t read_pico_transfer_import_wifi_backup(const read_pico_transfer_wifi_ba
 #include <stdlib.h>
 static if_update_status_t preview_update;
 void if_update_get_status(if_update_status_t *out){*out=preview_update;strcpy(out->current,"0.2.2");}
-static bool preview_ota_stats;
-bool ota_stats_enabled(void){return preview_ota_stats;}
-esp_err_t ota_stats_set_enabled(bool enabled){preview_ota_stats=enabled;return ESP_OK;}
+bool ota_stats_enabled(void){
+    nvs_handle_t handle;
+    if(nvs_open("if_ota_stats",NVS_READONLY,&handle)!=ESP_OK)return false;
+    uint8_t enabled=0;
+    esp_err_t err=nvs_get_u8(handle,"sim_consent",&enabled);
+    nvs_close(handle);
+    return err==ESP_OK&&enabled==1;
+}
+esp_err_t ota_stats_set_enabled(bool enabled){
+    return settings_storage_put_u8("if_ota_stats","sim_consent",enabled);
+}
 static esp_err_t preview_check(unsigned mask,if_update_channel_t channel){
     static const char *const versions[]={"0.2.3","0.2.4-beta.1"};
     const char *mode=getenv("PICO_SIM_OTA_STATE");

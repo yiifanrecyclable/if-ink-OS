@@ -656,8 +656,11 @@ static void online_close(void){
     // 已切换启动槽后必须重启，不把安装完成误报为取消。/ Once activated, restart rather than reporting a completed installation as cancelled.
     if(status.state==IF_UPDATE_READY)esp_restart();
 }
-static EpdRect online_action_rect(void){return (EpdRect){36,UI_PAGE_Y(990),612,88};}
-static EpdRect online_stats_rect(void){return (EpdRect){36,UI_PAGE_Y(900),612,60};}
+static EpdRect online_action_rect(void){return (EpdRect){36,UI_NAV_TOP-104,612,88};}
+static EpdRect online_stats_rect(void){
+    EpdRect action=online_action_rect();
+    return (EpdRect){action.x,action.y-96,action.width,88};
+}
 static int online_versions_top(void){return UI_PAGE_Y(210)+SETTINGS_ROW_H;}
 static EpdRect online_channel_rect(if_update_channel_t channel){
     const int heading_height=SETTINGS_ROW_H;
@@ -691,9 +694,30 @@ static void online_text(uint8_t *fb,int y,const char *text){
     int px=ui_text_fit_px(UI_TEXT_CAPTION,text,612,60);
     ui_text_fixed_vc(fb,342,y,px,text,EPD_DRAW_ALIGN_CENTER,false);
 }
-static void online_stats_note(uint8_t *fb,int y,const char *text){
-    int px=ui_text_fit_px(UI_TEXT_CAPTION,text,612,22);
-    ui_text_fixed_vc(fb,342,y,px,text,EPD_DRAW_ALIGN_CENTER,false);
+static void online_stats_draw(uint8_t *fb){
+    const EpdRect area=online_stats_rect();
+    const char *label=UI_MSG("同意上报本机序列号和当前版本用于统计装机数量");
+    const int x=area.x+10, text_x=x+46;
+    const int px=ui_text_effective_px(UI_TEXT_CAPTION);
+    const bool wrap=ui_text_fixed_width_px(px,label)>area.x+area.width-text_x;
+    const int y=area.y+area.height-(wrap?area.height/2:24);
+    const EpdRect box={x,y-17,34,34};
+    if(ota_stats_enabled()){
+        epd_fill_rect(box,UI_GRAY_BLACK,fb);
+        for(int d=0;d<3;++d){
+            epd_draw_line(x+7,y+d,x+14,y+7+d,UI_GRAY_WHITE,fb);
+            epd_draw_line(x+14,y+7+d,x+26,y-8+d,UI_GRAY_WHITE,fb);
+        }
+    }else{
+        epd_draw_rect(box,UI_GRAY_BLACK,fb);
+        epd_draw_rect((EpdRect){box.x+1,box.y+1,box.width-2,box.height-2},UI_GRAY_BLACK,fb);
+    }
+    if(wrap){
+        const int line_offset=(px+5)/2;
+        ui_text_fixed_vc(fb,text_x,y-line_offset,px,UI_MSG("同意上报本机序列号和当前版本"),EPD_DRAW_ALIGN_LEFT,false);
+        ui_text_fixed_vc(fb,text_x,y+line_offset,px,UI_MSG("用于统计装机数量"),EPD_DRAW_ALIGN_LEFT,false);
+    }else ui_text_fixed_vc(fb,text_x,y,px,label,EPD_DRAW_ALIGN_LEFT,false);
+    if(s_online_stats_save_failed)online_text(fb,area.y-20,UI_MSG("保存失败，请重试"));
 }
 static EpdRect online_progress_rect(void){return (EpdRect){36,UI_PAGE_Y(620),612,164};}
 static void online_progress_draw(uint8_t *fb,const if_update_status_t *status){
@@ -738,7 +762,10 @@ static app_redraw_t online_status_redraw(int64_t now_ms,const if_update_status_t
     return APP_REDRAW_NONE;
 }
 static EpdRect online_confirm_rect(bool confirm) {
-    return (EpdRect){confirm?354:36,UI_PAGE_Y(990),294,88};
+    EpdRect action=online_action_rect();
+    action.width=(action.width-24)/2;
+    if(confirm)action.x+=action.width+24;
+    return action;
 }
 static void online_draw(uint8_t *fb){
     if_update_status_t status;if_update_get_status(&status);
@@ -770,19 +797,11 @@ static void online_draw(uint8_t *fb){
             online_progress_draw(fb,&status);
             online_text(fb,846,UI_MSG("安装期间请保持供电"));
         }
+        online_stats_draw(fb);
         if(!s_online_pending&&status.state!=IF_UPDATE_VERIFYING)
             ui_draw_button(fb,online_action_rect(),status.state==IF_UPDATE_READY?UI_MSG("立即重启"):
                 status.busy?UI_MSG("取消"):UI_MSG("检查更新"),false);
-        if(!s_online_pending&&!status.busy&&status.state!=IF_UPDATE_READY){
-            const char *label=ota_stats_enabled()?UI_MSG("关闭统计上报"):UI_MSG("同意统计上报");
-            if(s_online_stats_save_failed)label=UI_MSG("保存失败，请重试");
-            const EpdRect stats=online_stats_rect();
-            ui_draw_button(fb,stats,label,false);
-        }
     }
-    online_stats_note(fb,1070,UI_MSG("在线升级功能会上报本机序列号和固件版本，"));
-    online_stats_note(fb,1093,UI_MSG("用于统计固件装机数量"));
-    online_stats_note(fb,1120,UI_MSG("自愿开启 · ifink.revcloud.top/privacy/"));
     online_remember(&status);
     ui_nav_draw(fb,3);
 }
@@ -1335,6 +1354,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         }else if(!s_online_pending&&!status.busy&&status.state!=IF_UPDATE_READY&&
                  ui_rect_hit(online_stats_rect(),ev->x0,ev->y0)){
             s_online_stats_save_failed=ota_stats_set_enabled(!ota_stats_enabled())!=ESP_OK;
+            s_online_progress_only=false;
             return APP_REDRAW_AREA;
         }else if(ui_rect_hit(online_action_rect(),ev->x0,ev->y0)){
             if(s_online_pending||status.state==IF_UPDATE_VERIFYING)return APP_REDRAW_NONE;

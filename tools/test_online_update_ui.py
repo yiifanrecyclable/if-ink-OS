@@ -12,20 +12,37 @@ with tempfile.TemporaryDirectory(dir=root/'build',prefix='online-ui-') as tmp:
         return json.loads(p.stdout)
     stable='t,500,365,500,365'
     beta='t,72,459,72,459'
-    confirm='t,500,1034,500,1034'
-    cancel='t,160,1034,160,1034'
+    confirm='t,500,1076,500,1076'
+    cancel='t,160,1076,160,1076'
+    check='t,342,1076,342,1076'
+    consent='t,110,1000,110,1000'
+    def checkbox_ink():
+        pixel=991*684+49
+        return ((out/'frame.bin').read_bytes()[pixel//2]>>(4 if pixel%2 else 0))&15
     entered=render(27,'t,180,1052,180,1052',True)
     assert entered['settings_page']==28 and entered['update_offers']==[2,2]
     assert render(28)['update_offers']==[3,3]
     assert not render(28,beta)['update_confirmation']
-    assert render(28,'t,342,1034,342,1034',True)['update_offers']==[2,2]
+    assert checkbox_ink()==15
+    assert render(28,check,True)['update_offers']==[2,2]
+    assert render(28,f'{consent};{check}',True)['update_offers']==[2,2]
+    assert checkbox_ink()==0
+    render(27)
+    render(28)
+    assert checkbox_ink()==0
+    state=render(28,f'{stable};{confirm}',True)
+    assert state['update_channel']==0 and state['update_state']==7 and not state['update_confirmation']
+    render(28,consent,True)
+    assert checkbox_ink()==15
+    render(28)
+    assert checkbox_ink()==15
     for channel,pick in ((0,stable),(1,beta)):
         state=render(28,pick,True)
         assert state['update_channel']==channel and state['update_confirmation']
         assert state['update_offers']==[2,2]
         state=render(28,f'{pick};{cancel}',True)
         assert state['update_state']==2 and not state['update_confirmation']
-        state=render(28,f'{pick};t,342,1034,342,1034',True)
+        state=render(28,f'{pick};{check}',True)
         assert state['update_confirmation']
         state=render(28,f'{pick};{confirm}',True)
         assert state['update_channel']==channel and state['update_state']==7 and not state['update_confirmation']
@@ -39,7 +56,7 @@ with tempfile.TemporaryDirectory(dir=root/'build',prefix='online-ui-') as tmp:
     waiting=render(28,f'{stable};{confirm}',mode='slow-beta')
     assert waiting['update_offers']==[2,1] and waiting['update_confirmation'] and waiting['update_channel']==0
     assert not render(28,f'{stable};{cancel}',mode='slow-beta')['update_confirmation']
-    assert render(28,'t,342,1034,342,1034',mode='checking')['update_offers']==[8,8]
+    assert render(28,check,mode='checking')['update_offers']==[8,8]
     state=render(28,beta,mode='busy')
     assert state['update_channel']==0 and state['update_state']==4
     assert render(28,'t,60,105,60,105')['settings_page']==27
