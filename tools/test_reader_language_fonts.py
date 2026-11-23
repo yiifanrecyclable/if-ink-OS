@@ -26,15 +26,18 @@ def latin_fixture(face):
     return font
 
 
-def make_epub(path, first, second):
+def make_epub(path, first, second, local_cover=False):
     with ZipFile(path, "w") as archive:
         archive.writestr("META-INF/container.xml", '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>')
-        archive.writestr("book.opf", """<package xmlns:dc="http://purl.org/dc/elements/1.1/">
-          <metadata><dc:title>An English book</dc:title><dc:language>en-US</dc:language></metadata>
-          <manifest><item id="a" href="a.xhtml" media-type="application/xhtml+xml"/>
+        language = "zh-CN" if local_cover else "en-US"
+        first_file = "coverpage.xhtml" if local_cover else "a.xhtml"
+        archive.writestr("book.opf", f"""<package xmlns:dc="http://purl.org/dc/elements/1.1/">
+          <metadata><dc:title>An English book</dc:title><dc:language>{language}</dc:language></metadata>
+          <manifest><item id="a" href="{first_file}" media-type="application/xhtml+xml"/>
           <item id="b" href="b.xhtml" media-type="application/xhtml+xml"/></manifest>
           <spine><itemref idref="a"/><itemref idref="b"/></spine></package>""")
-        archive.writestr("a.xhtml", f"<html><body><p>{first}</p></body></html>")
+        cover = '<img src="cover.png"/><h1>An English book</h1><b>简介</b>' if local_cover else ""
+        archive.writestr(first_file, f"<html><body>{cover}<p>{first}</p></body></html>")
         archive.writestr("b.xhtml", f"<html><body><p>{second}</p></body></html>")
 
 
@@ -68,6 +71,8 @@ with tempfile.TemporaryDirectory(prefix="reader-language-", dir=ROOT / "build") 
         (card / relative).write_text(text, encoding="utf-8")
     make_epub(card / "books/English.epub", english, english)
     make_epub(card / "books/Late mixed.epub", english, chinese)
+    make_epub(card / "books/Localized cover.epub", english, english, local_cover=True)
+    make_epub(card / "books/Mixed cover.epub", english + chinese, english, local_cover=True)
 
     def render(path, events="", panel=0, screen="book-1"):
         files = screen == "files-0"
@@ -130,6 +135,13 @@ with tempfile.TemporaryDirectory(prefix="reader-language-", dir=ROOT / "build") 
     assert not render("books/French.txt")["reader_english"]
     epub = render("books/English.epub")
     assert epub["reader_english"] and epub["font_path"].endswith("/B-Latin.ttf"), epub
+    cover = render("books/Localized cover.epub", panel=5)
+    assert cover["reader_english"] and not cover["reader_vertical"], cover
+    assert cover["reader_font_count"] == 2 and cover["font_path"].endswith("/N-Chinese.ttf"), cover
+    body = render("books/Localized cover.epub", ";".join(["k,2,0,0,0"] * 2), panel=0)
+    assert body["reader_chapter"] == 1 and body["reader_english"] and not body["reader_vertical"], body
+    assert body["font_path"].endswith("/B-Latin.ttf"), body
+    assert not render("books/Mixed cover.epub")["reader_english"]
     changed = render("books/Late mixed.epub", "k,2,0,0,0")
     assert not changed["reader_english"] and changed["reader_vertical"], changed
     assert changed["font_path"].endswith("/N-Chinese.ttf"), changed

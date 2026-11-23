@@ -671,6 +671,7 @@ static size_t s_chapter_lead_skip;
 static unsigned s_chapter_lead_height;
 static char s_font_path[192];
 static bool s_reader_english;
+static bool s_reader_localized_cover;
 static char* s_text;
 bool app_book_reader_body_visible(void) {
     return s_view == READING && s_text && s_reader_panel == READER_PANEL_NONE && !s_clear_confirm;
@@ -2622,8 +2623,9 @@ static void free_book(void) {
     s_selected_toc = SIZE_MAX;
     s_jump_offset = SIZE_MAX;
     s_reader_english = false;
+    s_reader_localized_cover = false;
     book_layout_set_english_justification(false);
-    app_font_set_english_mode(false);
+    app_font_set_english_mode(false, false);
     book_close();
     s_path[0] = 0;
     s_book_title[0] = 0;
@@ -2995,10 +2997,12 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
         offset = html_position_convert(&loaded.positions, offset, true);
         note_action = CHAPTER_KEEP_NOTE;
     }
-    const content_language_t language = book_language_for_text(&loaded);
+    bool localized_cover;
+    const content_language_t language = book_language_for_text(chapter, &loaded, &localized_cover);
     const bool english = language == CONTENT_LANGUAGE_ENGLISH;
     if (note_action == CHAPTER_FOLLOW_NOTE && !s_note_open && note_link) {
-        if (english == s_reader_english && open_reader_note_card(chapter, note_link, &loaded, anchor_offset)) {
+        if (english == s_reader_english && localized_cover == s_reader_localized_cover &&
+            open_reader_note_card(chapter, note_link, &loaded, anchor_offset)) {
             html_text_free(&loaded);
             return true;
         }
@@ -3065,9 +3069,12 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
     lock_draw();
     invalidate_prep();
     const bool previous_english = s_reader_english;
-    if (!s_text || english != previous_english) {
+    const bool previous_localized_cover = s_reader_localized_cover;
+    const bool font_profile_changed = english != previous_english || localized_cover != previous_localized_cover;
+    if (!s_text || font_profile_changed) {
         s_reader_english = english;
-        app_font_set_english_mode(english);
+        s_reader_localized_cover = localized_cover;
+        app_font_set_english_mode(english, localized_cover);
         app_font_activate_reading();
     }
     book_layout_set_chapter_lead(lead_skip, lead_height);
@@ -3083,10 +3090,11 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
     if (!ok && trim_reader_covers(READER_COVERS_RETRY))
         ok = book_layout_build_blocks(loaded.utf8, loaded.len, loaded.blocks, loaded.count, new_body, s_px);
     if (!ok) {
-        if (english != previous_english) {
+        if (font_profile_changed) {
             s_reader_english = previous_english;
+            s_reader_localized_cover = previous_localized_cover;
             book_layout_set_english_justification(previous_english);
-            app_font_set_english_mode(previous_english);
+            app_font_set_english_mode(previous_english, previous_localized_cover);
             if (s_text) app_font_restore_reading(s_font_path);
             book_layout_set_vertical(reader_book_vertical());
         }
@@ -4346,7 +4354,7 @@ static app_redraw_t select_reading_font_item(app_ctx_t* ctx, const ttf_font_item
         return APP_REDRAW_PAGE;
     }
     copy_text(s_font_path, sizeof(s_font_path), item->path);
-    if (s_reader_english) app_font_set_english_mode(true);
+    if (s_reader_english) app_font_set_english_mode(true, s_reader_localized_cover);
     s_reader_panel = READER_PANEL_FONT_SETTINGS;
     prepare_inline_image();
     save_progress();

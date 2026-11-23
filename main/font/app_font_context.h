@@ -16,6 +16,6 @@ void app_font_restore_reading(const char *path);
 typedef enum { APP_FONT_READING, APP_FONT_SYSTEM } app_font_role_t;
 esp_err_t app_font_save_choice(app_font_role_t role, bool english, const char *path);
 const char *app_font_reading_choice(void);
-void app_font_set_english_mode(bool english);
+void app_font_set_english_mode(bool english, bool localized_cover);
 const char *app_font_system_choice(void);
 bool app_font_retry_active(void);

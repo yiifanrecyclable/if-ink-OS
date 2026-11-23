@@ -56,5 +56,5 @@ uint32_t book_chapter_byte_offset(size_t i);
 /// 当前类型；关闭时默认 TXT。/ Current kind, defaulting to TXT when closed.
 book_kind_t book_kind(void);
 /// 使用已索引的内容类型，EPUB 结合当前已解码的章节。/ Use existing evidence and the already-decoded EPUB chapter.
-content_language_t book_language_for_text(const html_text_t *text);
+content_language_t book_language_for_text(size_t chapter, const html_text_t *text, bool *localized_cover);
 void book_remember_language(content_language_t language);

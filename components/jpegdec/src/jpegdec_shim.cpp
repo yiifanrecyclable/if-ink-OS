@@ -16,28 +16,20 @@
 
 extern "C" {
 
-// 解一张渐进式 JPEG，输出 8 位灰度。JPEGDEC 对渐进式固定按 1/8（只读 DC 扫描），
-// 所以回调里的坐标与 drawn_* 都在那个缩小后的空间里。
-// Decode a progressive JPEG to 8-bit grayscale. JPEGDEC always uses 1/8 for progressive frames
-// (DC scan only), so both the callback coordinates and drawn_* live in that reduced space.
+// 解成 8 位灰度；渐进式沿用 1/8 模式，普通灰度 JPEG 可以按完整尺寸解码。
+// Decode to 8-bit grayscale. Progressive frames use 1/8; baseline grayscale can decode at full size.
 //
-// 返回 0 表示打开或解码失败；drawn_* 仅在返回 1 时有效。
-// Returns 0 when opening or decoding fails; drawn_* is valid only on success.
-int jpegdec_gray_progressive(const uint8_t *data, int size, JPEG_DRAW_CALLBACK *draw, void *user,
-                             int *drawn_width, int *drawn_height) {
+// 返回 0 表示打开或解码失败。/ Returns 0 when opening or decoding fails.
+int jpegdec_gray_decode(const uint8_t *data, int size, JPEG_DRAW_CALLBACK *draw, void *user,
+                        bool reduced) {
     if (!data || size <= 0 || !draw) return 0;
     JPEGDEC *jpeg = new (std::nothrow) JPEGDEC();
     if (!jpeg) return 0;
     int ok = 0;
     if (jpeg->openRAM(const_cast<uint8_t *>(data), size, draw)) {
-        // 渐进式时 JPEGDEC 内部强制 1/8，画的坐标也在缩放后的空间里。
-        // For progressive frames JPEGDEC forces 1/8 internally, and the draw coordinates are
-        // in that reduced space.
-        if (drawn_width) *drawn_width = (jpeg->getWidth() + 7) / 8;
-        if (drawn_height) *drawn_height = (jpeg->getHeight() + 7) / 8;
         jpeg->setPixelType(EIGHT_BIT_GRAYSCALE);
         jpeg->setUserPointer(user);
-        ok = jpeg->decode(0, 0, JPEG_SCALE_EIGHTH) != 0;
+        ok = jpeg->decode(0, 0, reduced ? JPEG_SCALE_EIGHTH : 0) != 0;
     }
     jpeg->close();
     delete jpeg;

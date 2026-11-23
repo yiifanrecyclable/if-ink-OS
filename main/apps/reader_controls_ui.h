@@ -67,8 +67,11 @@ static EpdRect reader_layout_mode_rect(EpdRect grid, int row, int column) {
 }
 static unsigned s_reader_names_shown;
 static bool s_reader_names_settled;
+static const char *reader_font_label(void) {
+    return s_reader_english ? UI_MSG("英文阅读字体") : UI_MSG("阅读字体");
+}
 static uint8_t reader_font_coverage(void) {
-    return s_reader_english ? TTF_COVERAGE_LATIN : TTF_COVERAGE_CHINESE;
+    return (s_reader_english && !s_reader_localized_cover) ? TTF_COVERAGE_LATIN : TTF_COVERAGE_CHINESE;
 }
 static const ttf_font_item_t *reader_font_item(int index) {
     return ttf_font_picker_item(index, reader_font_coverage());
@@ -479,7 +482,7 @@ static void draw_reader_panel(uint8_t *fb){
     else if(s_reader_panel==READER_PANEL_HELP)draw_reader_help(fb);
     else{
         const char *title=UI_MSG("阅读设置");
-        switch(s_reader_panel){case READER_PANEL_FONT_SETTINGS:title=UI_MSG("文字");break;case READER_PANEL_LAYOUT_SETTINGS:title=UI_MSG("版式");break;case READER_PANEL_MARKDOWN_SIZES:title=UI_MSG("文档字号");break;case READER_PANEL_FONT_PICKER:title=UI_MSG("阅读字体");break;case READER_PANEL_BOOKMARKS:title=UI_MSG("书签");break;case READER_PANEL_RULE_SETTINGS:title=UI_MSG("阅读线");break;case READER_PANEL_SHORTCUTS:title=UI_MSG("快捷手势");break;case READER_PANEL_BINDING:title=reader_shortcut_name(s_shortcut_slot);break;case READER_PANEL_BASIC:title=UI_MSG("基础操作");break;default:break;}
+        switch(s_reader_panel){case READER_PANEL_FONT_SETTINGS:title=UI_MSG("文字");break;case READER_PANEL_LAYOUT_SETTINGS:title=UI_MSG("版式");break;case READER_PANEL_MARKDOWN_SIZES:title=UI_MSG("文档字号");break;case READER_PANEL_FONT_PICKER:title=reader_font_label();break;case READER_PANEL_BOOKMARKS:title=UI_MSG("书签");break;case READER_PANEL_RULE_SETTINGS:title=UI_MSG("阅读线");break;case READER_PANEL_SHORTCUTS:title=UI_MSG("快捷手势");break;case READER_PANEL_BINDING:title=reader_shortcut_name(s_shortcut_slot);break;case READER_PANEL_BASIC:title=UI_MSG("基础操作");break;default:break;}
         epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, 1096}, UI_GRAY_WHITE, fb);
         reader_page_status(fb);
         ui_text_set_system_scale(true);
@@ -490,7 +493,7 @@ static void draw_reader_panel(uint8_t *fb){
         if(s_reader_panel==READER_PANEL_BASIC){draw_reader_basic(fb);}
         else if(reader_markdown_font_panel()){
             const uint8_t *sizes=s_reader_slider>=5?s_md_draft:s_md_sizes;
-            reader_control_label(fb,reader_markdown_font_row(),s_reader_english?UI_MSG("英文阅读字体"):UI_MSG("阅读字体"),s_reader_face_label);
+            reader_control_label(fb,reader_markdown_font_row(),reader_font_label(),s_reader_face_label);
             for(int i=1;i<4;++i)reader_markdown_slider(fb,i,sizes);
             reader_markdown_slider(fb,0,sizes);
             EpdRect sample=reader_font_sample_rect();
@@ -499,7 +502,7 @@ static void draw_reader_panel(uint8_t *fb){
         }else if(s_reader_panel==READER_PANEL_FONT_SETTINGS){
             int px=s_reader_slider>=0?s_reader_preview_px:s_px;char value[32];ui_snprintf(value,sizeof(value),"%d",px);
             reader_control_slider(fb,0,UI_MSG("正文字号"),value,px-BOOK_PX_MIN,BOOK_PX_MAX-BOOK_PX_MIN+1);
-            reader_control_label(fb,reader_control_row(2),s_reader_english?UI_MSG("英文阅读字体"):UI_MSG("阅读字体"),s_reader_face_label);
+            reader_control_label(fb,reader_control_row(2),reader_font_label(),s_reader_face_label);
             if(book_kind()==BOOK_KIND_MARKDOWN)reader_control_label(fb,reader_control_row(3),UI_MSG("标题与正文字号"),UI_MSG("设置 ›"));
             reader_control_text(fb,36,reader_font_sample_rect().y-20,UI_TEXT_CAPTION,UI_MSG("正文效果"),EPD_DRAW_ALIGN_LEFT,false);
         }else if(s_reader_panel==READER_PANEL_MARKDOWN_SIZES){

@@ -696,6 +696,7 @@ static esp_err_t package_parse(book_epub_t *book, const char *opf, char ncx[EPUB
 /* ---- NCX 与 EPUB 3 导航 / NCX and EPUB 3 navigation ---- */
 
 static bool front_matter_title(const char *title);
+static bool front_matter_path(const char *path);
 static void assign_title(book_epub_t *book, const int16_t *chapter_by_zip,
                          const char *base, const char *href,
                          char title[EPUB_TITLE_CAP], size_t slot) {
@@ -1017,9 +1018,45 @@ void book_epub_close(book_epub_t *book) {
     free(book->manifest_html); free(book->chapters); free(book);
 }
 size_t book_epub_chapter_count(const book_epub_t *book) { return book ? book->count : 0; }
-content_language_t book_epub_language_for_text(const book_epub_t *book, const html_text_t *text) {
+static bool localized_cover_label(const char *text, size_t bytes) {
+    static const char *const labels[] = {"简介", "内容简介", "内容提要", "作者简介", "书籍简介"};
+    for (size_t i = 0; i < sizeof(labels) / sizeof(labels[0]); ++i)
+        if (bytes == strlen(labels[i]) && !memcmp(text, labels[i], bytes)) return true;
+    return false;
+}
+
+static bool english_cover_with_local_label(const book_epub_t *book, size_t chapter, const html_text_t *text) {
+    if (chapter != 0 || !text->image_count || !text->count || text->blocks[0].image < 0) return false;
+    const chapter_t *first = &book->chapters[0];
+    if (!front_matter_path(zip_entry_name(book->zip, first->zip_index)) &&
+        !front_matter_title(first->title)) return false;
+    // 只有独立的封面标签可忽略；至少一段英文正文；任何其他混排仍保留兼容档。
+    // Ignore only a standalone cover label; require English prose and reject other mixed text.
+    bool has_label = false, has_english_prose = false;
+    for (size_t i = 1; i < text->count; ++i) {
+        const blk_t *block = &text->blocks[i];
+        if (block->image >= 0) continue;
+        const char *start = text->utf8 + block->offset;
+        if (!has_english_prose && localized_cover_label(start, block->len)) {
+            has_label = true;
+            continue;
+        }
+        content_language_t language = content_language_text(start, block->len, false);
+        if (language == CONTENT_LANGUAGE_COMPATIBLE) return false;
+        if (!block->heading && language == CONTENT_LANGUAGE_ENGLISH) has_english_prose = true;
+    }
+    return has_label && has_english_prose;
+}
+
+content_language_t book_epub_language_for_text(const book_epub_t *book, size_t chapter,
+                                              const html_text_t *text, bool *localized_cover) {
+    *localized_cover = false;
     if (book->language == CONTENT_LANGUAGE_COMPATIBLE) return book->language;
     content_language_t observed = content_language_text(text->utf8, text->len, book->english_hint);
+    if (observed == CONTENT_LANGUAGE_COMPATIBLE && english_cover_with_local_label(book, chapter, text)) {
+        *localized_cover = true;
+        return CONTENT_LANGUAGE_ENGLISH;
+    }
     return observed == CONTENT_LANGUAGE_UNKNOWN ? book->language : observed;
 }
 void book_epub_remember_language(book_epub_t *book, content_language_t language) {
@@ -1476,7 +1513,8 @@ static bool probe_note_image(void *ctx, const char *src, unsigned max_side) {
     if (!data) return false;
     unsigned width = 0, height = 0;
     if (zip_extract(probe->book->zip, entry, data, bytes) == ESP_OK) {
-        if (book_png_frame(data, bytes, &width, &height) || book_jpeg_frame(data, bytes, NULL, &width, &height)) {
+        if (book_png_frame(data, bytes, &width, &height) ||
+            book_jpeg_frame(data, bytes, NULL, &width, &height, NULL)) {
             probe->last_small = width && height && width <= max_side && height <= max_side;
         }
     }

@@ -49,7 +49,8 @@ esp_err_t book_epub_image_prefix(book_epub_t *book, size_t chapter, const char *
 uint32_t book_epub_total_bytes(const book_epub_t *book);
 /// 该章之前所有 spine 原始 HTML 字节累计值。/ Sum of source HTML bytes preceding this chapter in the spine.
 uint32_t book_epub_chapter_byte_offset(const book_epub_t *book, size_t index);
-content_language_t book_epub_language_for_text(const book_epub_t *book, const html_text_t *text);
+content_language_t book_epub_language_for_text(const book_epub_t *book, size_t chapter,
+                                              const html_text_t *text, bool *localized_cover);
 void book_epub_remember_language(book_epub_t *book, content_language_t language);
 /// 从 OPF 封面声明读取 JPEG/PNG 原始数据；调用方 free。/ Read declared EPUB cover bytes; caller frees data.
 esp_err_t book_epub_cover(const char *path, uint8_t **data, size_t *size, bool *is_png);

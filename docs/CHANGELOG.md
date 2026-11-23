@@ -4,6 +4,12 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.6 Beta 2 / 2026-11-23
+
+- EPUB 封面的独立中文标签不再污染后续英文正文识别。/ Isolate Chinese EPUB cover labels from English prose detection in subsequent content.
+- 横竖屏文字页与选字体标题统一排版。/ Unify typography on portrait and landscape text pages and font-selection headers.
+- 灰度 JPEG 插图使用当前固件的软件解码路径。/ Decode grayscale JPEG illustrations through the firmware's current software decoder.
+
 ## 0.2.6 Beta 1 / 2026-11-23
 
 - 系统字体须支持中英文；纯英文字体可用于纯英文阅读。/ System fonts must support Chinese and English; Latin-only faces remain available for English reading.

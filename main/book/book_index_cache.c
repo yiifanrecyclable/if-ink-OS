@@ -131,10 +131,13 @@ bool book_index_cache_finish_write(FILE* file, const char* temp, const char* pat
     return false;
 }
 
+// v2 防止旧封面误判继续影响 EPUB 正文。/ v2 invalidates older EPUB cover misclassifications.
+#define LANGUAGE_CACHE_VERSION 2
+
 bool book_index_cache_read_language(const char *source, content_language_t *language) {
     char path[112];
     book_index_cache_header_t key;
-    if (!book_index_cache_prepare(source, "language", 1, path, sizeof(path), &key)) return false;
+    if (!book_index_cache_prepare(source, "language", LANGUAGE_CACHE_VERSION, path, sizeof(path), &key)) return false;
     FILE *file = book_index_cache_open_read(path, &key);
     if (!file) return false;
     int value = fgetc(file);
@@ -148,7 +151,7 @@ bool book_index_cache_read_language(const char *source, content_language_t *lang
 void book_index_cache_write_language(const char *source, content_language_t language) {
     char path[112], temp[120];
     book_index_cache_header_t key;
-    if (!book_index_cache_prepare(source, "language", 1, path, sizeof(path), &key)) return;
+    if (!book_index_cache_prepare(source, "language", LANGUAGE_CACHE_VERSION, path, sizeof(path), &key)) return;
     FILE *file = book_index_cache_open_write(path, &key, temp, sizeof(temp));
     if (file) (void)book_index_cache_finish_write(file, temp, path, fputc(language, file) != EOF);
 }

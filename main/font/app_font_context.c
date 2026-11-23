@@ -18,6 +18,7 @@
 
 static bool s_reading;
 static bool s_english;
+static bool s_localized_cover;
 static char s_english_path[TTF_FONT_PATH_MAX];
 typedef esp_err_t (*font_setter_t)(const char *);
 static esp_err_t set_english_reading(const char *path) { return content_english_font_set(false, path); }
@@ -27,8 +28,9 @@ static const font_setter_t choices[2][2] = {
 };
 
 static bool s_system_english_cached;
-void app_font_set_english_mode(bool english){
+void app_font_set_english_mode(bool english, bool localized_cover){
     s_english = english;
+    s_localized_cover = localized_cover;
     s_english_path[0] = 0;
     if (english) strlcpy(s_english_path, content_english_font(false), sizeof(s_english_path));
 }
@@ -115,7 +117,7 @@ static const char *compatible_reading_path(char fallback[TTF_FONT_PATH_MAX]) {
     const char *saved = app_settings_font_path();
     // Preserve legacy preferences, using a Chinese face for mixed text when a saved face is Latin-only.
     if (app_font_path_valid(saved) &&
-        (s_english || saved_face_coverage(&checked, saved) != TTF_COVERAGE_LATIN)) return saved;
+        ((s_english && !s_localized_cover) || saved_face_coverage(&checked, saved) != TTF_COVERAGE_LATIN)) return saved;
     const char *bundled = bundled_path(fallback);
     return bundled ? bundled : TTF_FONT_BUILTIN;
 }
@@ -125,8 +127,9 @@ const char *app_font_reading_choice(void) {
 }
 static const char *reading_path(char fallback[TTF_FONT_PATH_MAX]) {
     static face_coverage_t checked;
+    uint8_t required = s_localized_cover ? TTF_COVERAGE_CHINESE : TTF_COVERAGE_LATIN;
     return s_english && app_font_path_valid(s_english_path) &&
-        (saved_face_coverage(&checked, s_english_path) & TTF_COVERAGE_LATIN) ?
+        (saved_face_coverage(&checked, s_english_path) & required) ?
         s_english_path : compatible_reading_path(fallback);
 }
 

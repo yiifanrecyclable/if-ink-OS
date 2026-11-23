@@ -72,7 +72,7 @@ static void wide_label(uint8_t *fb,EpdRect r,const char *name,const char *value)
 }
 static const char *wide_detail_title(void) {
     switch(s_reader_panel) {
-    case READER_PANEL_FONT_PICKER: return UI_MSG("阅读字体");
+    case READER_PANEL_FONT_PICKER: return reader_font_label();
     case READER_PANEL_RULE_SETTINGS: return UI_MSG("阅读线");
     case READER_PANEL_BASIC: return UI_MSG("基础操作");
     case READER_PANEL_SHORTCUTS: return UI_MSG("快捷手势");
@@ -277,7 +277,7 @@ static void draw_wide_detail(app_ctx_t *ctx,uint8_t *fb,const char *face) {
         ui_snprintf(value,sizeof(value),"%d",px);
         wide_slider(fb,x,0,UI_MSG("正文字号"),value,px-BOOK_PX_MIN,BOOK_PX_MAX-BOOK_PX_MIN+1);
         draw_reader_hyphen_option(fb,wide_at(wide_hyphen_row(),x));
-        wide_label(fb,wide_at(wide_detail_row(1),x),UI_MSG("阅读字体"),face);
+        wide_label(fb,wide_at(wide_detail_row(1),x),reader_font_label(),face);
         reader_control_text(fb,x+36,344,UI_TEXT_CAPTION,UI_MSG("正文效果"),EPD_DRAW_ALIGN_LEFT,false);
     }else if(s_reader_panel==READER_PANEL_FONT_PICKER)draw_wide_font_names(fb);
     else if(s_reader_panel==READER_PANEL_BASIC)draw_wide_basic(fb,x);

@@ -80,32 +80,27 @@ static int jpegdec_collect(JPEGDRAW *draw) {
 
 // ESP-IDF 下 JPEGDEC 只提供 C++ 类，组件里有一层 extern "C" 包装。
 // Under ESP-IDF JPEGDEC only offers the C++ class; the component wraps it with C linkage.
-extern int jpegdec_gray_progressive(const uint8_t *data, int size, JPEG_DRAW_CALLBACK *draw,
-                                    void *user, int *drawn_width, int *drawn_height);
+extern int jpegdec_gray_decode(const uint8_t *data, int size, JPEG_DRAW_CALLBACK *draw,
+                               void *user, bool reduced);
 
-// 渐进式只取 DC 扫描，JPEGDEC 因此固定输出 1/8 分辨率；平面尺寸由帧头算出，
-// 与小平面一起缩到目标尺寸。对封面（176×240）来说已经足够，也避开了整幅系数数组。
-// Progressive decoding reads the DC scan only, so JPEGDEC always emits 1/8 resolution. The plane
-// size comes from the frame header and is resampled to the requested size: plenty for a 176x240
-// cover, and it never holds the full coefficient array.
+// 渐进式只取 1/8；非渐进灰度图优先保留原始细节。/ Progressive uses 1/8; baseline grayscale keeps full detail when possible.
 static bool jpegdec_gray(const uint8_t *data, size_t size, unsigned frame_width,
                          unsigned frame_height, unsigned out_width, unsigned out_height,
-                         uint8_t *out) {
+                         uint8_t *out, bool reduced) {
     if (!data || size < 4 || size > INT32_MAX || !frame_width || !frame_height) return false;
     jpegdec_plane_t plane = {
-        .stride = (frame_width + 7) / 8,
-        .height = (frame_height + 7) / 8,
+        .stride = reduced ? (frame_width + 7) / 8 : frame_width,
+        .height = reduced ? (frame_height + 7) / 8 : frame_height,
     };
-    if (plane.stride > 4096 || plane.height > 4096) return false;
+    if (plane.stride > 4096 || plane.height > 4096 ||
+        (size_t)plane.stride * plane.height > 3u * 1024u * 1024u) return false;
     plane.plane = cover_alloc((size_t)plane.stride * plane.height);
     if (!plane.plane) return false;
     memset(plane.plane, 0xFF, (size_t)plane.stride * plane.height);
-    const bool decoded = jpegdec_gray_progressive(data, (int)size, jpegdec_collect, &plane,
-                                                 NULL, NULL) != 0;
+    const bool decoded = jpegdec_gray_decode(data, (int)size, jpegdec_collect, &plane, reduced) != 0;
     bool ok = false;
     if (decoded) {
-        // 1/8 小平面同样按长边铺满 + 居中裁剪映射到目标。
-        // The 1/8 plane maps to the target the same way: fill the longer side, centre-crop.
+        // 灰度平面按长边铺满并居中裁剪。/ Fill the longer side and centre-crop the luma plane.
         const book_crop_t crop = book_cover_crop(plane.stride, plane.height, out_width, out_height);
         for (unsigned y = 0; y < out_height; ++y) {
             unsigned sy = crop.y + (unsigned)((uint64_t)y * crop.height / out_height);
@@ -123,10 +118,17 @@ static bool jpegdec_gray(const uint8_t *data, size_t size, unsigned frame_width,
 static bool jpeg_gray(const uint8_t *data, size_t size, unsigned out_width,
                       unsigned out_height, uint8_t *out) {
     if (size > UINT32_MAX) return false;
-    uint8_t sof = 0;
+    uint8_t sof = 0, components = 0;
     unsigned frame_width = 0, frame_height = 0;
-    if (book_jpeg_frame(data, size, &sof, &frame_width, &frame_height) && sof == 0xC2)
-        return jpegdec_gray(data, size, frame_width, frame_height, out_width, out_height, out);
+    if (book_jpeg_frame(data, size, &sof, &frame_width, &frame_height, &components)) {
+        // ESP32-S3 ROM 解不出单分量灰度 JPEG；使用同一个软件灰度解码器。
+        // Use the software luma decoder for single-component JPEGs the ESP32-S3 ROM cannot decode.
+        if (sof == 0xC2)
+            return jpegdec_gray(data, size, frame_width, frame_height, out_width, out_height, out, true);
+        if (sof == 0xC0 && components == 1 &&
+            (jpegdec_gray(data, size, frame_width, frame_height, out_width, out_height, out, false) ||
+             jpegdec_gray(data, size, frame_width, frame_height, out_width, out_height, out, true))) return true;
+    }
     esp_jpeg_image_cfg_t cfg = { .indata = (uint8_t *)data, .indata_size = (uint32_t)size,
                                  .out_format = JPEG_IMAGE_FORMAT_RGB565 };
     esp_jpeg_image_output_t info = {0};
@@ -254,7 +256,7 @@ bool book_image_dimensions(const uint8_t *data, size_t size, bool png,
         // 帧头对基线、渐进式都能给出尺寸，而 esp_jpeg 只认基线。
         // The frame header yields the size for baseline and progressive alike, where esp_jpeg
         // only handles baseline.
-        if (!book_jpeg_frame(data, size, NULL, &frame_width, &frame_height)) return false;
+        if (!book_jpeg_frame(data, size, NULL, &frame_width, &frame_height, NULL)) return false;
         *width = frame_width; *height = frame_height;
     }
     return *width > 0 && *height > 0 && *width <= 8192 && *height <= 8192;

@@ -13,7 +13,7 @@
 // 0xC2 is progressive; the ROM TJpgDec decodes baseline only, so progressive frames go to
 // JPEGDEC.
 static inline bool book_jpeg_frame(const uint8_t *data, size_t size, uint8_t *sof,
-                       unsigned *width, unsigned *height) {
+                       unsigned *width, unsigned *height, uint8_t *components) {
     if (!data || size < 4 || data[0] != 0xFF || data[1] != 0xD8) return false;
     size_t at = 2;
     while (at + 1 < size) {
@@ -28,10 +28,11 @@ static inline bool book_jpeg_frame(const uint8_t *data, size_t size, uint8_t *so
         // SOF0..SOF15，跳过 DHT(0xC4)、JPG(0xC8)、DAC(0xCC)。
         // SOF0..SOF15, skipping DHT (0xC4), JPG (0xC8) and DAC (0xCC).
         if (marker >= 0xC0 && marker <= 0xCF && marker != 0xC4 && marker != 0xC8 && marker != 0xCC) {
-            if (at + 9 > size) return false;
+            if (at + 9 > size || (components && (length < 8 || at + 10 > size))) return false;
             if (height) *height = ((unsigned)data[at + 5] << 8) | data[at + 6];
             if (width) *width = ((unsigned)data[at + 7] << 8) | data[at + 8];
             if (sof) *sof = marker;
+            if (components) *components = data[at + 9];
             return true;
         }
         at += 2 + length;

@@ -99,8 +99,9 @@ uint32_t book_chapter_byte_offset(size_t i) {
     return s_epub ? book_epub_chapter_byte_offset(s_epub, i) : i < s_book.count ? s_book.entries[i].offset : 0;
 }
 book_kind_t book_kind(void) { return book_markdown_active() ? BOOK_KIND_MARKDOWN : s_epub ? BOOK_KIND_EPUB : BOOK_KIND_TXT; }
-content_language_t book_language_for_text(const html_text_t *text) {
-    if (s_epub) return book_epub_language_for_text(s_epub, text);
+content_language_t book_language_for_text(size_t chapter, const html_text_t *text, bool *localized_cover) {
+    if (s_epub) return book_epub_language_for_text(s_epub, chapter, text, localized_cover);
+    *localized_cover = false;
     if (book_markdown_active()) return book_markdown_language();
     return s_book.language;
 }
