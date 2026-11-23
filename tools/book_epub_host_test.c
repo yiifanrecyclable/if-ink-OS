@@ -141,6 +141,10 @@ int main(int argc, char **argv) {
                 assert(image && size == 12 && png); free(image);
                 assert(book_epub_image(book, i, "../images/wrapper.svg", &image, &size, &png) == ESP_OK);
                 assert(image && size == 12 && png); free(image);
+                assert(book_epub_image(book, i, "../images/pic.gif", &image, &size, &png) == ESP_OK);
+                assert(image && size == 35 && !png && !memcmp(image, "GIF89a", 6)); free(image);
+                assert(book_epub_image(book, i, "../images/gif-wrapper.svg", &image, &size, &png) == ESP_OK);
+                assert(image && size == 35 && !png && !memcmp(image, "GIF89a", 6)); free(image);
                 assert(text.blocks[0].align == 1);
             }
             html_text_free(&text);

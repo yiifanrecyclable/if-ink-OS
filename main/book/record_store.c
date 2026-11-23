@@ -74,7 +74,8 @@ bool record_store_content_key(const char *s,const char *k){
     if(!strcmp(s,"rp_favs"))return hexkey(k,'f',10);
     if(!strcmp(s,"rp_titles"))return hexkey(k,'t',10);
     if(!strcmp(s,"rp_shelf"))return hexkey(k,'h',10);
-    if(!strcmp(s,"if_content"))return hexkey(k,'a',10)||hexkey(k,'p',10);
+    if(!strcmp(s,"if_content"))return hexkey(k,'a',10)||hexkey(k,'p',10)||
+        !strcmp(k,"book_font_en")||!strcmp(k,"md_font_en")||!strcmp(k,"sys_font_en");
     if(!strcmp(s,"rp_input"))return hexkey(k,'h',15);
     return false;
 }
@@ -510,7 +511,7 @@ static bool bounded_known(const char *space,const char *key){
     if(!strcmp(space,"rp_input"))return false;
     if(strcmp(space,"if_content"))return false;
     const char *keys[]={
-        "read_target","banner_v1","md_font","md_sizes","quote_valign","quote_align","quote_px","quote_font","home_quote","books","docs"};
+        "read_target","banner_v1","md_font","book_font_en","md_font_en","sys_font_en","md_sizes","md_layout_v1","en_hyphen","quote_valign","quote_align","quote_px","quote_font","home_quote","books","docs"};
     for(unsigned i=0;i<sizeof(keys)/sizeof(keys[0]);++i)if(!strcmp(key,keys[i]))return true;
     return false;
 }

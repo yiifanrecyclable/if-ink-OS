@@ -5,6 +5,7 @@
  */
 #include "book_markdown.h"
 #include "markdown_text.h"
+#include "book_index_cache.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,6 +22,7 @@ static html_text_t s_text;
 static heading_t *s_headings;
 static size_t *s_visible, s_count, s_visible_count;
 static bool s_active;
+static content_language_t s_language;
 static char s_path[512];
 static void visibility(void) {
     s_visible_count = 0;
@@ -43,6 +45,7 @@ void book_markdown_close(void) {
     s_visible = NULL;
     s_count = s_visible_count = 0;
     s_active = false;
+    s_language = CONTENT_LANGUAGE_UNKNOWN;
     s_path[0] = 0;
 }
 esp_err_t book_markdown_open(const char *path) {
@@ -89,11 +92,16 @@ esp_err_t book_markdown_open(const char *path) {
         visibility();
     }
     strcpy(s_path, path);
+    if (!book_index_cache_read_language(path, &s_language))
+        s_language = content_language_text(s_text.utf8, s_text.len, false);
     s_active = true;
     return ESP_OK;
 }
 bool book_markdown_active(void) {
     return s_active;
+}
+content_language_t book_markdown_language(void) {
+    return s_language;
 }
 size_t book_markdown_length(void) {
     return s_text.len;

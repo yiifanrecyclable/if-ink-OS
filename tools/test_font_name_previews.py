@@ -84,7 +84,8 @@ with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="name-previews-") as
     _, before = render("settings-5", "", 0, True)
     settled, after = render("settings-5", "", 0, False)
     top, step, _ = settled["settings_geometry"][6:9]
-    check_changed_area(before, after, 60, 570, top+2*step, top+3*step-12)
+    assert settled["system_font_count"] == 3  # Default, Hei and the valid fallback-name face.
+    check_changed_area(before, after, 60, 570, top+step, top+2*step-12)
 
     _, before = render("settings-22", "", 0, True)
     settled, after = render("settings-22", "", 0, False)

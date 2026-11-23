@@ -7,6 +7,7 @@
 #include "ui_bitmap.h"
 #include "ui_wallpaper.h"
 #include "ttf_font.h"
+#include "app_font_context.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -258,7 +259,7 @@ static bool banner_layer_key(int kind, const content_banner_config_t *cfg,
         input.weight = ttf_get_weight();
         input.language = app_settings_language();
         input.custom_font = cfg->font[0] != 0;
-        input.system_font = app_settings_system_font_path()[0] && !ttf_font_is_builtin();
+        input.system_font = app_font_system_choice()[0] && !ttf_font_is_builtin();
         // 只核验参与格言绘制的外部字体。/ Verify only the external face used by the quote.
         source = cfg->font;
         if (!input.custom_font && !ttf_font_is_builtin() &&

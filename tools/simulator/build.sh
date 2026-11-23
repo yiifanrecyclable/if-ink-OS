@@ -53,7 +53,7 @@ cc "${flags[@]}" "-DPICO_SIM_CARD_PATH=\"$card\"" -std=gnu11 -D_DEFAULT_SOURCE -
     -Icomponents/sc7a20h/include -Icomponents/pico_weread/include \
     -Icomponents/read_pico_pmu/include -Icomponents/read_pico_transfer/include -Icomponents/read_pico_search/include \
     tools/simulator/render.c tools/simulator/firmware_cloud.c tools/simulator/rc83_hardware.c build/simulator/cJSON-render.o tools/simulator/pixels.c main/font/ttf_font.c \
-    tools/simulator/fs.c tools/simulator/image_decode.c tools/simulator/hardware.c tools/simulator/nvs.c tools/simulator/firmware_settings.c tools/simulator/firmware_dashboard.c \
+    tools/simulator/fs.c tools/simulator/image_decode.c main/book/book_gif.c tools/simulator/hardware.c tools/simulator/nvs.c tools/simulator/firmware_settings.c tools/simulator/firmware_dashboard.c \
     components/read_pico_search/read_pico_search.c \
     main/book/book_progress.c main/book/book_progress_kv.c main/book/book_progress_snapshot.c main/book/book_recent_index.c main/book/book_shelf_index.c main/book/record_store.c main/book/storage_maintenance.c main/book/book_history_backup.c main/book/content_library.c main/book/book_title.c main/book/book_source.c main/book/book_markdown.c main/book/document_image.c main/book/document_store.c main/book/book_txt.c main/book/book_epub.c \
     main/book/book_index_cache.c main/book/zip_reader.c main/book/gbk.c main/book/book_cover_auto.c main/book/book_cover_store.c main/operation_log.c main/book/book_ticket.c main/book/reading_history_store.c main/apps/file_tree.c main/apps/file_thumbnail.c \

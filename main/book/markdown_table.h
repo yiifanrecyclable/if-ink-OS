@@ -7,7 +7,7 @@
 typedef bool (*markdown_table_page_fn)(void *ctx, size_t offset);
 /// 借用当前章节；普通图书不调用。/ Borrow the current chapter; never used for ordinary books.
 void markdown_table_configure(const char *text, const markdown_cell_t *cells,
-    const text_style_t *styles, size_t style_count, EpdRect rect, int px, unsigned line_percent, int tracking);
+    const text_style_t *styles, size_t style_count, EpdRect rect, int px, unsigned line_percent, int tracking, bool hyphenate);
 /// 只释放表格布局记录，不释放借用的章节。/ Free table layout records, never borrowed chapter data.
 void markdown_table_free(void);
 /// 在当前页流中排入完整表格，必要时创建续页。/ Place a table in page flow, creating continuation pages when needed.

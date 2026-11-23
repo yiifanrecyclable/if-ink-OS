@@ -34,6 +34,11 @@ int main(int argc, char** argv) {
     if (!strcmp(argv[1], "reject-extract")) assert(err != ESP_OK);
     else {
         assert(err == ESP_OK && argc == 5);
+        unsigned char prefix[4096];
+        size_t prefix_size = 0;
+        assert(zip_extract_prefix(zip, index, prefix, sizeof(prefix), &prefix_size) == ESP_OK);
+        assert(prefix_size == (size < sizeof(prefix) ? size : sizeof(prefix)));
+        assert(!memcmp(prefix, out, prefix_size));
         FILE* expected = fopen(argv[4], "rb");
         assert(expected);
         for (size_t i = 0; i < size; ++i) assert(fgetc(expected) == out[i]);

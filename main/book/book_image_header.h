@@ -46,3 +46,18 @@ static inline bool book_png_frame(const uint8_t *data, size_t size, unsigned *wi
     *height = (uint32_t)data[20] << 24 | (uint32_t)data[21] << 16 | (uint32_t)data[22] << 8 | data[23];
     return true;
 }
+
+static inline bool book_gif_signature(const uint8_t *data, size_t size) {
+    return data && size >= 6 && (!memcmp(data, "GIF87a", 6) || !memcmp(data, "GIF89a", 6));
+}
+
+static inline bool book_gif_frame(const uint8_t *data, size_t size, unsigned *width, unsigned *height) {
+    if (size < 13 || !book_gif_signature(data, size)) return false;
+    unsigned w = data[6] | (unsigned)data[7] << 8;
+    unsigned h = data[8] | (unsigned)data[9] << 8;
+    // 限制解码工作量，不受 ZIP 压缩后大小影响。/ Bound decode work independently of the compressed ZIP entry size.
+    if (!w || !h || w > 8192 || h > 8192 || w * h > 8u * 1024u * 1024u) return false;
+    *width = w;
+    *height = h;
+    return true;
+}

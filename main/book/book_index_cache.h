@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include "content_language.h"
 
 typedef struct {
     uint32_t magic;
@@ -38,3 +39,7 @@ FILE* book_index_cache_open_write(const char* path, const book_index_cache_heade
                                   char* temp, size_t temp_cap);
 /// 关闭并原子替换；失败时删除临时文件。/ Close and atomically replace; remove the temporary file on failure.
 bool book_index_cache_finish_write(FILE* file, const char* temp, const char* path, bool payload_ok);
+
+/// 派生语言标记使用书源缓存身份；缺失不会阻止入库或阅读。/ Derived language tags use the source identity and never gate import or reading.
+bool book_index_cache_read_language(const char *source, content_language_t *language);
+void book_index_cache_write_language(const char *source, content_language_t language);

@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "html_text.h"
+#include "content_language.h"
 typedef enum {
     BOOK_KIND_TXT, ///< 文本 / Plain text
     BOOK_KIND_EPUB, ///< EPUB 容器 / EPUB container
@@ -44,6 +45,8 @@ esp_err_t book_chapter_load_blocks_target(size_t i, const char *anchor,
                                            html_text_t *out);
 /// 读取当前 EPUB 章内图片。/ Read an image from the current EPUB chapter.
 esp_err_t book_chapter_image(size_t chapter, const char *src, uint8_t **data, size_t *size, bool *png);
+/// 读取 EPUB 图像资源的前缀。/ Read the prefix of an EPUB image resource.
+esp_err_t book_chapter_image_prefix(size_t chapter, const char *src, void *data, size_t capacity, size_t *size);
 /// TXT 为源文件字节；EPUB 为 spine 原始 HTML 未压缩累计字节，不是 ZIP 文件大小。
 /// TXT uses source-file bytes; EPUB uses cumulative uncompressed spine HTML bytes, not ZIP file size.
 uint32_t book_total_bytes(void);
@@ -52,3 +55,6 @@ uint32_t book_total_bytes(void);
 uint32_t book_chapter_byte_offset(size_t i);
 /// 当前类型；关闭时默认 TXT。/ Current kind, defaulting to TXT when closed.
 book_kind_t book_kind(void);
+/// 使用已索引的内容类型，EPUB 结合当前已解码的章节。/ Use existing evidence and the already-decoded EPUB chapter.
+content_language_t book_language_for_text(const html_text_t *text);
+void book_remember_language(content_language_t language);

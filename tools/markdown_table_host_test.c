@@ -38,14 +38,14 @@ void ttf_draw_glyph_styled_px(uint8_t *fb,int x,int y,int px,const char *text,un
     style_flags|=flags;ttf_draw_text_px(fb,x,y,px,text,EPD_DRAW_ALIGN_LEFT,fg,bg);
 }
 void ttf_draw_text_px_spaced(uint8_t *fb,int x,int y,int px,const char *text,int tracking,uint8_t fg,uint8_t bg){(void)tracking;ttf_draw_text_px(fb,x,y,px,text,0,fg,bg);}
-bool ttf_text_range_px(int px, const char *text, int tracking, int target,
+bool ttf_text_range_px(int px, const char *text, int tracking, int target, bool word_spaces,
                        size_t start, size_t end, int *first, int *last, int *ink_bottom) {
-    (void)px; (void)text; (void)tracking; (void)target;
+    (void)px; (void)text; (void)tracking; (void)target; (void)word_spaces;
     (void)start; (void)end; (void)first; (void)last; (void)ink_bottom;
     assert(!"These layout fixtures do not render links");
     return false;
 }
-void ttf_draw_text_px_fitted(uint8_t *fb,int x,int y,int px,const char *text,int tracking,int target,uint8_t fg,uint8_t bg){(void)target;ttf_draw_text_px_spaced(fb,x,y,px,text,tracking,fg,bg);}
+void ttf_draw_text_px_fitted(uint8_t *fb,int x,int y,int px,const char *text,int tracking,int target,bool word_spaces,uint8_t fg,uint8_t bg){(void)target;(void)word_spaces;ttf_draw_text_px_spaced(fb,x,y,px,text,tracking,fg,bg);}
 static html_text_t parse(const char *md){html_text_t t={0};assert(markdown_to_blocks(md,strlen(md),&t)==ESP_OK);return t;}
 static bool build(const html_text_t *t,int width,int height,int px){
     bounds=(EpdRect){10,20,width,height};uint8_t sizes[]={24,24,24};
@@ -101,6 +101,14 @@ int main(void){
     book_layout_free();html_text_free(&t);
     t=parse("| |\n| --- |\n| |\n| a |\n\nend");assert(build(&t,100,60,10));draw_all(10);
     assert(letters['a']==1);book_layout_free();html_text_free(&t);
+    t=parse("| A | B |\n| --- | --- |\n| x | abcdefgh |");
+    for(int enabled=0;enabled<2;++enabled){
+        book_layout_set_hyphenation(enabled);
+        assert(build(&t,106,110,10));draw_all(10);
+        assert(letters['-']==(unsigned)enabled);
+        for(int c='a';c<='h';++c)assert(letters[c]==1);
+    }
+    book_layout_free();html_text_free(&t);
     book_layout_set_markdown(false,NULL,NULL,0);
     puts("PASS: grid/stacked/long-row tables, repeated headers, exact body glyph counts, monotonic resume offsets, styles, mixed flow, bounds and OOM");
 }

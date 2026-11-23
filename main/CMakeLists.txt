@@ -101,6 +101,7 @@ idf_component_register(
         "book/book_txt.c"
         "book/book_epub.c"
         "book/book_cover.c"
+        "book/book_gif.c"
         "book/book_cover_store.c"
         "book/book_cover_auto.c"
         "book/zip_reader.c"

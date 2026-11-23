@@ -91,12 +91,13 @@ static app_redraw_t wide_detail_action(app_ctx_t *ctx, uint16_t x,uint16_t y) {
     if(s_reader_panel==READER_PANEL_LAYOUT_SETTINGS){
         if(s_control_page)return APP_REDRAW_NONE;
         if(ui_rect_hit(wide_layout_modes(),x,y))return reader_layout_mode_action(wide_layout_modes(),x,y);
-        if(ui_rect_hit(wide_detail_row(0),x,y))return apply_reader_indent(ctx,(app_settings_book_indent()+1)%4);
+        if(ui_rect_hit(wide_detail_row(0),x,y))return apply_reader_indent(ctx,(reader_layout().indent+1)%4);
         if(ui_rect_hit(wide_detail_row(1),x,y))return reader_show_panel(READER_PANEL_RULE_SETTINGS);
         return APP_REDRAW_NONE;
     }
     if(s_reader_panel==READER_PANEL_FONT_SETTINGS){
-        return ui_rect_hit(wide_detail_row(0),x,y)?reader_show_panel(READER_PANEL_FONT_PICKER):APP_REDRAW_NONE;
+        if(ui_rect_hit(wide_hyphen_row(),x,y))return toggle_reader_hyphenation(ctx);
+        return ui_rect_hit(wide_detail_row(1),x,y)?reader_show_panel(READER_PANEL_FONT_PICKER):APP_REDRAW_NONE;
     }
     int rows=wide_detail_rows(),count=reader_control_count();
     for(int row=0;row<rows;++row){

@@ -13,6 +13,7 @@ SOURCE=r'''
 #include "file_references.h"
 #include "content_library.h"
 #include "book_index_cache.h"
+#include "record_store.h"
 #include "beads_png.h"
 #include "read_pico_sd.h"
 esp_err_t read_pico_sd_get_info(read_pico_sd_info_t *p){memset(p,0,sizeof(*p));p->mounted=true;return ESP_OK;}
@@ -47,7 +48,7 @@ if(!strncmp(mode,"beads",5)){
  else if(!strcmp(mode,"beads-legacy")){assert(beads_board_load(b));assert(b->cells[0]==2&&cyber_beads_can_save(b));assert(beads_board_save(b));}
  free(b);return 0;
 }
-app_settings_init();bool done=false;
+record_store_media(true);app_settings_init();bool done=false;
 if(!strcmp(mode,"refs-fail")){
  put(old);fonts(old);assert(file_references_begin(old,next,&done)==ESP_OK&&!done);assert(!rename(old,next));
  setenv("PICO_TEST_NVS_SET_FAIL","font",1);assert(file_references_finish()!=ESP_OK);eq(app_settings_system_font_path(),next);eq(app_settings_font_path(),old);
@@ -78,22 +79,39 @@ if(!strcmp(mode,"refs-delete")){
 }
 if(!strcmp(mode,"refs-font-move")){
  const char *source="/sdcard/fonts/reset.ttf",*target="/sdcard/fonts/moved.ttf";
+ const char *protected="/sdcard/fonts/PicoSans-Medium.ttf";
+ put(protected);
+ assert(file_references_begin(protected,NULL,&done)==ESP_ERR_INVALID_STATE);
+ assert(file_references_begin("/sdcard/fonts/PICOSA~1.TTF",NULL,&done)==ESP_ERR_INVALID_STATE);
  put(source);fonts(source);
+ assert(file_references_begin(source,protected,&done)==ESP_ERR_INVALID_STATE);
  assert(content_markdown_font_set(source)==ESP_OK&&content_home_quote_font_set(source)==ESP_OK);
+ assert(content_english_font_set(false,source)==ESP_OK&&content_english_font_set(true,source)==ESP_OK);
+ assert(content_english_system_font_set(source)==ESP_OK);
  assert(file_references_font_in_use(source));
  assert(file_references_begin_reset_fonts(source,target,&done)==ESP_OK&&!done);
  assert(file_references_finish()==ESP_OK); // Cancelled physical move preserves all preferences.
  eq(app_settings_system_font_path(),source);eq(content_markdown_font(),source);
+ eq(content_english_font(false),source);eq(content_english_font(true),source);
  assert(file_references_begin_reset_fonts(source,target,&done)==ESP_OK&&!done);assert(!rename(source,target));
- setenv("PICO_TEST_NVS_SET_FAIL","md_font",1);assert(file_references_finish()!=ESP_OK);
- eq(app_settings_system_font_path(),"");eq(app_settings_font_path(),"");eq(content_markdown_font(),source);eq(content_home_quote_font(),"");
+ setenv("PICO_TEST_NVS_SET_FAIL","sys_font",1);assert(file_references_finish()!=ESP_OK);
+ eq(app_settings_system_font_path(),source);eq(app_settings_font_path(),"");eq(content_markdown_font(),source);eq(content_home_quote_font(),"");
+ char en[CONTENT_MARKDOWN_FONT_BYTES];assert(content_english_system_font_checked(en,sizeof(en))==ESP_OK);eq(en,"");
+ eq(content_english_font(false),"");eq(content_english_font(true),source);
  return 0;
 }
 if(!strcmp(mode,"refs-font-retry")){
  const char *source="/sdcard/fonts/reset.ttf",*target="/sdcard/fonts/moved.ttf";
  assert(file_references_begin_reset_fonts(source,target,&done)==ESP_OK&&done);
- eq(content_markdown_font(),"builtin");assert(!file_references_font_in_use(source));
- struct stat st;assert(stat(source,&st)&&!stat(target,&st));return 0;
+ eq(content_markdown_font(),source);assert(!file_references_font_in_use(source));
+ struct stat st;assert(stat(source,&st)&&!stat(target,&st));
+ const char *renamed="/sdcard/fonts/renamed-face.ttf";
+ assert(content_english_font_set(false,target)==ESP_OK&&content_english_font_set(true,target)==ESP_OK);
+ assert(content_english_system_font_set(target)==ESP_OK);
+ assert(file_references_begin(target,renamed,&done)==ESP_OK&&!done);
+ assert(!rename(target,renamed));assert(file_references_finish()==ESP_OK);
+ char en[CONTENT_MARKDOWN_FONT_BYTES];assert(content_english_system_font_checked(en,sizeof(en))==ESP_OK);eq(en,renamed);
+ eq(content_english_font(false),renamed);eq(content_english_font(true),target);return 0;
 }
 assert(!"unknown mode");return 1;}
 '''

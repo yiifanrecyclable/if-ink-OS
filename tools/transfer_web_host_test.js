@@ -141,7 +141,7 @@ async function setup({responses = [], confirmations = [true], mode = 'ap'} = {})
   assert.deepEqual(t.state.mutations[3], {action: 'delete', path: 'books/封面.jpg'});
   for (const [kind, name, endpoint] of [
     ['book', '海边的信.epub', '/upload'],
-    ['font', '思源宋体.otf', '/font-upload'],
+    ['font', '测试字体.ttf', '/font-upload'],
     ['picture', '封面.jpeg', '/image-upload'],
   ]) {
     const section = t.sections.find(s => s.dataset.kind === kind);
@@ -179,6 +179,15 @@ async function setup({responses = [], confirmations = [true], mode = 'ap'} = {})
   documents.input.files=[{name:'拒绝.md',size:32}]; await documents.send.onclick();
   assert.match(documents.result.textContent,/此目录受保护/);
   assert.doesNotMatch(documents.result.textContent,/响应无法解析|已保存/);
+  t = await setup();
+  const fonts = t.sections.find(s=>s.dataset.kind==='font');
+  fonts.input.files=[{name:'Invalid.otf',size:64}];
+  await fonts.send.onclick();
+  assert.equal(t.state.sent.length,0);
+  assert.match(fonts.result.textContent,/文件格式不支持/);
+  fonts.input.files=[{name:'Valid.TTF',size:64}];
+  await fonts.send.onclick();
+  assert.equal(t.state.sent.at(-1).url,'/font-upload?name=Valid.TTF');
   t = await setup({responses: [{status: 409, body: {error: '同名文件已存在'}}, {status: 200, body: {ok: true}}]});
   t.sections[2].input.files = [{name: '同名.png', size: 100}];
   await t.sections[2].send.onclick();

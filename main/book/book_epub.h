@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include "esp_err.h"
 #include "html_text.h"
+#include "content_language.h"
 
 typedef struct book_epub book_epub_t;
 /// 打开 EPUB；失败时 out 置空，成功后由 close 释放。/ Open EPUB; clear out on failure, close owns successful cleanup.
@@ -41,10 +42,15 @@ esp_err_t book_epub_load_target(book_epub_t *book, size_t index, const char *anc
                                  size_t source_offset, size_t *text_offset, html_text_t *out);
 /// 加载章内 JPEG/PNG；仅允许 ZIP 内相对路径，调用方释放数据。/ Load an in-book JPEG/PNG from a relative path; caller frees data.
 esp_err_t book_epub_image(book_epub_t *book, size_t chapter, const char *src, uint8_t **data, size_t *size, bool *png);
+/// 读原始资源前缀以探测图片头。/ Read the raw resource prefix for image-header probing.
+esp_err_t book_epub_image_prefix(book_epub_t *book, size_t chapter, const char *src,
+                                void *data, size_t capacity, size_t *size);
 /// spine 原始 HTML 未压缩字节总量，不等于 EPUB 文件大小。/ Total uncompressed source HTML bytes in the spine, not EPUB file size.
 uint32_t book_epub_total_bytes(const book_epub_t *book);
 /// 该章之前所有 spine 原始 HTML 字节累计值。/ Sum of source HTML bytes preceding this chapter in the spine.
 uint32_t book_epub_chapter_byte_offset(const book_epub_t *book, size_t index);
+content_language_t book_epub_language_for_text(const book_epub_t *book, const html_text_t *text);
+void book_epub_remember_language(book_epub_t *book, content_language_t language);
 /// 从 OPF 封面声明读取 JPEG/PNG 原始数据；调用方 free。/ Read declared EPUB cover bytes; caller frees data.
 esp_err_t book_epub_cover(const char *path, uint8_t **data, size_t *size, bool *is_png);
 /// 只读 OPF 的书名和作者；供书架显示。/ Read OPF title and creator for the shelf.

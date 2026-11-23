@@ -41,7 +41,10 @@ static void fail_notice(const char *v,const char *i){(void)v;(void)i;}
 static const char *app_settings_books_dir(void){return book_folder;}
 static const char *app_settings_system_font_path(void){return "/sdcard/fonts/used.ttf";}
 static const char *app_settings_font_path(void){return "";}
-static const char *content_markdown_font(void){return "";}
+#include "font/font_path_policy.h"
+#define CONTENT_MARKDOWN_FONT_BYTES 160
+static const char *content_english_font(bool document){assert(!document);return "";}
+static esp_err_t content_english_system_font_checked(char *path,size_t capacity){assert(capacity);path[0]=0;return ESP_OK;}
 static const char *content_home_quote_font(void){return "";}
 static esp_err_t fetch(const char *path,bool listing,const char *target,uint64_t limit,uint64_t expected,
  const char *sha,const char *etag,char actual[65],uint64_t *actual_bytes){

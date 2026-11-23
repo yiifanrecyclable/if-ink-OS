@@ -341,6 +341,19 @@ int main(int argc, char **argv) {
     printf(",\"files_page\":%d",simulator_files_page());
     printf(",\"markdown_committed\":%s,\"markdown_sizes\":[%u,%u,%u,%u]",simulator_markdown_committed()?"true":"false",simulator_markdown_size(0),simulator_markdown_size(1),simulator_markdown_size(2),simulator_markdown_size(3));
     extern int simulator_reader_layout(void),simulator_reader_tap_layout(void),simulator_markdown_slider_y(unsigned);
+    extern bool simulator_reader_english(void),simulator_reader_vertical(void);
+    extern bool simulator_reader_hyphenation(void);
+    extern int simulator_reader_hyphen_y(void);
+    printf(",\"reader_hyphenation\":%s,\"reader_hyphen_y\":%d",
+           simulator_reader_hyphenation()?"true":"false",simulator_reader_hyphen_y());
+    extern const char *simulator_reader_markdown_heading(int index);
+    printf(",\"markdown_heading_names\":[");
+    for(int i=1;i<=3;++i){if(i>1)printf(",");json_string(simulator_reader_markdown_heading(i));}
+    printf("]");
+    extern int simulator_reader_font_count(void),simulator_system_font_count(void);
+    printf(",\"reader_english\":%s,\"reader_vertical\":%s,\"reader_font_count\":%d,\"system_font_count\":%d",
+           simulator_reader_english()?"true":"false",simulator_reader_vertical()?"true":"false",
+           simulator_reader_font_count(),simulator_system_font_count());
     printf(",\"reader_layout\":%d,\"reader_tap_layout\":%d,\"markdown_slider_y\":[%d,%d,%d,%d],\"markdown_font_path\":",simulator_reader_layout(),simulator_reader_tap_layout(),simulator_markdown_slider_y(0),simulator_markdown_slider_y(1),simulator_markdown_slider_y(2),simulator_markdown_slider_y(3));json_string(content_markdown_font());
     printf(",\"reader_images\":[");for(unsigned i=0;i<128;++i){int x,y,w,h;if(!simulator_reader_image_slot(i,&x,&y,&w,&h))break;if(i)printf(",");printf("[%d,%d,%d,%d]",x,y,w,h);}printf("]");
     printf(",\"quote_settings_committed\":%s,\"quote_size\":%d",app_device_settings_quote_committed()?"true":"false",app_device_settings_quote_size());printf(",\"home_quote_requested\":%s",app_device_settings_home_quote_requested()?"true":"false");printf(",\"cloud_settings_requested\":%s",app_device_settings_cloud_requested()?"true":"false");printf(",\"cloud_command\":%d,\"cloud_index\":%d,\"cloud_page\":%d",simulator_cloud_command,simulator_cloud_index,simulator_cloud_page);printf(",\"toc_jump\":%s,\"system_view\":%d,\"transfer_mode\":%d,\"transfer_entry\":%d,\"files_dir\":",simulator_toc_jump?"true":"false",simulator_system_view,simulator_transfer_mode,simulator_transfer_entry());json_string(simulator_files_dir);printf(",\"document_zoom\":%s,\"image_top\":%u,\"toc_count\":%zu,\"document_image_ready\":%s,\"reader_progress\":%u",simulator_document_zoom()?"true":"false",simulator_document_image_top(),book_navigation_count(),simulator_document_image_ready()?"true":"false",simulator_reader_progress());

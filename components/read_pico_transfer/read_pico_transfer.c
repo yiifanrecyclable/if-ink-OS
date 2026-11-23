@@ -61,7 +61,7 @@ static bool decode_name_limit(const char *encoded, char *out, size_t cap, unsign
     if (!n || out[0] == '.' || out[0] == ' ' || out[n - 1] == ' ' || strstr(out, "..")) return false;
     const char *ext = strrchr(out, '.');
     if (!ext || (kind == 1 ? (strcasecmp(ext, ".jpg") && strcasecmp(ext, ".jpeg") && strcasecmp(ext, ".png"))
-               : kind == 2 ? (strcasecmp(ext, ".ttf") && strcasecmp(ext, ".otf"))
+               : kind == 2 ? strcasecmp(ext, ".ttf")
                : kind == 3 ? strcasecmp(ext, ".md")
                            : (strcasecmp(ext, ".txt") && strcasecmp(ext, ".epub")))) return false;
     // 拒绝非规范 UTF-8、代理项与越界码点。/ Reject noncanonical UTF-8, surrogates and out-of-range code points.
@@ -1315,7 +1315,7 @@ static esp_err_t upload_handler(httpd_req_t *req) {
     int resolved = resolve_mutation_path(s_root, name, path, sizeof(path));
     if (resolved) return respond_error(req, resolved);
     if(s_cfg.path_write_allowed_cb&&!s_cfg.path_write_allowed_cb(path))
-        return wifi_response(req,"409 Conflict","{\"error\":\"文件正在被首页 Banner 使用，请先更换设置\"}");
+        return wifi_response(req,"409 Conflict","{\"error\":\"文件受保护或正在被首页 Banner 使用\"}");
     snprintf(part, sizeof(part), "%s.part", path);
     bool overwrite = httpd_query_key_value(query, "overwrite", replace, sizeof(replace)) == ESP_OK && !strcmp(replace, "1");
     portENTER_CRITICAL(&s_lock);
@@ -1352,7 +1352,7 @@ static esp_err_t media_upload_handler(httpd_req_t *req, const char *root, unsign
     int resolved = resolve_mutation_path(root, name, path, sizeof(path));
     if (resolved) return respond_error(req, resolved);
     if(s_cfg.path_write_allowed_cb&&!s_cfg.path_write_allowed_cb(path))
-        return wifi_response(req,"409 Conflict","{\"error\":\"文件正在被首页 Banner 使用，请先更换设置\"}");
+        return wifi_response(req,"409 Conflict","{\"error\":\"文件受保护或正在被首页 Banner 使用\"}");
     snprintf(part, sizeof(part), "%s.part", path);
     bool overwrite = httpd_query_key_value(query, "overwrite", replace, sizeof(replace)) == ESP_OK && !strcmp(replace, "1");
     char wallpaper[8] = {0};
@@ -1460,7 +1460,7 @@ static esp_err_t file_upload_handler(httpd_req_t *req) {
         return document_upload_error(req, 403);
     bool overwrite = httpd_query_key_value(query, "overwrite", replace, sizeof(replace)) == ESP_OK && !strcmp(replace, "1");
     if(s_cfg.path_write_allowed_cb&&!s_cfg.path_write_allowed_cb(path))
-        return wifi_response(req,"409 Conflict","{\"error\":\"文件正在被首页 Banner 使用，请先更换设置\"}");
+        return wifi_response(req,"409 Conflict","{\"error\":\"文件受保护或正在被首页 Banner 使用\"}");
     const char *name = strrchr(relative, '/'); name = name ? name + 1 : relative;
     portENTER_CRITICAL(&s_lock);
     if (!admission_begin(s_stopping, &s_upload_active)) {
@@ -1762,8 +1762,10 @@ static esp_err_t files_mutation_handler(httpd_req_t *req) {
         cJSON_Delete(json);
         return files_error(req, "403 Forbidden", "{\"error\":\"此目录由文档同步管理；删除文档请在设备内容页操作\"}");
     }
-    if(strcmp(action->valuestring,"copy")&&strcmp(action->valuestring,"mkdir")&&s_cfg.path_write_allowed_cb&&!s_cfg.path_write_allowed_cb(source)){
-        cJSON_Delete(json);return files_error(req,"409 Conflict","{\"error\":\"资源正在被首页 Banner 使用，请先更换设置\"}");
+    bool changes_source=strcmp(action->valuestring,"copy")&&strcmp(action->valuestring,"mkdir");
+    if(s_cfg.path_write_allowed_cb&&((changes_source&&!s_cfg.path_write_allowed_cb(source))||
+       (has_target&&!s_cfg.path_write_allowed_cb(target)))){
+        cJSON_Delete(json);return files_error(req,"409 Conflict","{\"error\":\"文件受保护或正在被首页 Banner 使用\"}");
     }
     bool accepted;
     portENTER_CRITICAL(&s_lock);
@@ -1836,6 +1838,7 @@ static esp_err_t files_mutation_handler(httpd_req_t *req) {
     portEXIT_CRITICAL(&s_lock);
     set_error(ESP_OK);
     cJSON_Delete(json);
+    if(ref_error==ESP_ERR_INVALID_ARG)return files_error(req,"400 Bad Request","{\"error\":\"目标路径不适用于当前关联设置，文件未修改\"}");
     if(ref_error!=ESP_OK&&ref_error!=ESP_ERR_NOT_FOUND)return files_error(req,"500 Internal Server Error","{\"error\":\"关联设置处理失败，请重试；本次未修改文件\"}");
     if(s_file_metadata_failed)return files_error(req,"500 Internal Server Error","{\"error\":\"文件已变更，但关联设置或阅读记录未保存，请检查\"}");
     if (status == 200) return files_error(req, "200 OK", "{\"ok\":true}");

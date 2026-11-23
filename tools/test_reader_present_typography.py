@@ -9,6 +9,7 @@ ns={'__file__':str(R/'tools/test_navigation_perf.py')};exec(base,ns)
 function=ns['function'];unit=ns['unit'];book=(Path(sys.argv[1]) if len(sys.argv)>1 else R/'main/apps/app_book.c').read_text()
 unit=unit.replace("static void ui_text_set_system_scale(bool b){assert(b);step('S',0);}","static bool s_system_text_scale;static void ui_text_set_system_scale(bool b){s_system_text_scale=b;}")
 unit=unit.replace('static bool active=true,s_home_force_full_once;', 'static bool active=true;').replace('static EpdRect s_area;', '')
+unit=unit.replace("static bool app_font_activate_system(void){step('F',11);return true;}", "")
 unit+=r'''
 #define UI_PAGE_Y(y) ((y)-24)
 #define UI_LOCK_HEIGHT 1216
@@ -21,13 +22,18 @@ static int header_px,physical_header,prepared_header;
 static bool fullscreen,cleanup,prepare,landscape;
 static bool reader_landscape(void){return landscape;}
 static char s_book_title[128]="A readable title",s_title[128]="Chapter";
+static const char *s_font_path="/sdcard/fonts/Reader.ttf";
+static bool s_reader_english,use_reader_face=true,header_uses_reader_face;
+static bool ttf_font_has_text(const char *text){return (unsigned char)text[0]<128;}
+static bool app_font_activate_system(void){assert(use_reader_face);use_reader_face=false;return true;}
+static void app_font_restore_reading(const char *path){assert(path==s_font_path&&!use_reader_face);use_reader_face=true;}
 static void copy_text(char *out,size_t cap,const char *text){snprintf(out,cap,"%s",text);}
 static EpdRect ui_nav_close_rect(void){return(EpdRect){24,49,68,68};}
 static void ui_nav_close_in(uint8_t *f,EpdRect r){(void)f;assert(r.x==(landscape?12:24)&&r.width==(landscape?60:68)&&r.y+r.height/2==(landscape?36:90));}
 static void ui_hairline(uint8_t *f,int y,int x,int w,int gray){(void)f;assert(y==(landscape?69:127)&&x==0&&w==(landscape?1216:684)&&gray==UI_GRAY_SECTION_LINE);}
 static int ttf_text_width_px(int px,const char *text){return px*(int)strlen(text)/2;}
 static void ttf_measure_line_px(int px,const char *s,int *above,int *below){assert(px==32&&ttf_text_width_px(px,s)<=450);*above=22;*below=6;}
-static void ttf_draw_text_px(uint8_t *f,int x,int y,int px,const char *s,int align,int fg,int bg){(void)f;(void)s;assert(x==(landscape?608:342)&&y==(landscape?44:98)&&align==EPD_DRAW_ALIGN_CENTER&&fg==0&&bg==15);header_px=px;}
+static void ttf_draw_text_px(uint8_t *f,int x,int y,int px,const char *s,int align,int fg,int bg){(void)f;(void)s;assert(x==(landscape?608:342)&&y==(landscape?44:98)&&align==EPD_DRAW_ALIGN_CENTER&&fg==0&&bg==15);header_px=px;header_uses_reader_face=use_reader_face;}
 '''
 unit+=function(book,'static void fit_ttf_text(char* text, int px, int width) {')
 unit+=function(book,'static EpdRect reader_portrait_close_rect(void) {')
@@ -61,6 +67,10 @@ int main(void){
   }
  }
  landscape=true;draw_reader_header(ctx.fb);assert(header_px==32);
+ s_reader_english=true;
+ draw_reader_header(ctx.fb);assert(header_uses_reader_face);
+ strcpy(s_book_title,"中文书名");
+ draw_reader_header(ctx.fb);assert(!header_uses_reader_face&&use_reader_face&&header_px==32);
  s_view=SHELF;app_present(&ctx,&book,APP_REDRAW_NONE);assert(s_system_text_scale);
  puts("PASS fixed reader TTF header, full-width rule, close alignment, and periodic refresh typography");
 }

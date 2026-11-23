@@ -337,6 +337,114 @@ esp_err_t content_markdown_font_set(const char *path){
     return settings_storage_put_str("if_content","md_font",path);
 }
 
+bool content_english_hyphenation(void) {
+    records_handle_t handle;
+    uint8_t enabled = 1;
+    if (records_open("if_content", NVS_READONLY, &handle) == ESP_OK) {
+        if (records_get_u8(handle, "en_hyphen", &enabled) != ESP_OK) enabled = 1;
+        records_close(handle);
+    }
+    return enabled != 0;
+}
+
+esp_err_t content_set_english_hyphenation(bool enabled) {
+    records_handle_t handle;
+    esp_err_t err = records_open("if_content", NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    err = records_set_u8(handle, "en_hyphen", enabled);
+    records_close(handle);
+    return err;
+}
+
+bool content_document_layout_valid(const content_document_layout_t *layout) {
+    return layout->margin >= 8 && layout->margin <= 60 && layout->line >= 110 &&
+        layout->line <= 150 && layout->paragraph <= 75 && layout->tracking <= 4 &&
+        layout->indent <= 3 && layout->rule <= 2 && layout->fullscreen <= 1 &&
+        layout->immersive <= 1 && layout->rule_offset >= -8 && layout->rule_offset <= 8 &&
+        layout->rule_offset % 2 == 0;
+}
+_Static_assert(sizeof(content_document_layout_t) == 9, "Stable Markdown layout v1");
+
+esp_err_t content_document_layout_load(content_document_layout_t *layout) {
+    records_handle_t handle;
+    esp_err_t err = records_open("if_content", NVS_READONLY, &handle);
+    if (err != ESP_OK) return err;
+    content_document_layout_t stored;
+    size_t bytes = sizeof(stored);
+    err = records_get_blob(handle, "md_layout_v1", &stored, &bytes);
+    records_close(handle);
+    if (err == ESP_ERR_NVS_INVALID_LENGTH) return ESP_ERR_INVALID_RESPONSE;
+#ifdef ESP_ERR_NVS_TYPE_MISMATCH
+    if (err == ESP_ERR_NVS_TYPE_MISMATCH) return ESP_ERR_INVALID_RESPONSE;
+#endif
+    if (err != ESP_OK) return err;
+    if (bytes != sizeof(stored) || !content_document_layout_valid(&stored)) return ESP_ERR_INVALID_RESPONSE;
+    *layout = stored;
+    return ESP_OK;
+}
+esp_err_t content_document_layout_save(const content_document_layout_t *layout) {
+    if (!content_document_layout_valid(layout)) return ESP_ERR_INVALID_ARG;
+    records_handle_t handle;
+    esp_err_t err = records_open("if_content", NVS_READWRITE, &handle);
+    if (err != ESP_OK) return err;
+    err = records_set_blob(handle, "md_layout_v1", layout, sizeof(*layout));
+    records_close(handle);
+    return err;
+}
+
+bool content_english_system_font_valid(const char *path) {
+    return path && (!strcmp(path, "builtin") || content_font_path_valid(path, false));
+}
+
+static const char *english_font_key(bool document) {
+    return document ? "md_font_en" : "book_font_en";
+}
+static esp_err_t read_english_font(const char *key, char *path, size_t capacity, bool system) {
+    if (!path || !capacity) return ESP_ERR_INVALID_ARG;
+    char value[CONTENT_MARKDOWN_FONT_BYTES];
+    size_t size = sizeof(value);
+    records_handle_t handle;
+    esp_err_t err = records_open("if_content", NVS_READONLY, &handle);
+    if (err == ESP_OK) {
+        err = records_get_str(handle, key, value, &size);
+        records_close(handle);
+    }
+    if (err == ESP_ERR_NVS_NOT_FOUND) { path[0] = 0; return ESP_OK; }
+    if (err != ESP_OK) return err;
+    if (!size || size > sizeof(value) || !memchr(value, 0, size) ||
+        !(system ? content_english_system_font_valid(value) : content_font_path_valid(value, false))) return ESP_ERR_INVALID_RESPONSE;
+    if (strlen(value) >= capacity) return ESP_ERR_INVALID_SIZE;
+    strcpy(path, value);
+    return ESP_OK;
+}
+esp_err_t content_english_font_checked(bool document, char *path, size_t capacity) {
+    return read_english_font(english_font_key(document), path, capacity, false);
+}
+esp_err_t content_english_system_font_checked(char *path, size_t capacity) {
+    return read_english_font("sys_font_en", path, capacity, true);
+}
+const char *content_english_font(bool document) {
+    static char path[CONTENT_MARKDOWN_FONT_BYTES];
+    return content_english_font_checked(document, path, sizeof(path)) == ESP_OK ? path : "";
+}
+static esp_err_t store_english_font(const char *key, const char *path, bool system) {
+    if (!(system ? content_english_system_font_valid(path) : content_font_path_valid(path, false))) return ESP_ERR_INVALID_ARG;
+    records_handle_t handle;
+    esp_err_t err = records_open("if_content", NVS_READWRITE, &handle);
+    if (err == ESP_OK) {
+        err = records_set_str(handle, key, path);
+        records_close(handle);
+    }
+    return err;
+}
+
+esp_err_t content_english_font_set(bool document, const char *path) {
+    return store_english_font(english_font_key(document), path, false);
+}
+esp_err_t content_english_system_font_set(const char *path) {
+    return store_english_font("sys_font_en", path, true);
+}
+
 // 编辑/导出读取保留错误；显示用旧入口仍可采用临时默认值。/ Editing/export preserves errors; legacy display readers may use temporary defaults.
 esp_err_t content_reading_target_load_checked(uint8_t *minutes){
     if(!minutes)return ESP_ERR_INVALID_ARG;

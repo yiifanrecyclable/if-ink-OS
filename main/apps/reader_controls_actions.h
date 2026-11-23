@@ -5,7 +5,7 @@
 static app_redraw_t reader_show_panel(reader_panel_t panel){
     if (s_reader_panel == READER_PANEL_FONT_PICKER) ttf_name_preview_pause();
     if (panel == READER_PANEL_FONT_PICKER) {
-        ttf_font_scan();
+        ttf_font_picker_begin(book_store_revision(), book_index_cache_epoch());
         ttf_name_preview_revision(book_store_revision());
     }
     if(panel==READER_PANEL_HELP)s_help_return_panel=s_reader_panel;
@@ -23,7 +23,7 @@ static app_redraw_t reader_show_tab(app_ctx_t *ctx,int tab){
 static app_redraw_t reader_change_size(app_ctx_t *ctx,int direction){
     int next=s_px+direction*BOOK_PX_STEP;if(next<BOOK_PX_MIN)next=BOOK_PX_MIN;if(next>BOOK_PX_MAX)next=BOOK_PX_MAX;
     if(next==s_px)return APP_REDRAW_NONE;
-    if(book_kind()!=BOOK_KIND_MARKDOWN)return apply_reader_layout(ctx,next,s_margin,app_settings_book_line_spacing(),app_settings_book_paragraph_spacing());
+    if(book_kind()!=BOOK_KIND_MARKDOWN)return apply_reader_layout(ctx,next,s_margin,reader_layout().line,reader_layout().paragraph);
     memcpy(s_md_draft,s_md_sizes,4);s_md_draft[0]=(uint8_t)next;
     for(int i=1;i<4;++i){int px=(s_md_sizes[i]*next+s_px/2)/s_px;s_md_draft[i]=px<24?24:px>96?96:px;}
     return apply_markdown_sizes(ctx);
@@ -95,20 +95,27 @@ static app_redraw_t reader_layout_mode_action(EpdRect grid, uint16_t x, uint16_t
 }
 static app_redraw_t reader_panel_item(app_ctx_t *ctx,int i,uint16_t x,uint16_t y) {
     if(s_reader_panel==READER_PANEL_FONT_SETTINGS){
-        if(i==1)return reader_show_panel(READER_PANEL_FONT_PICKER);
-        if(i==2&&book_kind()==BOOK_KIND_MARKDOWN)return reader_show_panel(READER_PANEL_MARKDOWN_SIZES);
+        if(i==2)return reader_show_panel(READER_PANEL_FONT_PICKER);
+        if(i==3&&book_kind()==BOOK_KIND_MARKDOWN)return reader_show_panel(READER_PANEL_MARKDOWN_SIZES);
     }else if(s_reader_panel==READER_PANEL_FONT_PICKER){
-        return select_reading_font_item(ctx,ttf_font_item(i));
+        return select_reading_font_item(ctx,reader_font_item(i));
     }else if(s_reader_panel==READER_PANEL_LAYOUT_SETTINGS){
-        if(i==4)return apply_reader_indent(ctx,(app_settings_book_indent()+1)%4);
+        if(i==4)return apply_reader_indent(ctx,(reader_layout().indent+1)%4);
         if(i==5)return reader_show_panel(READER_PANEL_RULE_SETTINGS);
         if(i==6 && book_kind()!=BOOK_KIND_MARKDOWN)
             return reader_layout_mode_action(reader_control_row(6), x, y);
     }else if(s_reader_panel==READER_PANEL_RULE_SETTINGS){
-        if(i<3){int style=i;app_settings_set_book_reading_line(style);book_layout_set_reading_line(style);}
-        else if(i==3||i==4){int dir=ui_rect_hit(reader_landscape()?wide_rule_adjust(-1):reader_rule_offset_rect(-1),x,y)?-1:ui_rect_hit(reader_landscape()?wide_rule_adjust(1):reader_rule_offset_rect(1),x,y)?1:0;if(i==3&&!dir)return APP_REDRAW_NONE;int offset=i==4?0:app_settings_book_reading_line_offset()+dir*2;if(offset< -8)offset=-8;if(offset>8)offset=8;app_settings_set_book_reading_line_offset(offset);book_layout_set_reading_line_offset(offset);}
-        else return APP_REDRAW_NONE;
-        invalidate_prep();return APP_REDRAW_PAGE;
+        if(i<3)return save_reader_rule(i,false);
+        if(i==3||i==4){
+            int dir=ui_rect_hit(reader_landscape()?wide_rule_adjust(-1):reader_rule_offset_rect(-1),x,y)?-1:
+                    ui_rect_hit(reader_landscape()?wide_rule_adjust(1):reader_rule_offset_rect(1),x,y)?1:0;
+            if(i==3&&!dir)return APP_REDRAW_NONE;
+            int offset=i==4?0:reader_layout().rule_offset+dir*2;
+            if(offset< -8)offset=-8;
+            if(offset>8)offset=8;
+            return save_reader_rule(offset,true);
+        }
+        return APP_REDRAW_NONE;
     }else if(s_reader_panel==READER_PANEL_SHORTCUTS){
         if(i>=READER_SHORTCUT_COUNT)return APP_REDRAW_NONE;
         s_shortcut_slot=i;return reader_show_panel(READER_PANEL_BINDING);
@@ -170,8 +177,10 @@ static app_redraw_t reader_panel_action(app_ctx_t *ctx,uint16_t x,uint16_t y){
             return APP_REDRAW_PAGE;}
         return APP_REDRAW_NONE;
     }
+    if((s_reader_panel==READER_PANEL_FONT_SETTINGS||reader_markdown_font_panel())&&ui_rect_hit(reader_hyphen_row(),x,y))
+        return toggle_reader_hyphenation(ctx);
     if(reader_markdown_font_panel()){
-        if(ui_rect_hit((EpdRect){36,UI_PAGE_Y(210),612,80},x,y))return reader_show_panel(READER_PANEL_FONT_PICKER);
+        if(ui_rect_hit(reader_markdown_font_row(),x,y))return reader_show_panel(READER_PANEL_FONT_PICKER);
         return APP_REDRAW_NONE;
     }
     int count=reader_control_count(),rows=reader_control_rows();

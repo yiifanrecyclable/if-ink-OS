@@ -35,8 +35,13 @@ static inline tinfl_status tinfl_decompress(tinfl_decompressor* state, const mz_
     *out_size = available_out ? available_out - stream->avail_out : 0;
     if (!available_out && stream->avail_out != 1) result = Z_DATA_ERROR;
     if (result == Z_STREAM_END) { inflateEnd(stream); state->initialized = 0; return TINFL_STATUS_DONE; }
-    if (result == Z_OK || result == Z_BUF_ERROR)
-        return stream->avail_out == 0 ? TINFL_STATUS_HAS_MORE_OUTPUT : TINFL_STATUS_NEEDS_MORE_INPUT;
+    if (result == Z_OK || result == Z_BUF_ERROR) {
+        if (stream->avail_out) return TINFL_STATUS_NEEDS_MORE_INPUT;
+        // 本适配器的调用方在输出缓冲写满时结束探测。/ The adapter caller stops probing when the output buffer fills.
+        inflateEnd(stream);
+        state->initialized = 0;
+        return TINFL_STATUS_HAS_MORE_OUTPUT;
+    }
     inflateEnd(stream); state->initialized = 0;
     return TINFL_STATUS_FAILED;
 }

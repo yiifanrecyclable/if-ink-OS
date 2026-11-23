@@ -4,9 +4,11 @@
  */
 #pragma once
 #include "html_text.h"
+#include "content_language.h"
 esp_err_t book_markdown_open(const char *path);
 void book_markdown_close(void);
 bool book_markdown_active(void);
+content_language_t book_markdown_language(void);
 esp_err_t book_markdown_load(html_text_t *out);
 size_t book_markdown_length(void);
 size_t book_markdown_navigation_count(void);

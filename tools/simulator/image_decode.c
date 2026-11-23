@@ -8,6 +8,8 @@
 #include "book_cover.h"
 #include "book_cover_auto.h"
 #include "book_epub.h"
+#include "book_gif.h"
+#include "book_image_header.h"
 book_crop_t book_cover_crop(unsigned sw,unsigned sh,unsigned dw,unsigned dh){
  book_crop_t crop={0,0,sw,sh};if(!sw||!sh||!dw||!dh)return crop;
  if((uint64_t)sw*dh>(uint64_t)sh*dw){crop.width=(unsigned)((uint64_t)sh*dw/dh);if(!crop.width)crop.width=1;crop.x=(sw-crop.width)/2;}
@@ -20,10 +22,12 @@ static CGImageRef decoded(const uint8_t *data,size_t size){
  if(!src)return NULL;CGImageRef img=CGImageSourceCreateImageAtIndex(src,0,NULL);CFRelease(src);return img;
 }
 bool book_image_dimensions(const uint8_t*d,size_t n,bool png,unsigned*w,unsigned*h){
+ if(!png&&book_gif_signature(d,n))return book_gif_frame(d,n,w,h);
  CGImageRef img=decoded(d,n);if(!img)return false;*w=CGImageGetWidth(img);*h=CGImageGetHeight(img);CGImageRelease(img);return *w&&*h;
 }
 bool book_image_grayscale(const uint8_t*d,size_t n,bool png,unsigned w,unsigned h,uint8_t*out){
  if(!w||!h||w>1216||h>1216||!out)return false;
+ if(!png&&book_gif_signature(d,n))return book_gif_gray(d,n,w,h,out);
  CGImageRef img=decoded(d,n);if(!img)return false;
  book_crop_t crop=book_cover_crop((unsigned)CGImageGetWidth(img),(unsigned)CGImageGetHeight(img),w,h);
  CGImageRef clipped=CGImageCreateWithImageInRect(img,CGRectMake(crop.x,crop.y,crop.width,crop.height));CGImageRelease(img);img=clipped;if(!img)return false;

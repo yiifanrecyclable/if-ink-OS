@@ -4,6 +4,33 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.6 Beta 1 / 2026-11-23
+
+- 系统字体须支持中英文；纯英文字体可用于纯英文阅读。/ System fonts must support Chinese and English; Latin-only faces remain available for English reading.
+
+- EPUB 横屏双栏支持段间小插图，按栏宽等比排版。/ Small EPUB illustrations flow between paragraphs in landscape two-column reading.
+
+- 纯英文书籍和文档的正文默认按词间空格两端对齐。/ Justify English book and document paragraphs at word spaces by default.
+
+- EPUB 阅读支持 GIF 插图，动图显示首帧。/ EPUB reading displays GIF illustrations using their first frame.
+
+- 在线升级优先从国内镜像读取签名清单及下载固件，镜像不可用时回退 GitHub。/ Online updates prefer the signed domestic mirror and fall back to GitHub when the mirror is unavailable.
+- EPUB 正文与注释可双向跳转，底栏按起点显示「返回正文」或「返回注释」。/ Follow EPUB notes in either direction and return to the starting position using Back to text or Back to note.
+- EPUB 图片角标保留在段落内，有编号时显示小号数字，无编号时显示圆形「注」标记，支持双向跳转。/ EPUB note icons stay inline as small numbers or a circular note badge and support two-way navigation.
+- EPUB 同文件内边界明确的短注释可在阅读页底部卡片展开。卡片按实际排版限制在半屏内，横屏在左侧显示标题和角标。/ Short EPUB notes with clear boundaries in the same file open in a bottom card sized by layout up to half the screen, with the title and marker in a left column in landscape.
+
+- 系统列表用左右实体键翻页。中键短按退回上一层，长按直达首页。/ Side keys page through system lists. Tap the middle key to go back one level, or hold it to go Home.
+
+- 图书横屏支持三种版式、随持握方向自动转向及跟随实体键侧的翻页热区。阅读控制面板靠实体键显示，目录等子页在另一侧按页浏览。/ Landscape books have three reading layouts, automatic orientation and tap zones that follow the hardware keys. Reader controls stay beside the hardware keys, with paged subpanels on the opposite side.
+- 横屏签名和书名以中央短线分隔，普通全屏和沉浸全屏收紧底部留白，横屏阅读随持握方向转向。/ Center the signature and title around a divider, reclaim bottom space in fullscreen and immersive reading, and follow the device orientation during landscape reading.
+- 图书版式设置将排版方向、屏幕方向与栏数排成两行，当前选项用黑字显示。/ Book layout settings show text direction, screen orientation, and column count in two rows, with the active choices shown in black.
+
+- 横屏水波纹改用逐行扫描，含插图的翻页改用灰阶差分，减少整屏闪烁。/ Landscape ripple turns scan by line, and illustrated turns use grayscale differences to reduce full-screen flashing.
+
+- 书籍和 Markdown 的正文字号上限提高至 100 px。/ Raise the book and Markdown body size limit to 100 px.
+- 阅读字体列表直接显示 TF 卡上的字体。修复字体加载失败后可能反复重试并触发全刷的问题。/ List TF card faces directly in the reader. A font load failure no longer repeatedly requests a full refresh.
+- 系统文字和阅读字体列表用各自的字体显示名称。当前页在空闲时生成预览，缺字时沿用列表字体。/ System and reader font lists show names in their own faces. Visible previews are prepared on idle, with a fallback for missing glyphs.
+
 ## 0.2.5 / 2026-11-20
 
 - 在线升级优先检查国内签名镜像，国内线路不可用时回退 GitHub。/ Prefer the signed domestic OTA mirror and fall back to GitHub when unavailable.

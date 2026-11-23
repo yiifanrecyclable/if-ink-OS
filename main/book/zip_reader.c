@@ -209,11 +209,14 @@ size_t zip_entry_packed_size(const zip_reader_t *z, int index) {
     return z && index >= 0 && index < z->count ? z->entries[index].packed : 0;
 }
 
-esp_err_t zip_extract(zip_reader_t* z, int index, void* dst, size_t cap) {
+static esp_err_t extract(zip_reader_t* z, int index, void* dst, size_t cap, size_t* prefix_size) {
     if (!z || index < 0 || index >= z->count) return ESP_ERR_INVALID_ARG;
     const zip_entry_t* entry = &z->entries[index];
+    size_t wanted = entry->unpacked;
+    if (prefix_size && cap < wanted) wanted = cap;
+    bool partial = wanted < entry->unpacked;
     if (entry->unpacked > ZIP_OUTPUT_MAX || entry->packed > ZIP_INPUT_MAX ||
-        cap < entry->unpacked || (!dst && entry->unpacked)) return ESP_ERR_INVALID_SIZE;
+        cap < wanted || (!dst && wanted)) return ESP_ERR_INVALID_SIZE;
     uint8_t h[30];
     if (!read_at(z, entry->offset, h, sizeof(h)) || u32(h) != UINT32_C(0x04034b50) ||
         u16(h + 6) != entry->flags || u16(h + 8) != entry->method ||
@@ -230,9 +233,10 @@ esp_err_t zip_extract(zip_reader_t* z, int index, void* dst, size_t cap) {
     uint8_t empty_output;
     uint8_t* output = dst ? dst : &empty_output;
     if (entry->method == 0) {
-        if (!read_at(z, data_pos, output, entry->unpacked)) return ESP_FAIL;
+        if (!read_at(z, data_pos, output, wanted)) return ESP_FAIL;
     } else {
-        uint8_t* input = heap_caps_malloc(INFLATE_CHUNK, PSRAM);
+        const size_t chunk = partial ? wanted : INFLATE_CHUNK;
+        uint8_t* input = heap_caps_malloc(chunk, PSRAM);
         tinfl_decompressor* state = heap_caps_malloc(sizeof(*state), PSRAM);
         if (!input || !state) { free(input); free(state); return ESP_ERR_NO_MEM; }
         bool ok = fseek(z->file, (long)data_pos, SEEK_SET) == 0;
@@ -241,26 +245,27 @@ esp_err_t zip_extract(zip_reader_t* z, int index, void* dst, size_t cap) {
             size_t remaining = entry->packed, buffered = 0, consumed = 0, produced = 0;
             while (ok) {
                 if (consumed == buffered && remaining) {
-                    buffered = remaining < INFLATE_CHUNK ? remaining : INFLATE_CHUNK;
+                    buffered = remaining < chunk ? remaining : chunk;
                     if (fread(input, 1, buffered, z->file) != buffered) { ok = false; break; }
                     remaining -= buffered;
                     consumed = 0;
                 }
                 size_t in_size = buffered - consumed;
-                size_t out_size = entry->unpacked - produced;
+                size_t out_size = wanted - produced;
                 tinfl_status status = tinfl_decompress(state, input + consumed, &in_size,
                     output, output + produced, &out_size,
                     TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF |
                     (remaining ? TINFL_FLAG_HAS_MORE_INPUT : 0));
                 consumed += in_size;
                 produced += out_size;
+                if (partial && status == TINFL_STATUS_HAS_MORE_OUTPUT && produced == wanted) break;
                 if (status == TINFL_STATUS_DONE) {
                     ok = !remaining && consumed == buffered && produced == entry->unpacked;
                     break;
                 }
                 if (status < 0 || (status == TINFL_STATUS_NEEDS_MORE_INPUT &&
                                    !remaining && consumed == buffered) ||
-                    (status == TINFL_STATUS_HAS_MORE_OUTPUT && produced == entry->unpacked) ||
+                    (status == TINFL_STATUS_HAS_MORE_OUTPUT && produced == wanted) ||
                     (!in_size && !out_size && consumed != buffered)) {
                     ok = false; break;
                 }
@@ -269,5 +274,17 @@ esp_err_t zip_extract(zip_reader_t* z, int index, void* dst, size_t cap) {
         free(input); free(state);
         if (!ok) return ESP_ERR_INVALID_SIZE;
     }
-    return zip_crc32(output, entry->unpacked) == entry->crc ? ESP_OK : ESP_ERR_INVALID_CRC;
+    if (!partial && zip_crc32(output, wanted) != entry->crc) return ESP_ERR_INVALID_CRC;
+    if (prefix_size) *prefix_size = wanted;
+    return ESP_OK;
+}
+
+esp_err_t zip_extract(zip_reader_t* z, int index, void* dst, size_t cap) {
+    return extract(z, index, dst, cap, NULL);
+}
+
+esp_err_t zip_extract_prefix(zip_reader_t* z, int index, void* dst, size_t cap, size_t* size) {
+    if (!dst || !cap || !size) return ESP_ERR_INVALID_ARG;
+    *size = 0;
+    return extract(z, index, dst, cap, size);
 }

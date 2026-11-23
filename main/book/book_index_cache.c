@@ -130,3 +130,25 @@ bool book_index_cache_finish_write(FILE* file, const char* temp, const char* pat
     remove(temp);
     return false;
 }
+
+bool book_index_cache_read_language(const char *source, content_language_t *language) {
+    char path[112];
+    book_index_cache_header_t key;
+    if (!book_index_cache_prepare(source, "language", 1, path, sizeof(path), &key)) return false;
+    FILE *file = book_index_cache_open_read(path, &key);
+    if (!file) return false;
+    int value = fgetc(file);
+    bool valid = value >= CONTENT_LANGUAGE_UNKNOWN && value <= CONTENT_LANGUAGE_COMPATIBLE &&
+                 fgetc(file) == EOF && !ferror(file);
+    fclose(file);
+    if (valid) *language = (content_language_t)value;
+    return valid;
+}
+
+void book_index_cache_write_language(const char *source, content_language_t language) {
+    char path[112], temp[120];
+    book_index_cache_header_t key;
+    if (!book_index_cache_prepare(source, "language", 1, path, sizeof(path), &key)) return;
+    FILE *file = book_index_cache_open_write(path, &key, temp, sizeof(temp));
+    if (file) (void)book_index_cache_finish_write(file, temp, path, fputc(language, file) != EOF);
+}

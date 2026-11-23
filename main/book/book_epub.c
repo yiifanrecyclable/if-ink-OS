@@ -33,7 +33,7 @@
 #define EPUB_ID_CAP 128
 #define EPUB_TITLE_CAP 160
 #define EPUB_ENTRY_MAX (4u * 1024u * 1024u)
-#define EPUB_CACHE_VERSION 102u // IF池化索引独立版本 / IF pooled-index format
+#define EPUB_CACHE_VERSION 103u // IF池化索引独立版本 / IF pooled-index format
 #define EPUB_META_CACHE_VERSION 1u
 #define EPUB_CSS_MAX (256u * 1024u)
 #define EPUB_CSS_FILE_MAX (128u * 1024u)
@@ -76,13 +76,16 @@ struct book_epub {
     size_t authored_count;
     size_t navigation_capacity;
     bool body_scanned; ///< 正文编号标题已检查并缓存 / Numbered body headings already indexed
+    bool english_hint;
+    content_language_t language;
+    bool language_dirty;
     text_block_t *text_blocks,*text_last;
 };
 typedef struct {
     uint32_t count;
     uint32_t total;
     uint32_t authored_count;
-    uint8_t body_scanned;
+    uint8_t body_scanned, english_hint, reserved[2];
 } epub_cache_payload_t;
 typedef struct {
     char title[256];
@@ -201,7 +204,8 @@ static bool epub_cache_load(const char* source, book_epub_t* book) {
     epub_cache_payload_t payload;
     bool ok = fread(&payload, 1, sizeof(payload), cache) == sizeof(payload) &&
         payload.count > 0 && payload.count <= EPUB_CHAPTER_MAX &&
-        payload.authored_count <= EPUB_NAV_MAX && payload.body_scanned <= 1;
+        payload.authored_count <= EPUB_NAV_MAX && payload.body_scanned <= 1 &&
+        payload.english_hint <= 1;
     // 结构体里的标题现在是指针，不能整块落盘：先读元数据，再按同样的顺序把字符串接回池里。
     // The entry's title is a pointer now and cannot be dumped as a block: read the metadata, then
     // rebind each string into the pool in the same order.
@@ -262,6 +266,7 @@ static bool epub_cache_load(const char* source, book_epub_t* book) {
     book->count = payload.count; book->total = payload.total; book->authored_count = payload.authored_count;
     book->navigation_capacity = payload.authored_count;
     book->body_scanned = payload.body_scanned != 0;
+    book->english_hint = payload.english_hint != 0;
     return true;
 }
 
@@ -272,7 +277,8 @@ static void epub_cache_save(const char* source, const book_epub_t* book) {
     if (!cache) return;
     epub_cache_payload_t payload = {.count = (uint32_t)book->count, .total = book->total,
                                     .authored_count = (uint32_t)book->authored_count,
-                                    .body_scanned = book->body_scanned ? 1 : 0};
+                                    .body_scanned = book->body_scanned ? 1 : 0,
+                                    .english_hint = book->english_hint};
     bool ok = fwrite(&payload, 1, sizeof(payload), cache) == sizeof(payload);
     for (size_t i = 0; ok && i < book->count; ++i) {
         const chapter_t *c=&book->chapters[i];
@@ -595,6 +601,12 @@ static size_t package_child_count(const char *text, size_t len,
     }
     return xml.failed ? 0 : count;
 }
+static bool english_language_tag(span_t value) {
+    while (value.n && space(*value.p)) { ++value.p; --value.n; }
+    while (value.n && space(value.p[value.n - 1])) --value.n;
+    return value.n >= 2 && !strncasecmp(value.p, "en", 2) &&
+           (value.n == 2 || value.p[2] == '-');
+}
 static esp_err_t package_parse(book_epub_t *book, const char *opf, char ncx[EPUB_PATH_CAP], char nav[EPUB_PATH_CAP]) {
     char *text; size_t len; esp_err_t err = load_entry(book, zip_find(book->zip, opf), &text, &len);
     if (err != ESP_OK) return err;
@@ -616,9 +628,17 @@ static esp_err_t package_parse(book_epub_t *book, const char *opf, char ncx[EPUB
     memset(book->chapters, 0, chapter_capacity * sizeof(*book->chapters));
     book->chapter_capacity = chapter_capacity;
     size_t count = 0, manifest_depth = 0; bool root = false;
+    bool metadata = false, language_tag = false, declares_english = false, other_language = false;
     xml_t xml; xml_reader(&xml, text, len); token_t t;
     while (xml_next(&xml, &t)) {
         if (t.kind == XML_OPEN && t.depth == 1 && local_name(t.name, "package")) root = true;
+        if (t.depth == 2 && local_name(t.name, "metadata")) metadata = t.kind == XML_OPEN;
+        if (metadata && t.depth == 3 && t.kind != XML_TEXT && local_name(t.name, "language"))
+            language_tag = t.kind == XML_OPEN && !t.empty;
+        if (language_tag && t.kind == XML_TEXT && t.depth == 3) {
+            if (english_language_tag(t.text)) declares_english = true;
+            else other_language = true;
+        }
         if (t.kind == XML_OPEN && local_name(t.name, "manifest")) manifest_depth = t.depth;
         if (t.kind == XML_CLOSE && t.depth == manifest_depth) manifest_depth = 0;
         if (t.kind != XML_OPEN || !manifest_depth || t.depth != manifest_depth + 1 || !local_name(t.name, "item")) continue;
@@ -635,6 +655,7 @@ static esp_err_t package_parse(book_epub_t *book, const char *opf, char ncx[EPUB
         slots[slot] = (uint16_t)(++count);
     }
     if (xml.failed || !root || !count) err = ESP_ERR_INVALID_ARG;
+    book->english_hint = declares_english && !other_language;
     if (err == ESP_OK) {
         for (size_t i = 0; i < count; ++i) {
             const char *name = zip_entry_name(book->zip, items[i].zip_index);
@@ -935,6 +956,7 @@ esp_err_t book_epub_open(const char *path, book_epub_t **out) {
     memset(paths, 0, 3 * EPUB_PATH_CAP);
     char *opf = paths[0], *ncx = paths[1], *nav = paths[2];
     esp_err_t err = zip_open(path, &book->zip);
+    if (err == ESP_OK) (void)book_index_cache_read_language(path, &book->language);
     if (err == ESP_OK && epub_cache_load(path, book)) {
         free(paths);
         *out = book;
@@ -989,10 +1011,22 @@ esp_err_t book_epub_open(const char *path, book_epub_t **out) {
 void book_epub_close(book_epub_t *book) {
     if (!book) return;
     if (book->headings_dirty && book->source_path[0]) epub_cache_save(book->source_path, book);
+    if (book->language_dirty && book->source_path[0])
+        book_index_cache_write_language(book->source_path, book->language);
     zip_close(book->zip); text_pool_free(book); free(book->visible_index); free(book->navigation);
     free(book->manifest_html); free(book->chapters); free(book);
 }
 size_t book_epub_chapter_count(const book_epub_t *book) { return book ? book->count : 0; }
+content_language_t book_epub_language_for_text(const book_epub_t *book, const html_text_t *text) {
+    if (book->language == CONTENT_LANGUAGE_COMPATIBLE) return book->language;
+    content_language_t observed = content_language_text(text->utf8, text->len, book->english_hint);
+    return observed == CONTENT_LANGUAGE_UNKNOWN ? book->language : observed;
+}
+void book_epub_remember_language(book_epub_t *book, content_language_t language) {
+    if (language == CONTENT_LANGUAGE_UNKNOWN || language == book->language) return;
+    book->language = language;
+    book->language_dirty = true;
+}
 // 目录缺项时只解析当前可见章节的标题，不在开书时解压所有章节。
 // Resolve missing navigation labels lazily so opening a large book remains fast.
 static void chapter_heading(book_epub_t *book, size_t i) {
@@ -1550,15 +1584,27 @@ bool book_epub_link_target(book_epub_t *book, size_t from, const char *href,
     *chapter = target;
     return true;
 }
+static int epub_image_entry(book_epub_t *book, size_t chapter, const char *src, char path[EPUB_PATH_CAP]) {
+    int chapter_zip = chapter_entry(book, chapter);
+    if (chapter_zip < 0 || !src || !resolve_path(zip_entry_name(book->zip, chapter_zip), src, path)) return -2;
+    return zip_find(book->zip, path);
+}
+
+esp_err_t book_epub_image_prefix(book_epub_t *book, size_t chapter, const char *src,
+                                void *data, size_t capacity, size_t *size) {
+    char path[EPUB_PATH_CAP];
+    int entry = epub_image_entry(book, chapter, src, path);
+    if (entry < 0) return entry == -1 ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_ARG;
+    return zip_extract_prefix(book->zip, entry, data, capacity, size);
+}
+
 esp_err_t book_epub_image(book_epub_t *book, size_t chapter, const char *src,
                           uint8_t **data, size_t *size, bool *png) {
-    int chapter_zip = chapter_entry(book, chapter);
-    if (chapter_zip < 0 || !src || !data || !size || !png) return ESP_ERR_INVALID_ARG;
+    if (!data || !size || !png) return ESP_ERR_INVALID_ARG;
     *data = NULL; *size = 0; *png = false;
     char path[EPUB_PATH_CAP];
-    if (!resolve_path(zip_entry_name(book->zip, chapter_zip), src, path)) return ESP_ERR_INVALID_ARG;
-    int entry = zip_find(book->zip, path);
-    if (entry < 0) return ESP_ERR_NOT_FOUND;
+    int entry = epub_image_entry(book, chapter, src, path);
+    if (entry < 0) return entry == -1 ? ESP_ERR_NOT_FOUND : ESP_ERR_INVALID_ARG;
     size_t n = zip_entry_size(book->zip, entry);
     if (!n || n > ZIP_OUTPUT_MAX) return ESP_ERR_INVALID_SIZE;
     uint8_t *image = psram(n);
@@ -1567,9 +1613,9 @@ esp_err_t book_epub_image(book_epub_t *book, size_t chapter, const char *src,
     if (err != ESP_OK) { free(image); return err; }
     bool is_png = n >= 8 && !memcmp(image, "\x89PNG\r\n\x1a\n", 8);
     bool is_jpeg = n >= 3 && image[0] == 0xff && image[1] == 0xd8 && image[2] == 0xff;
-    if (!is_png && !is_jpeg) {
-        // 许多中文 EPUB 用 SVG 只包一张 JPEG/PNG。解析这一层引用即可复用现有低内存解码器。
-        // Many Chinese EPUBs wrap one JPEG/PNG in SVG. Resolve that one reference and reuse the bounded decoder.
+    if (!is_png && !is_jpeg && !book_gif_signature(image, n)) {
+        // 部分 EPUB 用 SVG 包一张位图，只解析这一层引用。
+        // Some EPUBs wrap one raster image in SVG. Resolve that one reference.
         char nested[EPUB_PATH_CAP] = {0};
         for (size_t i = 0; i + 4 < n && !nested[0]; ++i) {
             if (strncasecmp((const char *)image + i, "href", 4)) continue;
@@ -1598,7 +1644,7 @@ esp_err_t book_epub_image(book_epub_t *book, size_t chapter, const char *src,
         if (err != ESP_OK) { free(image); return err; }
         is_png = n >= 8 && !memcmp(image, "\x89PNG\r\n\x1a\n", 8);
         is_jpeg = n >= 3 && image[0] == 0xff && image[1] == 0xd8 && image[2] == 0xff;
-        if (!is_png && !is_jpeg) { free(image); return ESP_ERR_NOT_SUPPORTED; }
+        if (!is_png && !is_jpeg && !book_gif_signature(image, n)) { free(image); return ESP_ERR_NOT_SUPPORTED; }
     }
     *data = image; *size = n; *png = is_png;
     return ESP_OK;

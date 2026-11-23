@@ -16,7 +16,10 @@ HEAD=r'''
 #include "read_pico_transfer.h"
 #include "read_pico_sd.h"
 #include "settings.h"
+#include "content_library.h"
 #include "file_references.h"
+#include "record_store.h"
+#include <zlib.h>
 esp_err_t read_pico_sd_get_info(read_pico_sd_info_t *p){memset(p,0,sizeof(*p));p->mounted=true;return ESP_OK;}
 typedef struct {size_t content_len;} httpd_req_t;
 static read_pico_transfer_cfg_t s_cfg;
@@ -50,6 +53,7 @@ static void call(const char *action,const char *from,const char *to,int expected
  assert(response==expected&&!s_upload_active);
 }
 int main(void){
+ record_store_media(true);
  app_settings_init();s_cfg.file_edit_begin_cb=file_references_begin;s_cfg.file_edit_end_cb=file_references_finish;
  const char *old="/sdcard/fonts/old.ttf",*next="/sdcard/fonts/new.ttf";
  FILE *f=fopen(old,"wb");assert(f);fputs("font",f);fclose(f);
@@ -60,7 +64,34 @@ int main(void){
  assert(!strcmp(app_settings_system_font_path(),next)&&!strcmp(app_settings_font_path(),old));assert(stat(old,&st)&&!stat(next,&st));
  call("rename","fonts/old.ttf","fonts/new.ttf",200);assert(!strcmp(app_settings_font_path(),next));
  call("delete","fonts/new.ttf","",200);assert(!*app_settings_system_font_path()&&!*app_settings_font_path());
- puts("PASS: production HTTP handler rejects failed preparation, reports partial metadata failure, completes exact retry without repeating rename, and clears both deleted references");
+ const char *invalid="/sdcard/fonts/new.old";
+ const char *pending="/sdcard/.readpico/settings/file-refs.pending";
+ f=fopen(old,"wb");assert(f);fputs("font",f);assert(!fclose(f));
+ assert(content_english_font_set(false,old)==ESP_OK);
+ call("rename","fonts/old.ttf","fonts/new.old",400);
+ assert(!stat(old,&st)&&stat(invalid,&st)&&stat(pending,&st));
+ assert(!strcmp(content_english_font(false),old));
+ f=fopen("/sdcard/another.txt","wb");assert(f);assert(!fclose(f));
+ call("delete","another.txt","",200);
+
+ // Restore a previously committed intent whose new filename is unusable as an English font.
+ bool done=false;
+ assert(file_references_begin(old,next,&done)==ESP_OK&&!done);
+ unsigned char journal[4096];
+ f=fopen(pending,"rb");assert(f);
+ size_t bytes=fread(journal,1,sizeof(journal),f);
+ assert(feof(f)&&!ferror(f)&&!fclose(f)&&bytes<sizeof(journal));
+ const size_t target_offset=8+288;
+ assert(!memcmp(journal,"IFREFS3",8)&&!strcmp((char *)journal+target_offset,next));
+ strcpy((char *)journal+target_offset,invalid);
+ uint32_t crc=crc32(0,journal,bytes-sizeof(crc));
+ memcpy(journal+bytes-sizeof(crc),&crc,sizeof(crc));
+ f=fopen(pending,"wb");assert(f);
+ assert(fwrite(journal,1,bytes,f)==bytes&&!fclose(f)&&!rename(old,invalid));
+ f=fopen("/sdcard/another.txt","wb");assert(f);assert(!fclose(f));
+ call("delete","another.txt","",200);
+ assert(!stat(invalid,&st)&&stat(pending,&st)&&!*content_english_font(false));
+ puts("PASS HTTP font transactions: preparation/retry, rejected suffix without mutation, and recovery of a prior invalid rename");
  return 0;
 }
 '''

@@ -24,6 +24,8 @@
 #define HTML_NOTE_LABEL_CAP 6u
 #define HTML_NOTE_IMAGE_CP 0xfffcu
 
+enum { HTML_ALIGN_DEFAULT, HTML_ALIGN_CENTER, HTML_ALIGN_RIGHT, HTML_ALIGN_LEFT };
+
 typedef struct {
     size_t offset; ///< UTF-8 字节起点 / UTF-8 byte start
     size_t len; ///< 不含段间换行的字节数 / Bytes excluding the block separator
@@ -31,7 +33,7 @@ typedef struct {
     bool literal; ///< 保留 Markdown 代码/列表缩进 / Preserve Markdown code/list indentation
     uint8_t heading_level; ///< Markdown H1–H6，其他为零 / Markdown H1–H6, otherwise zero
     int image; ///< 图片序号，文字为 -1 / Image index, -1 for text
-    uint8_t align; ///< 0 左/两端，1 居中，2 右 / 0 left/justify, 1 center, 2 right
+    uint8_t align; ///< 段落对齐方式 / Paragraph alignment from HTML_ALIGN_*
     uint8_t indent_percent; ///< 首行缩进，相对字号百分比 / First-line indent as a percentage of font size
     uint8_t margin_before_percent; ///< 段前距，相对字号百分比 / Leading margin as a percentage of font size
     uint8_t margin_after_percent; ///< 段后距，相对字号百分比 / Trailing margin as a percentage of font size

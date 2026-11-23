@@ -57,26 +57,27 @@ with tempfile.TemporaryDirectory(dir=ROOT / 'build', prefix='reader-fonts-') as 
     selected = render(book, ';'.join(turns + [tap_last]))
     assert selected['reader_panel'] == 2 and selected['reading_font_path'] == font, selected
     assert render(book, panel=0)['font_path'] == font
-    assert render(doc, panel=0)['markdown_font_path'] != font
+    assert render(doc, panel=0)['font_path'] == font
 
     # At the end, Next cannot skip to a blank page and Previous still works.
     selected = render(doc, ';'.join(turns + [next_page[0], 'k,0,0,0,0', next_page[1], tap_last]))
-    assert selected['reader_panel'] == 2 and selected['markdown_font_path'] == font, selected
+    assert selected['reader_panel'] == 2 and selected['reading_font_path'] == font, selected
     assert render(doc, panel=0)['font_path'] == font
 
     (card/'fonts/00-Broken.ttf').write_bytes(bytes(768))
     os.link(source, card/'fonts/01-Valid.ttf')
     baseline = render(doc)
+    assert baseline['reader_font_count'] == 67
     def tap_row(row):
         y = 196 + row*row_height + row_height//2
         return f't,300,{y},300,{y}'
 
-    for row, faults in ((0, {}), (1, {'PICO_TEST_NVS_SET_FAIL': 'md_font'})):
-        failed = render(doc, tap_row(row), **faults)
-        assert failed['reader_panel'] == 5 and failed['font_path'] == font, failed
-        assert failed['reader_offset'] == baseline['reader_offset'], failed
-        assert failed['markdown_font_path'] == font, failed
-        back = render(doc, tap_row(row) + ';k,1,0,0,0', **faults)
-        assert back['reader_panel'] == 0 and back['font_path'] == font, back
+    faults = {'PICO_TEST_NVS_SET_FAIL': 'font'}
+    failed = render(doc, tap_row(0), **faults)
+    assert failed['reader_panel'] == 5 and failed['font_path'] == font, failed
+    assert failed['reader_offset'] == baseline['reader_offset'], failed
+    assert failed['reading_font_path'] == font
+    back = render(doc, tap_row(0) + ';k,1,0,0,0', **faults)
+    assert back['reader_panel'] == 0 and back['font_path'] == font, back
 
-print('PASS 66 TF fonts, XL pagination, independent font persistence, and Markdown recovery after load or save failure')
+print('PASS 66 TF fonts, XL pagination, malformed-font filtering, shared persistence, and Markdown save failure')

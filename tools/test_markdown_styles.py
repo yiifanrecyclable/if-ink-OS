@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='md-styles-') as temp:
     press=f'p,360,{y},360,{y}';move=f'm,360,{y},584,{y}';release=f'r,360,{y},584,{y}'
     info,draft=render(11,press+';'+move);assert info['markdown_sizes'][0]==100 and info['reader_px']==48 and not prefs.exists()
     assert info['reader_area_violations']==0
-    assert draft[936*342:1036*342]!=preview[936*342:1036*342]
+    assert draft[904*342:1012*342]!=preview[904*342:1012*342]
     info,_=render(11,press+';'+move+';c,360,720,584,720');assert info['reader_px']==48 and info['markdown_sizes'][0]==48 and not prefs.exists()
     info,_=render(11,press+';'+move+';'+release);assert info['reader_px']==100 and info['markdown_committed'] and prefs.read_bytes()==bytes([100,72,64,56])
     info,_=render();assert info['reader_px']==100 and not info['markdown_committed']

@@ -12,6 +12,7 @@
 #include "book/book_history_backup.h"
 #include "book/book_progress.h"
 #include "book/book_title.h"
+#include "book/content_library.h"
 #include "book/reader_input.h"
 #include "settings_storage.h"
 #include "settings.h"
@@ -77,7 +78,26 @@ int main(int argc,char **argv){
         // 未知/坏旧记录让导出失败，不能封成缺项备份。/ Unknown or bad legacy records must fail export, never seal an incomplete backup.
         FILE *f=fopen("build/simulator/bad-history.bin","w+b");assert(f);assert(book_history_backup_write(f)!=ESP_OK);fclose(f);
         nvs_handle_t rawh;assert(!nvs_open("rp_titles",NVS_READWRITE,&rawh));assert(!nvs_erase_key(rawh,"unknown"));assert(!nvs_erase_key(rawh,"t_12345678"));nvs_close(rawh);
-        f=fopen("build/simulator/history.bin","w+b");assert(f);assert(!book_history_backup_write(f));rewind(f);assert(book_history_backup_validate(f));rewind(f);assert(!book_history_backup_restore(f));fclose(f);
+        const content_document_layout_t initial={.margin=42,.line=125,.paragraph=37,.tracking=3,
+            .indent=1,.rule=2,.rule_offset=-4,.fullscreen=1,.immersive=1};
+        assert(content_document_layout_save(&initial)==ESP_OK);
+        assert(content_english_hyphenation());
+        assert(content_set_english_hyphenation(false)==ESP_OK);
+        assert(content_english_system_font_set("builtin")==ESP_OK);
+        assert(content_english_font_set(false,"/sdcard/fonts/English.ttf")==ESP_OK);
+        f=fopen("build/simulator/history.bin","w+b");assert(f);assert(!book_history_backup_write(f));
+        rewind(f);assert(book_history_backup_validate(f));
+        content_document_layout_t updated=initial;updated.margin=8;
+        assert(content_document_layout_save(&updated)==ESP_OK);
+        assert(content_set_english_hyphenation(true)==ESP_OK);
+        assert(content_english_system_font_set("/sdcard/fonts/Replaced.ttf")==ESP_OK);
+        assert(content_english_font_set(false,"")==ESP_OK);
+        rewind(f);assert(!book_history_backup_restore(f));fclose(f);
+        assert(content_document_layout_load(&updated)==ESP_OK&&!memcmp(&updated,&initial,sizeof(updated)));
+        assert(!content_english_hyphenation());
+        assert(content_set_english_hyphenation(true)==ESP_OK);
+        char english[160];assert(content_english_system_font_checked(english,sizeof(english))==ESP_OK&&!strcmp(english,"builtin"));
+        assert(!strcmp(content_english_font(false),"/sdcard/fonts/English.ttf"));
         assert(exists("wifi","password"));puts("PASS merged backup/restore and credentials preserved");return 0;
     }
     if(!strcmp(argv[1],"source-changed")){

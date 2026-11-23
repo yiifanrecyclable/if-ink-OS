@@ -99,6 +99,17 @@ uint32_t book_chapter_byte_offset(size_t i) {
     return s_epub ? book_epub_chapter_byte_offset(s_epub, i) : i < s_book.count ? s_book.entries[i].offset : 0;
 }
 book_kind_t book_kind(void) { return book_markdown_active() ? BOOK_KIND_MARKDOWN : s_epub ? BOOK_KIND_EPUB : BOOK_KIND_TXT; }
+content_language_t book_language_for_text(const html_text_t *text) {
+    if (s_epub) return book_epub_language_for_text(s_epub, text);
+    if (book_markdown_active()) return book_markdown_language();
+    return s_book.language;
+}
+void book_remember_language(content_language_t language) {
+    if (s_epub) book_epub_remember_language(s_epub, language);
+}
 esp_err_t book_chapter_image(size_t chapter, const char *src, uint8_t **data, size_t *size, bool *png) {
     return s_epub ? book_epub_image(s_epub, chapter, src, data, size, png) : ESP_ERR_NOT_SUPPORTED;
+}
+esp_err_t book_chapter_image_prefix(size_t chapter, const char *src, void *data, size_t capacity, size_t *size) {
+    return s_epub ? book_epub_image_prefix(s_epub, chapter, src, data, capacity, size) : ESP_ERR_NOT_SUPPORTED;
 }

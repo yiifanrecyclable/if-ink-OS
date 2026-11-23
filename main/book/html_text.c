@@ -112,6 +112,7 @@ static uint8_t css_length_percent(const char* value, size_t len) {
     size_t units = len - n;
     while (units && ascii_space((unsigned char)*unit)) { ++unit; --units; }
     if (units >= 2 && !strncasecmp(unit, "px", 2)) percent = amount * 100.0 / 16.0;
+    else if (units >= 2 && !strncasecmp(unit, "pt", 2)) percent = amount * 100.0 / 12.0; // 12 pt = 16 CSS px.
     else if (units >= 1 && *unit == '%') percent = amount;
     if (percent < 0) percent = 0;
     if (percent > 250) percent = 250;
@@ -133,8 +134,11 @@ static void css_declarations(const char* at, const char* end, css_style_t* style
         while (value_end > value && ascii_space((unsigned char)value_end[-1])) --value_end;
         size_t kn = (size_t)(key_end - key), vn = (size_t)(value_end - value);
         if (kn == 10 && !strncasecmp(key, "text-align", 10)) {
-            style->align = vn == 6 && !strncasecmp(value, "center", 6) ? 1 :
-                           vn == 5 && !strncasecmp(value, "right", 5) ? 2 : 0;
+            style->align = HTML_ALIGN_DEFAULT;
+            if (vn == 6 && !strncasecmp(value, "center", 6)) style->align = HTML_ALIGN_CENTER;
+            else if (vn == 5 && !strncasecmp(value, "right", 5)) style->align = HTML_ALIGN_RIGHT;
+            else if ((vn == 4 && !strncasecmp(value, "left", 4)) ||
+                     (vn == 5 && !strncasecmp(value, "start", 5))) style->align = HTML_ALIGN_LEFT;
             style->mask |= CSS_ALIGN;
         } else if (kn == 11 && !strncasecmp(key, "text-indent", 11)) {
             style->indent = css_length_percent(value, vn); style->mask |= CSS_INDENT;

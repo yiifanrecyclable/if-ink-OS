@@ -14,7 +14,9 @@
 #include "book_title.h"
 #include "document_image.h"
 #include "markdown_text.h"
+#include "book_index_cache.h"
 #include "sync_file_policy.h"
+#include "../font/font_path_policy.h"
 #include "nvs.h"
 #include "record_store.h"
 #include "shelf_perf.h"
@@ -449,6 +451,9 @@ static esp_err_t refresh_at(const char *path, bool *changed, const char *first_d
     }
     if (!strcmp(magic, "pico-md-1\n") && !strcmp(old, revision) &&
         (!first_date || !strcmp(date, first_date))) {
+        content_language_t cached;
+        if (!book_index_cache_read_language(path, &cached))
+            book_index_cache_write_language(path, content_language_text(t.utf8, t.len, false));
         html_text_free(&t);
         return ESP_OK;
     }
@@ -490,6 +495,7 @@ static esp_err_t refresh_at(const char *path, bool *changed, const char *first_d
         ok = replace_metadata(temp, meta);
     if (!ok)
         unlink(temp);
+    else book_index_cache_write_language(path, content_language_text(t.utf8, t.len, false));
     html_text_free(&t);
     if (changed)
         *changed = existed && ok;
@@ -1208,6 +1214,8 @@ static esp_err_t sync_commit_locked(const char *destination, const char *body_sh
     if (!sync_destination(destination) || !body_sha256 || !sync_hex(body_sha256) ||
         body_bytes > 64 * 1024 * 1024)
         return ESP_ERR_INVALID_ARG;
+    if (app_font_path_protected(destination))
+        return ESP_ERR_INVALID_STATE;
     if (!sync_matches(SYNC_BODY, body_sha256, body_bytes))
         return ESP_ERR_INVALID_RESPONSE;
     esp_err_t e = sync_recover_locked();

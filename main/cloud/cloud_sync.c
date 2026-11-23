@@ -23,6 +23,7 @@
 #include "read_pico_transfer.h"
 #include "time_service.h"
 #include "settings.h"
+#include "../font/font_path_policy.h"
 #include "sync_file_policy.h"
 #include "content_library.h"
 #include <errno.h>
@@ -566,8 +567,10 @@ static esp_err_t list_cloud(void) {
 // 使用中的字体可能仍有流式读取句柄；仅允许内容相同的原位重复下载。
 // Active fonts can retain streaming handles; allow only identical-content re-downloads in place.
 static bool active_font_replace(const char *path, const char *incoming_hash) {
+    char english_system[CONTENT_MARKDOWN_FONT_BYTES]="";
+    (void)content_english_system_font_checked(english_system,sizeof(english_system));
     const char *configured[] = {app_settings_system_font_path(), app_settings_font_path(),
-                                content_markdown_font(), content_home_quote_font()};
+                                content_english_font(false), english_system, content_home_quote_font()};
     for (size_t i = 0; i < sizeof(configured) / sizeof(configured[0]); ++i) {
         if (!configured[i] || strcasecmp(configured[i], path)) continue;
         struct stat st;
@@ -646,6 +649,10 @@ static esp_err_t download_one(const cloud_entry_t *entry) {
         bool unchanged = false;
         if (n >= (int)sizeof(path))
             e = ESP_ERR_INVALID_SIZE;
+        else if (kind == SYNC_FILE_FONT && app_font_path_protected(path)) {
+            fail_notice(ui_message(UI_MSG("系统字体不可修改")), ui_message(UI_MSG("系统字体不可修改")));
+            e = ESP_ERR_INVALID_STATE;
+        }
         else if (kind == SYNC_FILE_FONT && active_font_replace(path, body_sha)) {
             fail_notice(ui_message(UI_MSG("此字体正在使用，请切换其他字体后再更新")), ui_message(UI_MSG("字体正在使用")));
             e = ESP_ERR_INVALID_STATE;

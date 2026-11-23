@@ -13,11 +13,25 @@
 #include "settings.h"
 #include "ttf_font.h"
 #include "ui_kit.h"
+#include "font_path_policy.h"
 #include "book/content_library.h"
 
 static bool s_reading;
-static bool s_document;
-void app_font_set_document_mode(bool document){s_document=document;}
+static bool s_english;
+static char s_english_path[TTF_FONT_PATH_MAX];
+typedef esp_err_t (*font_setter_t)(const char *);
+static esp_err_t set_english_reading(const char *path) { return content_english_font_set(false, path); }
+static const font_setter_t choices[2][2] = {
+    [APP_FONT_READING] = {app_settings_set_font_path, set_english_reading},
+    [APP_FONT_SYSTEM] = {app_settings_set_system_font_path, content_english_system_font_set},
+};
+
+static bool s_system_english_cached;
+void app_font_set_english_mode(bool english){
+    s_english = english;
+    s_english_path[0] = 0;
+    if (english) strlcpy(s_english_path, content_english_font(false), sizeof(s_english_path));
+}
 
 static const char* bundled_path(char path[TTF_FONT_PATH_MAX]) {
     struct stat st;
@@ -26,24 +40,94 @@ static const char* bundled_path(char path[TTF_FONT_PATH_MAX]) {
     return NULL;
 }
 
-static const char* system_path(char fallback[TTF_FONT_PATH_MAX]) {
-    const char* chosen = app_settings_system_font_path();
-    if (chosen[0]) return chosen;
-    if(bundled_path(fallback))return fallback;
-    if (snprintf(fallback, TTF_FONT_PATH_MAX, "%s/Hei.ttf", app_settings_fonts_dir()) >= TTF_FONT_PATH_MAX)
-        return TTF_FONT_BUILTIN;
-    struct stat st;
-    if (stat(fallback, &st) == 0 && S_ISREG(st.st_mode)) return fallback;
-    if (!ttf_font_count()) ttf_font_scan();
-    const ttf_font_item_t *item = ttf_font_item(0);
-    return item ? item->path : TTF_FONT_BUILTIN;
+typedef struct {
+    char path[TTF_FONT_PATH_MAX];
+    uint32_t epoch;
+    unsigned revision;
+    uint8_t coverage;
+} face_coverage_t;
+
+static uint8_t saved_face_coverage(face_coverage_t *checked, const char *path) {
+    uint32_t next_epoch = record_store_media_epoch();
+    unsigned next_revision = book_store_revision();
+    if (checked->epoch != next_epoch || checked->revision != next_revision || strcmp(checked->path, path)) {
+        checked->epoch = next_epoch;
+        checked->revision = next_revision;
+        strlcpy(checked->path, path, sizeof(checked->path));
+        checked->coverage = ttf_font_path_coverage(path);
+    }
+    return checked->coverage;
 }
 
-static const char *reading_path(char fallback[TTF_FONT_PATH_MAX]) {
-    const char *saved = s_document ? content_markdown_font() : app_settings_font_path();
-    if (!ttf_font_path_is_builtin(saved)) return saved;
+static bool system_face_valid(face_coverage_t *checked, const char *path) {
+    return app_font_path_valid(path) && (saved_face_coverage(checked, path) & TTF_COVERAGE_CHINESE);
+}
+
+esp_err_t app_font_save_choice(app_font_role_t role, bool english, const char *path) {
+    if ((unsigned)role > APP_FONT_SYSTEM || !path || (*path && !app_font_path_valid(path))) return ESP_ERR_INVALID_ARG;
+    static face_coverage_t checked;
+    if (role == APP_FONT_SYSTEM && *path && !system_face_valid(&checked, path)) return ESP_ERR_NOT_SUPPORTED;
+    const char *stored = role == APP_FONT_SYSTEM && english && !*path ? TTF_FONT_BUILTIN : path;
+    esp_err_t err = choices[role][english](stored);
+    if (err == ESP_OK && role == APP_FONT_SYSTEM) s_system_english_cached = false;
+    return err;
+}
+
+const char *app_font_system_choice(void) {
+    static face_coverage_t checked, english_checked;
+    const char *chosen = app_settings_system_font_path();
+    if (app_settings_language() == APP_LANGUAGE_EN) {
+        static char english[TTF_FONT_PATH_MAX];
+        static unsigned revision;
+        static uint32_t media;
+        unsigned fresh_revision = book_store_revision();
+        uint32_t fresh_media = record_store_media_epoch();
+        if (!s_system_english_cached || revision != fresh_revision || media != fresh_media) {
+            english[0] = 0;
+            (void)content_english_system_font_checked(english, sizeof(english));
+            s_system_english_cached = true;
+            revision = fresh_revision;
+            media = fresh_media;
+        }
+        if (!strcmp(english, TTF_FONT_BUILTIN)) return "";
+        if (system_face_valid(&english_checked, english)) return english;
+    }
+    return system_face_valid(&checked, chosen) ? chosen : "";
+}
+
+static const char* system_path(char fallback[TTF_FONT_PATH_MAX]) {
+    static face_coverage_t bundled_checked, legacy_checked, first_checked;
+    const char* chosen = app_font_system_choice();
+    if (chosen[0]) return chosen;
+    if (bundled_path(fallback) && system_face_valid(&bundled_checked, fallback)) return fallback;
+    int length = snprintf(fallback, TTF_FONT_PATH_MAX, "%s/Hei.ttf", app_settings_fonts_dir());
+    if (length > 0 && length < TTF_FONT_PATH_MAX && system_face_valid(&legacy_checked, fallback)) return fallback;
+    if (app_settings_language() == APP_LANGUAGE_EN) return TTF_FONT_BUILTIN;
+    if (!ttf_font_count()) ttf_font_scan();
+    const ttf_font_item_t *eligible = ttf_font_picker_item(0, TTF_COVERAGE_CHINESE);
+    if (eligible) return eligible->path;
+    const ttf_font_item_t *first = ttf_font_item(0);
+    return first && system_face_valid(&first_checked, first->path) ? first->path : TTF_FONT_BUILTIN;
+}
+
+static const char *compatible_reading_path(char fallback[TTF_FONT_PATH_MAX]) {
+    static face_coverage_t checked;
+    const char *saved = app_settings_font_path();
+    // Preserve legacy preferences, using a Chinese face for mixed text when a saved face is Latin-only.
+    if (app_font_path_valid(saved) &&
+        (s_english || saved_face_coverage(&checked, saved) != TTF_COVERAGE_LATIN)) return saved;
     const char *bundled = bundled_path(fallback);
     return bundled ? bundled : TTF_FONT_BUILTIN;
+}
+
+const char *app_font_reading_choice(void) {
+    return s_english && s_english_path[0] ? s_english_path : app_settings_font_path();
+}
+static const char *reading_path(char fallback[TTF_FONT_PATH_MAX]) {
+    static face_coverage_t checked;
+    return s_english && app_font_path_valid(s_english_path) &&
+        (saved_face_coverage(&checked, s_english_path) & TTF_COVERAGE_LATIN) ?
+        s_english_path : compatible_reading_path(fallback);
 }
 
 static bool activate(const char *path, bool system, esp_err_t *result) {
@@ -56,7 +140,7 @@ static bool activate(const char *path, bool system, esp_err_t *result) {
     ttf_font_set_normalized_sizes(true);
     // 未选字体时由内建思源黑体绘制界面；完整 TTF 为所有动态标题补字。
     // Built-in Source Han Sans draws default UI; the full TTF remains loaded for missing glyphs.
-    ui_text_set_system_font(system && app_settings_system_font_path()[0] &&
+    ui_text_set_system_font(system && app_font_system_choice()[0] &&
                             ttf_font_ready() && !ttf_font_is_builtin());
     ui_text_set_system_scale(system);
     // 只有实际生效的字体变化才触发主循环刷新。/ Only a change in the effective face requests a redraw.
@@ -72,7 +156,15 @@ bool app_font_reading_active(void) { return s_reading; }
 
 bool app_font_activate_reading(void) {
     char fallback[TTF_FONT_PATH_MAX];
-    return activate(reading_path(fallback),false,NULL);
+    esp_err_t result;
+    bool changed = activate(reading_path(fallback), false, &result);
+    if (result != ESP_OK && s_english)
+        changed = activate(compatible_reading_path(fallback), false, &result) || changed;
+    if (result != ESP_OK && (!ttf_font_ready() || (!s_english && !ttf_font_has_text("中文")))) {
+        const char *path = bundled_path(fallback);
+        changed = activate(path ? path : TTF_FONT_BUILTIN, false, NULL) || changed;
+    }
+    return changed;
 }
 
 void app_font_restore_reading(const char *path) {

@@ -52,6 +52,18 @@ int main(void) {
     assert(t.blocks[1].align == 2 && t.blocks[1].indent_percent == 200);
     assert(t.blocks[1].margin_after_percent == 25);
     html_text_free(&t);
+    t = parse("<p style='text-align:left'>Left</p><p style='text-align:start'>Start</p>"
+              "<p style='text-align:justify'>Justify</p><p>Default</p>",
+              "Left\nStart\nJustify\nDefault");
+    assert(t.count == 4 && t.blocks[0].align == HTML_ALIGN_LEFT && t.blocks[1].align == HTML_ALIGN_LEFT);
+    assert(t.blocks[2].align == HTML_ALIGN_DEFAULT && t.blocks[3].align == HTML_ALIGN_DEFAULT);
+    html_text_free(&t);
+    t = parse("<style>p { margin-top:5pt; margin-bottom:5pt; }</style>"
+              "<p>First</p><p style='margin-bottom:12PT'>Second</p>", "First\nSecond");
+    assert(t.count == 2);
+    assert(t.blocks[0].margin_before_percent == 42 && t.blocks[0].margin_after_percent == 42);
+    assert(t.blocks[1].margin_before_percent == 42 && t.blocks[1].margin_after_percent == 100);
+    html_text_free(&t);
     t = parse("<p>前</p><img src='data:image/png;base64,x' data-src='../图&amp;文.png'/>"
               "<svg:image xlink:href='../svg.png'/><object data='../obj.png'/>",
               "前\n￼\n￼\n￼");

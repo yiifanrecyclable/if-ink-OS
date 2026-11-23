@@ -24,6 +24,7 @@
 #include "app.h"
 #include "shelf_perf.h"
 #include "app_content_open.h"
+#include "app_font_context.h"
 #include "app_registry.h"
 #include "book_cover.h"
 #include "book_index_cache.h"
@@ -637,7 +638,7 @@ static bool quote_bitmap_key(const content_banner_config_t *cfg,home_banner_key_
     key->media_epoch=book_index_cache_epoch();key->weight=ttf_get_weight();
     key->language=app_settings_language();key->builtin_font=ttf_font_is_builtin();
     ui_snprintf(key->active_font,sizeof(key->active_font),"%s",ttf_font_path());
-    ui_snprintf(key->system_font,sizeof(key->system_font),"%s",app_settings_system_font_path());
+    ui_snprintf(key->system_font,sizeof(key->system_font),"%s",app_font_system_choice());
     const char *paths[]={cfg->mode?cfg->image:"",cfg->show_text?cfg->font:"",key->builtin_font?"":key->active_font};
     for(unsigned i=0;i<3;++i){
         if(!paths[i][0])continue;

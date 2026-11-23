@@ -11,6 +11,7 @@
  */
 
 #include "ttf_font.h"
+#include "ttf_justify.h"
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -618,6 +619,11 @@ static int font_item_cmp(const void* a, const void* b) {
 // Grow the font catalogue on demand in PSRAM to avoid truncating the TF font list.
 static ttf_font_item_t *s_catalog;
 static int s_catalog_n, s_catalog_capacity;
+static bool s_picker_catalog;
+static unsigned s_picker_revision;
+static uint32_t s_picker_media_epoch;
+static char s_picker_directory[TTF_FONT_PATH_MAX];
+static int s_picker_checked;
 
 static bool catalog_reserve_next(void) {
     if (s_catalog_n < s_catalog_capacity) return true;
@@ -633,6 +639,7 @@ static bool catalog_reserve_next(void) {
 }
 
 int ttf_font_scan(void) {
+    s_picker_catalog = false;
     s_catalog_n = 0;
     const char *font_dir = app_settings_fonts_dir();
     DIR *dir = opendir(font_dir);
@@ -665,6 +672,48 @@ int ttf_font_count(void) {
 const ttf_font_item_t* ttf_font_item(int index) {
     if (index < 0 || index >= s_catalog_n) return NULL;
     return &s_catalog[index];
+}
+
+void ttf_font_picker_begin(unsigned revision, uint32_t media_epoch) {
+    const char *directory = app_settings_fonts_dir();
+    if (s_picker_catalog && revision == s_picker_revision && media_epoch == s_picker_media_epoch &&
+        !strcmp(directory, s_picker_directory)) return;
+    ttf_font_scan();
+    s_picker_catalog = true;
+    s_picker_revision = revision;
+    s_picker_media_epoch = media_epoch;
+    s_picker_checked = 0;
+    strlcpy(s_picker_directory, directory, sizeof(s_picker_directory));
+#ifdef PICO_HOST_SIMULATOR
+    // Each simulator input replay starts a renderer process; build its stable list before replay.
+    while (ttf_font_picker_pending()) ttf_font_picker_step();
+#endif
+}
+
+bool ttf_font_picker_pending(void) {
+    return s_picker_catalog && s_picker_checked < s_catalog_n;
+}
+
+bool ttf_font_picker_step(void) {
+    if (!ttf_font_picker_pending()) return false;
+    ttf_font_item_t *item = &s_catalog[s_picker_checked++];
+    item->coverage = ttf_font_path_coverage(item->path);
+    return !ttf_font_picker_pending();
+}
+
+int ttf_font_picker_count(uint8_t coverage) {
+    if (!s_picker_catalog || ttf_font_picker_pending()) return 0;
+    int count = 0;
+    for (int i = 0; i < s_catalog_n; ++i)
+        if ((s_catalog[i].coverage & coverage) == coverage) ++count;
+    return count;
+}
+
+const ttf_font_item_t *ttf_font_picker_item(int index, uint8_t coverage) {
+    if (index < 0 || !s_picker_catalog || ttf_font_picker_pending()) return NULL;
+    for (int i = 0; i < s_catalog_n; ++i)
+        if ((s_catalog[i].coverage & coverage) == coverage && index-- == 0) return &s_catalog[i];
+    return NULL;
 }
 
 static int try_open_path(const char* path) {
@@ -2348,20 +2397,22 @@ static int64_t s_name_idle_since;
 static TaskHandle_t s_name_task;
 #endif
 
-static bool name_cmap_valid(const uint8_t *header, size_t header_len) {
-    uint32_t offset, length;
-    if (!find_sfnt_table(header,header_len,"cmap",&offset,&length)) return false;
-    const uint8_t *cmap = font_data + be32(font_data + 20);
-    const uint8_t *map = font_data + font_info.index_map;
-    uint32_t left = length - (uint32_t)(map - cmap);
+static bool cmap_subtable_valid(const uint8_t *map, uint32_t left) {
+    if (left < 4) return false;
     unsigned format = be16(map);
-    if (format == 12 || format == 13)
-        return left >= 16 && be32(map + 12) <= (left - 16) / 12;
-    if (format == 0) return be16(map + 2) <= left;
+    if (format == 12 || format == 13) {
+        if (left < 16) return false;
+        uint32_t length = be32(map + 4);
+        return length >= 16 && length <= left && be32(map + 12) <= (length - 16) / 12;
+    }
+    uint32_t length = be16(map + 2);
+    if (length > left || length < 6) return false;
+    left = length;
+    if (format == 0) return left >= 262;
     if (format == 6) return left >= 10 && be16(map + 8) <= (left - 10) / 2;
     if (format != 4 || left < 16) return false;
     unsigned segments = be16(map + 6) / 2;
-    if (!segments || segments > (left - 16) / 8) return false;
+    if ((be16(map + 6) & 1) || !segments || segments > (left - 16) / 8) return false;
     unsigned range = 1, selector = 0;
     while (range * 2 <= segments) { range *= 2; ++selector; }
     if (be16(map + 8) != range * 2 || be16(map + 10) != selector ||
@@ -2376,6 +2427,74 @@ static bool name_cmap_valid(const uint8_t *header, size_t header_len) {
             return false;
     }
     return be16(ends + 2*segments - 2) == 0xffff;
+}
+
+static bool name_cmap_valid(const uint8_t *header, size_t header_len) {
+    uint32_t offset, length;
+    if (!find_sfnt_table(header,header_len,"cmap",&offset,&length)) return false;
+    uint32_t cmap = be32(font_data + 20);
+    uint32_t map = font_info.index_map;
+    return map >= cmap && map - cmap < length &&
+           cmap_subtable_valid(font_data + map, length - (map - cmap));
+}
+
+static uint8_t probe_coverage(uint8_t *cmap, uint32_t size, unsigned glyphs) {
+    if (size < 4 || be16(cmap) != 0 || be16(cmap + 2) > (size - 4) / 8) return 0;
+    uint32_t map = 0;
+    for (unsigned i = 0; i < be16(cmap + 2); ++i) {
+        const uint8_t *entry = cmap + 4 + 8 * i;
+        unsigned platform = be16(entry), encoding = be16(entry + 2);
+        if (platform == 0 || (platform == 3 && (encoding == 1 || encoding == 10))) map = be32(entry + 4);
+    }
+    if (map < 4 || map >= size || !cmap_subtable_valid(cmap + map, size - map)) return 0;
+    stbtt_fontinfo face = {.data = cmap, .index_map = (int)map};
+    for (int cp = 32; cp <= 126; ++cp) {
+        unsigned glyph = (unsigned)stbtt_FindGlyphIndex(&face, cp);
+        if (!glyph || glyph >= glyphs) return 0;
+    }
+    const char *sample = "中文大小上下左右年月日文章人天地、。，";
+    while (*sample) {
+        unsigned glyph = (unsigned)stbtt_FindGlyphIndex(&face, (int)decode_utf8(&sample));
+        if (!glyph || glyph >= glyphs) return TTF_COVERAGE_LATIN;
+    }
+    return TTF_COVERAGE_LATIN | TTF_COVERAGE_CHINESE;
+}
+
+static bool coverage_read(int fd, uint32_t offset, void *data, size_t size) {
+    if (lseek(fd, (off_t)offset, SEEK_SET) != (off_t)offset) return false;
+    uint8_t *out = data;
+    while (size) {
+        ssize_t count = read(fd, out, size);
+        if (count <= 0) return false;
+        out += count;
+        size -= (size_t)count;
+    }
+    return true;
+}
+
+uint8_t ttf_font_path_coverage(const char *path) {
+    if (ttf_font_path_is_builtin(path)) return TTF_COVERAGE_LATIN | TTF_COVERAGE_CHINESE;
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return 0;
+    uint8_t header[12 + 32 * 16], maxp[6];
+    uint32_t start, size, maxp_start, maxp_size;
+    struct stat st;
+    uint8_t coverage = 0;
+    if (!fstat(fd, &st) && S_ISREG(st.st_mode) && st.st_size >= (off_t)sizeof(header) &&
+        coverage_read(fd, 0, header, sizeof(header)) &&
+        (be32(header) == 0x00010000 || be32(header) == 0x74727565) &&
+        find_sfnt_table(header, sizeof(header), "cmap", &start, &size) &&
+        size >= 4 && size <= 512u * 1024u && (uint64_t)start + size <= (uint64_t)st.st_size &&
+        find_sfnt_table(header, sizeof(header), "maxp", &maxp_start, &maxp_size) &&
+        maxp_size >= sizeof(maxp) && (uint64_t)maxp_start + sizeof(maxp) <= (uint64_t)st.st_size &&
+        coverage_read(fd, maxp_start, maxp, sizeof(maxp))) {
+        uint8_t *cmap = heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        if (cmap && coverage_read(fd, start, cmap, size))
+            coverage = probe_coverage(cmap, size, be16(maxp + 4));
+        free(cmap);
+    }
+    close(fd);
+    return coverage;
 }
 
 // 列表会自动接触未选中的字体；光栅化前检查实际用到的轮廓。/ The picker opens unselected faces, so validate the outlines it actually uses.
@@ -2744,22 +2863,19 @@ void ttf_draw_text_px_spaced(
     }
 }
 
-static bool cjk_spacing_point(uint32_t cp) {
-    return (cp >= 0x2e80 && cp <= 0xffef) || (cp >= 0x2018 && cp <= 0x201d);
-}
-
 typedef struct {
     int quotient, remainder;
-    bool compress, active;
+    bool compress, active, word_spaces;
 } text_fit_t;
 
-static text_fit_t text_fit(int px, const char *text, int tracking, int target_width) {
-    int glyph_count = 0, cjk_gaps = 0;
+static text_fit_t text_fit(int px, int requested_px, const char *text, int tracking,
+                           int target_width, bool word_spaces) {
+    int glyph_count = 0, stretchable = 0;
     const char* cursor = text;
     uint32_t previous = 0;
     while (*cursor) {
         uint32_t cp = decode_utf8(&cursor);
-        if (glyph_count && (cjk_spacing_point(previous) || cjk_spacing_point(cp))) ++cjk_gaps;
+        if (glyph_count && ttf_justify_gap(previous, cp, word_spaces)) ++stretchable;
         previous = cp;
         ++glyph_count;
     }
@@ -2767,14 +2883,13 @@ static text_fit_t text_fit(int px, const char *text, int tracking, int target_wi
     int natural = measure_width(px, text) + tracking * gaps;
     int delta = target_width - natural;
     bool compress = delta < 0;
-    int adjustable = compress ? gaps : cjk_gaps;
-    if (adjustable < 2 || (compress && -delta > adjustable * 3) ||
-        (!compress && delta > adjustable * 12)) return (text_fit_t){0};
-    return (text_fit_t){delta / adjustable, delta % adjustable, compress, true};
+    int adjustable = compress ? gaps : stretchable;
+    if (!ttf_justify_fits(delta, adjustable, requested_px, word_spaces)) return (text_fit_t){0};
+    return (text_fit_t){delta / adjustable, delta % adjustable, compress, true, word_spaces};
 }
 
 static int fitted_gap(text_fit_t fit, uint32_t cp, uint32_t next, int *adjusted) {
-    if (!fit.active || (!fit.compress && !cjk_spacing_point(cp) && !cjk_spacing_point(next))) return 0;
+    if (!fit.active || (!fit.compress && !ttf_justify_gap(cp, next, fit.word_spaces))) return 0;
     int step = fit.quotient;
     if (fit.remainder > 0 && *adjusted < fit.remainder) ++step;
     if (fit.remainder < 0 && *adjusted < -fit.remainder) --step;
@@ -2782,11 +2897,12 @@ static int fitted_gap(text_fit_t fit, uint32_t cp, uint32_t next, int *adjusted)
     return step;
 }
 
-bool ttf_text_range_px(int px, const char *text, int tracking, int target,
+bool ttf_text_range_px(int px, const char *text, int tracking, int target, bool word_spaces,
                        size_t start, size_t end, int *first, int *last, int *ink_bottom) {
     if (!font_ready || !text || !first || !last || start >= end) return false;
+    int requested_px = px;
     px = raster_px(px);
-    text_fit_t fit = target ? text_fit(px, text, tracking, target) : (text_fit_t){0};
+    text_fit_t fit = target ? text_fit(px, requested_px, text, tracking, target, word_spaces) : (text_fit_t){0};
     const char *cursor = text;
     float scale = stbtt_ScaleForPixelHeight(&font_info, (float)px);
     int offset = 0, adjusted = 0;
@@ -2833,14 +2949,14 @@ bool ttf_text_range_px(int px, const char *text, int tracking, int target,
 
 void ttf_draw_text_px_fitted(
     uint8_t* framebuffer, int x, int y, int pixel_height, const char* text,
-    int tracking_px, int target_width, uint8_t fg, uint8_t bg
+    int tracking_px, int target_width, bool word_spaces, uint8_t fg, uint8_t bg
 ) {
     if (!font_ready || !framebuffer || !text || !*text) return;
     ttf_cover_lut_init();
     int requested_px = pixel_height;
     pixel_height = raster_px(pixel_height);
     warm_text_io(pixel_height, text);
-    text_fit_t fit = text_fit(pixel_height, text, tracking_px, target_width);
+    text_fit_t fit = text_fit(pixel_height, requested_px, text, tracking_px, target_width, word_spaces);
     if (!fit.active) {
         ttf_draw_text_px_spaced(framebuffer, x, y, requested_px, text, tracking_px, fg, bg);
         return;

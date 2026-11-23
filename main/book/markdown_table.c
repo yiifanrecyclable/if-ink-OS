@@ -5,6 +5,7 @@
  * Frozen: Never mutate chapters or present; caller serializes font access and frees the entire layout on failure.
  */
 #include "markdown_table.h"
+#include "book_hyphen.h"
 #include "esp_heap_caps.h"
 #include "ttf_font.h"
 #include <stdlib.h>
@@ -20,13 +21,14 @@ typedef struct {
     int16_t x, y, width, height, natural;
     uint8_t align, borders, flags, background, marker;
     uint16_t column;
+    bool hyphen;
 } cell_op_t;
 typedef struct {
     size_t page, start, limit, next, first, count;
     int y_end;
 } span_t;
 typedef struct { size_t at, end; bool empty; } cursor_t;
-typedef struct { size_t source, len, next; int width; } line_t;
+typedef struct { size_t source, len, next; int width; bool hyphen; } line_t;
 typedef struct {
     const blk_t *rows;
     size_t count, after, page;
@@ -45,15 +47,16 @@ static const text_style_t *s_styles;
 static size_t s_style_count;
 static EpdRect s_rect;
 static int s_px, s_band, s_pad, s_tracking;
+static bool s_hyphenate;
 void markdown_table_free(void) {
     free(s_ops); free(s_spans); s_ops=NULL; s_spans=NULL;
     s_op_count=s_op_cap=s_span_count=s_span_cap=0;
     s_text=NULL; s_cells=NULL; s_styles=NULL; s_style_count=0;
 }
 void markdown_table_configure(const char *text, const markdown_cell_t *cells,
-    const text_style_t *styles, size_t style_count, EpdRect rect, int px, unsigned percent, int tracking) {
+    const text_style_t *styles, size_t style_count, EpdRect rect, int px, unsigned percent, int tracking, bool hyphenate) {
     s_text=text; s_cells=cells; s_styles=styles; s_style_count=style_count;
-    s_rect=rect; s_px=px; s_tracking=tracking; s_pad=px/8+3;
+    s_rect=rect; s_px=px; s_tracking=tracking; s_hyphenate=hyphenate; s_pad=px/8+3;
     s_band=(int)((unsigned)px*percent/100)+s_pad;
 }
 static unsigned style_at(size_t at) {
@@ -82,22 +85,55 @@ static bool opening_mark(unsigned cp) {
 }
 static bool wrap(size_t at,size_t end,int available,unsigned flags,line_t *line) {
     *line=(line_t){.source=at,.next=at}; int glyphs=0;
-    size_t last_start=at; int last_width=0; unsigned last_cp=0;
+    size_t last_start=at, word_start=at, split_at=0;
+    int last_width=0, word_width=0, split_width=0, dash_width=0;
+    unsigned last_cp=0, dash_style=UINT32_MAX;
+    bool previous_joiner=false, split_draws_dash=false;
+    book_hyphen_range_t range={0};
     while(at<end && s_text[at]!='\n' && s_text[at]!='\r') {
         size_t n=cp_size(at); char glyph[5]; memcpy(glyph,s_text+at,n);glyph[n]=0;
         int width=ttf_text_width_styled_px(s_px,glyph,flags|style_at(at));
         int advance=width+(glyphs?s_tracking:0);
         if(line->width+advance<0)return false;
+        unsigned cp=cp_value(at,n);
+        bool previous_part=book_word_part(last_cp);
+        bool joiner=(previous_part||previous_joiner)&&book_word_joiner(cp,s_text+at+n,s_text+end);
+        bool continuation=(previous_part||previous_joiner)&&(book_word_part(cp)||joiner);
+        if(s_hyphenate&&continuation&&previous_joiner&&last_cp=='-' && book_word_part(cp)){
+            split_at=at;split_width=line->width;split_draws_dash=false;
+        }else if(continuation&&book_hyphen_fits_range(range,s_text+at)){
+            unsigned style=flags|style_at(at-1);
+            if(style!=dash_style){
+                dash_width=ttf_text_width_styled_px(s_px,"-",style);
+                dash_style=style;
+            }
+            int with_dash=line->width+s_tracking+dash_width;
+            if(with_dash<=available){split_at=at;split_width=with_dash;split_draws_dash=true;}
+        }
         if(line->width+advance>available) {
             if(!glyphs)return false;
+            bool closing=closing_mark(cp)||(cp=='-'&&previous_part);
+            bool splits_word=continuation||(closing&&previous_part);
+            if(splits_word&&split_at>line->source){
+                at=split_at;line->width=split_width;line->hyphen=split_draws_dash;break;
+            }
+            if(splits_word&&word_start>line->source){
+                at=word_start;line->width=word_width;break;
+            }
+            if(splits_word&&!continuation)break;
             // 单元格不悬挂到邻列：将前一个字带到次行，避免标点独占行首。
             // Never hang into an adjacent column; move the preceding glyph to avoid a closing mark at line start.
-            if (glyphs>1 && (closing_mark(cp_value(at,n)) || opening_mark(last_cp))) {
+            if (glyphs>1 && (closing || opening_mark(last_cp))) {
                 at=last_start; line->width=last_width;
             }
             break;
         }
-        last_start=at;last_width=line->width;last_cp=cp_value(at,n);
+        if(!continuation){
+            word_start=at;word_width=line->width;split_at=0;
+            range=s_hyphenate&&book_latin_letter(cp)&&(at>line->source||!book_word_before(s_text,s_text+at))
+                ?book_hyphen_range(s_text+at,s_text+end):(book_hyphen_range_t){0};
+        }
+        last_start=at;last_width=line->width;last_cp=cp;previous_joiner=joiner;
         line->width+=advance;++glyphs;at+=n;
     }
     line->len=at-line->source;
@@ -171,7 +207,7 @@ static bool grid_row(flow_t *f,const blk_t *row,bool repeating) {
         }
         for(unsigned c=0;c<cols;++c){int cell_width=c+1==cols?s_rect.width-(int)c*width:width;
             cell_op_t op={.source=lines[c].source,.len=lines[c].len,.x=(int)c*width,.y=(int)*f->used,
-                .width=cell_width,.height=s_band,.natural=lines[c].width,.align=s_cells[row->table_cell+c].align,
+                .width=cell_width,.height=s_band,.natural=lines[c].width,.hyphen=lines[c].hyphen,.align=s_cells[row->table_cell+c].align,
                 .flags=row->table_header?TEXT_STYLE_BOLD:0,.background=row->table_header?13:15,
                 .borders=(first?1:0)|(last?2:0)|4|8};
             if(!push_op(f,op))return false;
@@ -202,7 +238,7 @@ static bool stacked_value(flow_t *f,const markdown_cell_t *cell,const markdown_c
         if(first && label){
             for(int l=0;l<label_lines;++l){line_t *line=&label_line[l];
                 cell_op_t op={.source=line->source,.len=line->len,.x=0,.y=(int)*f->used,
-                    .width=s_rect.width,.height=s_band,.natural=line->width,.flags=TEXT_STYLE_BOLD,
+                    .width=s_rect.width,.height=s_band,.natural=line->width,.hyphen=line->hyphen,.flags=TEXT_STYLE_BOLD,
                     .background=13,.borders=l?0:1,.marker=!label->len?1:
                         l==label_lines-1&&line->next<label->offset+label->len?2:0,.column=column};
                 if(!push_op(f,op))return false;
@@ -211,7 +247,7 @@ static bool stacked_value(flow_t *f,const markdown_cell_t *cell,const markdown_c
         }
         line_t line;if(!wrap(at,end,s_rect.width-2*s_pad,header?TEXT_STYLE_BOLD:0,&line))return false;
         cell_op_t op={.source=line.source,.len=line.len,.x=0,.y=(int)*f->used,.width=s_rect.width,
-            .height=s_band,.natural=line.width,.flags=header?TEXT_STYLE_BOLD:0,.background=header?13:15,
+            .height=s_band,.natural=line.width,.hyphen=line.hyphen,.flags=header?TEXT_STYLE_BOLD:0,.background=header?13:15,
             .borders=(header&&first?1:0)|(line.next==end?2:0)};
         if(!push_op(f,op))return false;
         *f->used+=s_band;at=line.next;empty=false;first=false;
@@ -268,7 +304,14 @@ static void draw_op(uint8_t *fb,const cell_op_t *op,EpdRect rect) {
             uint8_t bg=flags&TEXT_STYLE_HIGHLIGHT?11:op->background;
             if(!pass && bg!=op->background)epd_fill_rect((EpdRect){cursor,cell.y,width,cell.height},bg<<4,fb);
             if(pass)ttf_draw_glyph_styled_px(fb,cursor,baseline,s_px,glyph,flags,0,bg);
-            cursor+=width+(at+n<end?s_tracking:0);at+=n;
+            cursor+=width+(at+n<end||op->hyphen?s_tracking:0);at+=n;
+        }
+        if(op->hyphen){
+            unsigned flags=op->flags|style_at(end-1);
+            uint8_t bg=flags&TEXT_STYLE_HIGHLIGHT?11:op->background;
+            if(!pass&&bg!=op->background)
+                epd_fill_rect((EpdRect){cursor,cell.y,ttf_text_width_styled_px(s_px,"-",flags),cell.height},bg<<4,fb);
+            if(pass)ttf_draw_glyph_styled_px(fb,cursor,baseline,s_px,"-",flags,0,bg);
         }
     }
     if(op->marker){char marker[24];if(op->marker==1)snprintf(marker,sizeof(marker),"列 %u",op->column);

@@ -16,13 +16,13 @@
 #include <limits.h>
 #define READ_BLOCK (64 * 1024)
 #define PART_TARGET (48 * 1024)
-#define TXT_CACHE_VERSION 1u
+#define TXT_CACHE_VERSION 2u
 typedef struct {
     uint32_t total;
     uint32_t bom;
     uint32_t count;
     uint8_t gbk;
-    uint8_t reserved[3];
+    uint8_t language, reserved[2];
 } txt_cache_payload_t;
 typedef struct {
     FILE *file; ///< 只读句柄 / Read-only handle
@@ -99,7 +99,9 @@ static esp_err_t index_book(reader_t *r, book_txt_t *b) {
     esp_err_t err = reset(r, b, b->bom); if (err) return err;
     char line[41] = {0}; size_t len = 0; bool overflow = false, too_many = false;
     uint32_t start = b->bom, cp;
+    content_language_probe_t language = {0};
     while (next(r, &cp)) {
+        if (!language.incompatible) content_language_character(&language, cp);
         if (cp == '\n') {
             if (!overflow && heading(line) && !add(b, start, line)) too_many = true;
             start = r->offset; len = 0; line[0] = 0; overflow = false;
@@ -110,6 +112,7 @@ static esp_err_t index_book(reader_t *r, book_txt_t *b) {
         }
     }
     if (ferror(b->file)) return ESP_FAIL;
+    b->language = content_language_finish(&language, false);
     if (!overflow && heading(line) && !add(b, start, line)) too_many = true;
     bool fallback = b->count < 2 || too_many;
     if (b->count) b->entries[0].offset = 0;
@@ -140,6 +143,7 @@ static bool txt_cache_load(const char* source, book_txt_t* b) {
     bool ok = fread(&payload, 1, sizeof(payload), cache) == sizeof(payload) &&
         payload.total == b->total && payload.bom <= 3 && payload.bom <= payload.total &&
         payload.count > 0 && payload.count <= BOOK_CHAPTER_MAX && payload.gbk <= 1 &&
+        payload.language <= CONTENT_LANGUAGE_COMPATIBLE &&
         fread(b->entries, sizeof(b->entries[0]), payload.count, cache) == payload.count &&
         fgetc(cache) == EOF;
     fclose(cache);
@@ -152,6 +156,7 @@ static bool txt_cache_load(const char* source, book_txt_t* b) {
     }
     if (!ok) return false;
     b->bom = payload.bom; b->gbk = payload.gbk != 0; b->count = payload.count;
+    b->language = payload.language;
     return true;
 }
 
@@ -162,6 +167,7 @@ static void txt_cache_save(const char* source, const book_txt_t* b) {
     if (!cache) return;
     txt_cache_payload_t payload = {
         .total = b->total, .bom = b->bom, .count = (uint32_t)b->count, .gbk = b->gbk,
+        .language = b->language,
     };
     bool ok = fwrite(&payload, 1, sizeof(payload), cache) == sizeof(payload) &&
         fwrite(b->entries, sizeof(b->entries[0]), b->count, cache) == b->count;

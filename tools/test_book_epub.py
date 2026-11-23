@@ -191,6 +191,9 @@ def main():
             files['OPS/styles/book.css'] = '.center{text-align:center}'
             files['OPS/images/pic&one.png'] = b'\x89PNG\r\n\x1a\nxxxx'
             files['OPS/images/wrapper.svg'] = '<svg><image href="pic&amp;one.png"/></svg>'
+            files['OPS/images/pic.gif'] = bytes.fromhex(
+                '47494638396101000100800000000000ffffff2c00000000010001000002024401003b')
+            files['OPS/images/gif-wrapper.svg'] = '<svg><image href="pic.gif"/></svg>'
             # A genuinely large, incompressible unused asset must not reject the entire book.
             files['OPS/images/unused.bin'] = os.urandom(24 * 1024 * 1024)
         case('good_resources', resources)

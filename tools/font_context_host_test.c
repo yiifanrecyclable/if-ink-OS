@@ -3,13 +3,28 @@
  */
 #include <assert.h>
 #include "../main/font/ttf_font.c"
+#include "../main/font/font_path_policy.h"
+static const char *fixture_path;
+static bool is_font_path_for_test(const char *path){
+    return app_font_path_valid(path)||(fixture_path && !strcmp(path,fixture_path));
+}
+#define app_font_path_valid is_font_path_for_test
 #include "../main/font/app_font_context.c"
-static const char *document_font = TTF_FONT_BUILTIN;
+#undef app_font_path_valid
+static const char *reading_font = TTF_FONT_BUILTIN;
+static int saved_slot=-1;
+static app_language_t language;
 static unsigned store_revision, media_epoch;
 const char *app_settings_fonts_dir(void){return "/missing";}
-const char *app_settings_font_path(void){return TTF_FONT_BUILTIN;}
+const char *app_settings_font_path(void){return reading_font;}
 const char *app_settings_system_font_path(void){return "";}
-const char *content_markdown_font(void){return document_font;}
+app_language_t app_settings_language(void){return language;}
+esp_err_t app_settings_set_font_path(const char *path){(void)path;saved_slot=0;return ESP_OK;}
+esp_err_t app_settings_set_system_font_path(const char *path){(void)path;saved_slot=2;return ESP_OK;}
+esp_err_t content_english_font_set(bool document,const char *path){assert(!document);(void)path;saved_slot=1;return ESP_OK;}
+esp_err_t content_english_system_font_set(const char *path){(void)path;saved_slot=3;return ESP_OK;}
+esp_err_t content_english_system_font_checked(char *path,size_t capacity){assert(capacity);path[0]=0;return ESP_OK;}
+const char *content_english_font(bool document){(void)document;return "";}
 unsigned book_store_revision(void){return store_revision;}
 uint32_t record_store_media_epoch(void){return media_epoch;}
 void ui_text_set_system_font(bool enabled){(void)enabled;}
@@ -19,9 +34,35 @@ static void sample(void){
     memset(frame,255,sizeof(frame));
     ttf_draw_text_px(frame,36,120,48,"阅读 Aa 0123",EPD_DRAW_ALIGN_LEFT,0,15);
 }
+
+static void check_english_justification(void) {
+    const char words[] = "red sun moon";
+    int natural = ttf_text_width_px(48, words);
+    int target = natural + 13;
+    int first, last;
+    assert(ttf_text_range_px(48, words, 0, target, true, 0, strlen(words), &first, &last, NULL));
+    assert(first == 0 && last == target);
+    assert(ttf_text_range_px(48, words, 0, target, true, 4, 7, &first, &last, NULL));
+    int sun = ttf_text_width_px(48, "red ") + 7;
+    assert(first == sun && last - first == ttf_text_width_px(48, "sun"));
+    int moon = ttf_text_width_px(48, "red sun ") + 13;
+    memset(frame, 255, sizeof(frame));
+    memset(reference, 255, sizeof(reference));
+    ttf_draw_text_px_fitted(frame, 36, 120, 48, words, 0, target, true, 0, 15);
+    ttf_draw_text_px(reference, 36, 120, 48, "red", EPD_DRAW_ALIGN_LEFT, 0, 15);
+    ttf_draw_text_px(reference, 36 + sun, 120, 48, "sun", EPD_DRAW_ALIGN_LEFT, 0, 15);
+    ttf_draw_text_px(reference, 36 + moon, 120, 48, "moon", EPD_DRAW_ALIGN_LEFT, 0, 15);
+    assert(!memcmp(frame, reference, sizeof(frame)));
+    assert(ttf_text_range_px(48, words, 0, target, false, 0, strlen(words), &first, &last, NULL));
+    assert(last == natural);
+    assert(ttf_text_range_px(48, words, 0, natural + 100, true, 0, strlen(words), &first, &last, NULL));
+    assert(last == natural);
+}
+
 int main(int argc,char **argv){
     assert(argc==2);
     assert(ttf_font_select_context(false,TTF_FONT_BUILTIN)==ESP_OK);
+    check_english_justification();
     sample();memcpy(reference,frame,sizeof(frame));
     int width=ttf_text_width_px(48,"阅读 Aa 0123");
     assert(ttf_font_select_context(true,argv[1])==ESP_OK);
@@ -41,16 +82,24 @@ int main(int argc,char **argv){
     assert(!s_font_contexts[0].state_cache_bytes&&!s_font_contexts[1].state_cache_bytes);
     assert(ttf_font_select_context(false,TTF_FONT_BUILTIN)==ESP_OK);sample();
     assert(!memcmp(reference,frame,sizeof(frame))&&ttf_sim_font_loads==before_clear);
-    // 文档字体缺失时，保留已加载字体且每次轮询都不请求重画。
-    // A missing document font preserves the active face and never asks the poller to redraw.
-    app_font_set_document_mode(true);
-    document_font=argv[1];
+    fixture_path=argv[1];
+    for(int role=0;role<2;++role)for(int en=0;en<2;++en){
+        assert(app_font_save_choice(role,en,argv[1])==ESP_OK);
+        assert(saved_slot==2*role+en);
+    }
+    assert(app_font_save_choice(APP_FONT_SYSTEM,false,"/sdcard/elsewhere/Test.ttf")==ESP_ERR_INVALID_ARG);
+    assert(app_font_save_choice(APP_FONT_READING,false,"/sdcard/fonts/Test.otf")==ESP_ERR_INVALID_ARG);
+    assert(app_font_path_protected("/SDCARD/FONTS/picosans-medium.TTF"));
+    assert(app_font_path_protected("/sdcard/fonts/PICOSA~1.TTF"));
+    assert(!app_font_path_protected("/sdcard/fonts/MyFace.ttf"));
+    // 缺失的阅读字体保留已加载字体且轮询不重绘。/ A missing reading face preserves the active face without redraw.
+    fixture_path=reading_font=argv[1];
     assert(app_font_activate_reading());
     unsigned before_missing=ttf_sim_font_loads;
     char candidate[]="build/book-tests/font-retry-XXXXXX";
     int fd=mkstemp(candidate);
     assert(fd>=0&&close(fd)==0&&unlink(candidate)==0);
-    document_font=candidate;
+    fixture_path=reading_font=candidate;
     for(int i=0;i<8;++i)assert(!app_font_retry_active());
     assert(!strcmp(ttf_font_path(),argv[1])&&ttf_sim_font_loads==before_missing);
     fd=open(candidate,O_WRONLY|O_CREAT|O_EXCL,0600);

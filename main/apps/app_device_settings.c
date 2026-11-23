@@ -48,6 +48,7 @@
 #include "ui_wallpaper_rotation.h"
 #include "read_pico_search.h"
 #include "book_store.h"
+#include "book_index_cache.h"
 #include "book_ticket.h"
 #include "content_library.h"
 #include "ui_banner.h"
@@ -278,7 +279,7 @@ static void quote_font_picker_open(void){
 }
 static int font_list_count(void){
     if(s_page==SETTINGS_QUOTE_FONT)return s_quote_font_catalog_count+(int)s_quote_font_extra;
-    return ttf_font_count()+1;
+    return ttf_font_picker_count(TTF_COVERAGE_CHINESE)+1;
 }
 static int font_list_pages(void){
     int count=font_list_count();
@@ -289,10 +290,10 @@ static const ttf_font_item_t *font_list_item(int index){
         if(s_quote_font_extra&&index==0)return s_quote_system_font.path[0]?&s_quote_system_font:NULL;
         return ttf_font_item(index-(int)s_quote_font_extra);
     }
-    return ttf_font_item(index-1);
+    return ttf_font_picker_item(index-1,TTF_COVERAGE_CHINESE);
 }
 static const char *font_list_selected(void){
-    if(s_page!=SETTINGS_QUOTE_FONT)return app_settings_system_font_path();
+    if(s_page!=SETTINGS_QUOTE_FONT)return app_font_system_choice();
     return s_banner_draft.font[0]?s_banner_draft.font:s_quote_system_font.path;
 }
 static bool font_list_turn(int direction){
@@ -924,6 +925,8 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         const char *selected = font_list_selected();
         int count = font_list_count();
         int first = s_font_page * font_list_rows();
+        if(s_page==SETTINGS_SYSTEM_FONT&&ttf_font_picker_pending())
+            ui_text_vc(fb,342,704,UI_TEXT_BODY,UI_MSG("正在检查字体…"),EPD_DRAW_ALIGN_CENTER,false);
         for (int slot = 0; slot < font_list_rows(); ++slot) {
             int item_index = first + slot;
             if (item_index >= count) break;
@@ -1107,7 +1110,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
                   wireless_icons, wireless_labels, wireless_values, SETTINGS_WIRELESS_ROWS);
     const char *reading_labels[] = {UI_MSG("系统文字"), UI_MSG("状态栏签名"), UI_MSG("首页强刷"), UI_MSG("锁屏壁纸"), UI_MSG("首页Banner")};
     char font[96];
-    const char *chosen_font = app_settings_system_font_path();
+    const char *chosen_font = app_font_system_choice();
     ui_snprintf(font, sizeof(font), "%s  ›", system_font_label(chosen_font));
     fit_value(font, 235);
     ui_snprintf(font, sizeof(font), "%s · %s  ›", size_names[system_size_index()], system_font_label(chosen_font));
@@ -1159,6 +1162,11 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
     if(ui_nav_notice_tick(ctx->now_ms)){s_status_notice_only=true;return APP_REDRAW_AREA;}
     if(banner_picker_page())return banner_picker_tick(ctx);
     if (font_picker_page()) {
+        if (s_page==SETTINGS_SYSTEM_FONT && ttf_font_picker_pending()) {
+            if(ctx->consumed||ctx->pressed||ctx->released||(ctx->touch&&ctx->touch->touched))
+                return APP_REDRAW_NONE;
+            return ttf_font_picker_step()?APP_REDRAW_PAGE:APP_REDRAW_NONE;
+        }
         if (s_page==SETTINGS_QUOTE_FONT && strcmp(s_quote_system_font.path,quote_system_font_path())) {
             quote_font_select_page(quote_system_font_path());
             return APP_REDRAW_PAGE;
@@ -1516,7 +1524,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
             s_page=SETTINGS_HOME_QUOTE;return APP_REDRAW_PAGE;
         }
         ttf_name_preview_pause();
-        if(app_settings_set_system_font_path(item ? item->path : "")!=ESP_OK){ui_nav_notice_show(UI_MSG("保存失败，请重试"),ctx->now_ms);return APP_REDRAW_PAGE;}
+        if(app_font_save_choice(APP_FONT_SYSTEM,ui_i18n_english(),item?item->path:"")!=ESP_OK){ui_nav_notice_show(UI_MSG("保存失败，请重试"),ctx->now_ms);return APP_REDRAW_PAGE;}
         app_font_activate_system();
         s_font_page=index/font_list_rows();
         if(s_main_scroll>SETTINGS_SCROLL_MAX)s_main_scroll=SETTINGS_SCROLL_MAX;
@@ -1583,12 +1591,11 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
             s_config_confirm = false;
             esp_err_t err = app_settings_backup_restore();
             if (err == ESP_OK) {
+                // 先让恢复的字体偏好和阅读记录失效，再重新装载。/ Refresh font choices and reading records before reloading.
+                book_store_notify_changed();
                 ttf_font_scan();
                 app_font_activate_system();
                 ui_text_set_system_scale(true);
-                // 阅读记录恢复后令首页和书架重新取进度、时长与排序。
-                // Rebuild home and shelf caches after restoring reading records.
-                book_store_notify_changed();
             }
             char saved_ssid[33] = {0};
             bool wifi_saved = false;
@@ -1619,7 +1626,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     }
 
     if (y >= SETTINGS_DISPLAY_Y && y < SETTINGS_DISPLAY_Y + SETTINGS_ROW_H) {
-        ttf_font_scan();
+        ttf_font_picker_begin(book_store_revision(),book_index_cache_epoch());
         ttf_name_preview_revision(book_store_revision());
         s_font_page = 0;
         s_page = SETTINGS_SYSTEM_FONT;
@@ -1643,6 +1650,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         case 1: {
             app_language_t language=app_settings_language()==APP_LANGUAGE_ZH?APP_LANGUAGE_EN:APP_LANGUAGE_ZH;
             if(app_settings_set_language(language)!=ESP_OK)ui_snprintf(s_notice,sizeof(s_notice),UI_MSG("保存失败，请重试"));
+            else app_font_activate_system();
             break;
         }
         case 2: s_page = SETTINGS_POWER_SLEEP; break;

@@ -22,6 +22,7 @@ typedef struct {
     uint32_t total; ///< 文件长度 / File length
     bool gbk; ///< GBK 编码 / GBK encoding
     uint32_t bom; ///< BOM 字节数 / BOM size
+    content_language_t language;
 } book_txt_t;
 /// 建立 TXT 目录。/ Build the TXT index.
 esp_err_t book_txt_open(book_txt_t *book, const char *path);

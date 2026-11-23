@@ -26,7 +26,10 @@
 typedef struct {
     char name[TTF_FONT_NAME_MAX];
     char path[TTF_FONT_PATH_MAX];
+    uint8_t coverage;
 } ttf_font_item_t;
+
+enum { TTF_COVERAGE_LATIN = 1, TTF_COVERAGE_CHINESE = 2 };
 
 typedef struct {
     uint32_t glyphs;
@@ -75,6 +78,13 @@ void ttf_font_unload(void);
 int ttf_font_scan(void);
 int ttf_font_count(void);
 const ttf_font_item_t* ttf_font_item(int index);
+/// 只读字体字符映射，不打开字形轮廓或切换当前字库。/ Inspect the cmap without opening outlines or changing the active face.
+uint8_t ttf_font_path_coverage(const char *path);
+void ttf_font_picker_begin(unsigned revision, uint32_t media_epoch);
+bool ttf_font_picker_pending(void);
+bool ttf_font_picker_step(void);
+int ttf_font_picker_count(uint8_t coverage);
+const ttf_font_item_t *ttf_font_picker_item(int index, uint8_t coverage);
 const char* ttf_font_path(void);
 const char* ttf_font_display_name(void);
 /// 已知随附字体的中文名称；未知名称原样返回。/ Chinese names for bundled fonts; unknown names pass through.
@@ -101,12 +111,12 @@ void ttf_draw_text_px_spaced(
     int tracking_px, uint8_t fg, uint8_t bg
 );
 /// Return the byte range's advances and optional ink bottom relative to the baseline.
-bool ttf_text_range_px(int px, const char *text, int tracking, int target,
+bool ttf_text_range_px(int px, const char *text, int tracking, int target, bool word_spaces,
                        size_t start, size_t end, int *first, int *last, int *ink_bottom);
-/// 在汉字间均摊行尾余量；标点溢出时可小幅压缩字距。/ Distribute spare width across CJK gaps or slightly compress for hanging punctuation.
+/// 按文字间隙或词间空格对齐行尾。/ Fit by CJK gaps or word spaces.
 void ttf_draw_text_px_fitted(
     uint8_t* framebuffer, int x, int y, int pixel_height, const char* text,
-    int tracking_px, int target_width, uint8_t fg, uint8_t bg
+    int tracking_px, int target_width, bool word_spaces, uint8_t fg, uint8_t bg
 );
 /// 覆盖率过半才落墨，像素只有 fg/bg。/ Ink only when coverage is over half; pixels are fg/bg only.
 void ttf_draw_text_px_bw(

@@ -668,7 +668,7 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
         ui_text(fb, 64,UI_PAGE_Y(553), 19, UI_MSG("EPUB、TXT 书籍"), EPD_DRAW_ALIGN_LEFT, false);
         epd_fill_rect((EpdRect){36,UI_PAGE_Y(580),612,2},UI_GRAY_ITEM_LINE,fb);
         ui_text(fb, 64,UI_PAGE_Y(597), 27, "fonts", EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 64,UI_PAGE_Y(640), 19, UI_MSG("TTF、OTF 字体"), EPD_DRAW_ALIGN_LEFT, false);
+        ui_text(fb, 64,UI_PAGE_Y(640), 19, UI_MSG("TTF 字体"), EPD_DRAW_ALIGN_LEFT, false);
 
         ui_text(fb, 42,UI_PAGE_Y(740), 20, UI_MSG("完成传输"), EPD_DRAW_ALIGN_LEFT, false);
         epd_fill_rect((EpdRect){36,UI_PAGE_Y(712),612,2},UI_GRAY_SECTION_LINE,fb);

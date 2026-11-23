@@ -36,7 +36,7 @@ static int ttf_get_weight(void){return weight;}
 static bool ttf_font_is_builtin(void){return builtin;}
 static const char *ttf_font_path(void){return active;}
 static int app_settings_language(void){return language;}
-static const char *app_settings_system_font_path(void){return system_font;}
+static const char *app_font_system_choice(void){return system_font;}
 void content_banner_load(content_banner_config_t *out){*out=config;}
 static int fake_stat(const char *p,struct stat *st){assert(*p);if(missing)return -1;memset(st,0,sizeof(*st));st->st_mode=S_IFREG;st->st_size=111+file_version;st->st_mtime=222+file_version;return 0;}
 #define stat(p,s) fake_stat(p,s)

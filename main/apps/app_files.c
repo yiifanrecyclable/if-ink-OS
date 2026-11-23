@@ -41,6 +41,7 @@
 #include "settings.h"
 #include "ttf_font.h"
 #include "app_font_context.h"
+#include "../font/font_path_policy.h"
 #include "ui_gesture.h"
 #include "ui_kit.h"
 #include "ui_text_input.h"
@@ -114,6 +115,7 @@ typedef enum { FILE_CONFIRM_NONE, FILE_CONFIRM_DELETE, FILE_CONFIRM_MOVE } file_
 static file_confirm_t s_confirm;
 static bool s_confirm_font;
 static int s_font_preview_px;
+static uint8_t s_font_preview_coverage;
 static int s_move_origin_folder, s_move_origin_page;
 static char s_move_origin_dir[288];
 static char s_editor[121], s_editor_ext[16], s_editor_notice[96];
@@ -441,6 +443,7 @@ static void leave_move(bool changed) {
 }
 
 static const char *move_item(const file_item_t *item,bool *changed){
+    if(app_font_path_protected(item->path))return UI_MSG("系统字体不可修改");
     if(fixed_media_root(item->path))return UI_MSG("系统目录不可修改");
     char destination[288];
     if(ui_snprintf(destination,sizeof(destination),"%s/%s",s_dir,item->name)>=sizeof(destination))return UI_MSG("目标路径过长");
@@ -487,7 +490,7 @@ static bool supported(int folder, const char *name) {
     if (!ext) return false;
     if (folder == 0) return !strcasecmp(ext, ".epub") || !strcasecmp(ext, ".txt") || !strcasecmp(ext, ".md");
     if (folder == 1) return !strcasecmp(ext, ".jpg") || !strcasecmp(ext, ".jpeg") || !strcasecmp(ext, ".png");
-    return !strcasecmp(ext, ".ttf") || !strcasecmp(ext, ".otf");
+    return !strcasecmp(ext, ".ttf");
 }
 
 static int compare_files(const void *left, const void *right) {
@@ -803,10 +806,11 @@ static void render_rename(uint8_t *fb) {
 enum { FONT_PREVIEW_MIN=24, FONT_PREVIEW_MAX=72, FONT_PREVIEW_LEFT=64, FONT_PREVIEW_RIGHT=620 };
 static const EpdRect font_preview_area={0,208,UI_LOCK_WIDTH,660};
 static const EpdRect font_slider={36,760,612,84};
-typedef enum { FONT_APPLY_SYSTEM, FONT_APPLY_BOOK, FONT_APPLY_DOCUMENT, FONT_APPLY_COUNT } font_apply_target_t;
+typedef enum { FONT_APPLY_SYSTEM, FONT_APPLY_READING, FONT_APPLY_COUNT } font_apply_target_t;
 static EpdRect font_apply_rect(int index){
-    const int gap=12, width=(UI_LOCK_WIDTH-72-2*gap)/FONT_APPLY_COUNT;
-    return(EpdRect){36+index*(width+gap),1080,width,90};
+    const int gap=12, width=(UI_LOCK_WIDTH-72-gap)/FONT_APPLY_COUNT;
+    int x=s_font_preview_coverage==TTF_COVERAGE_LATIN?(UI_LOCK_WIDTH-width)/2:36+index*(width+gap);
+    return(EpdRect){x,1080,width,90};
 }
 static bool file_tapped(EpdRect rect,const ui_gesture_event_t *ev){
     return ui_rect_hit(rect,ev->x0,ev->y0)&&ui_rect_hit(rect,ev->x,ev->y);
@@ -837,6 +841,9 @@ static void render_font_sample_and_slider(uint8_t *fb){
     epd_fill_rect((EpdRect){FONT_PREVIEW_LEFT,y-2,knob-FONT_PREVIEW_LEFT,4},UI_GRAY_BLACK,fb);
     epd_fill_circle(knob,y,13,UI_GRAY_BLACK,fb);
 }
+static bool font_preview_can_apply(void){
+    return s_font_preview_coverage!=0&&app_font_path_valid(s_selected.path);
+}
 static void render_font_preview(uint8_t *fb){
     ui_nav_close(fb);
     char stem[128];copy_utf8(stem,sizeof(stem),s_selected.name);
@@ -845,17 +852,24 @@ static void render_font_preview(uint8_t *fb){
     int title_px=ui_text_fit_px(UI_TEXT_TITLE,name,480,64);
     ui_text_fixed_vc(fb,342,UI_PAGE_Y(107),title_px,name,EPD_DRAW_ALIGN_CENTER,false);
     render_font_sample_and_slider(fb);
-    const char *labels[]={UI_MSG("设为系统字体"),UI_MSG("设为书籍字体"),UI_MSG("设为文档字体")};
+    bool latin_only=s_font_preview_coverage==TTF_COVERAGE_LATIN;
+    const char *labels[]={UI_MSG("系统字体"),
+                          latin_only?UI_MSG("英文阅读字体"):UI_MSG("阅读字体")};
+    int first_target=latin_only?FONT_APPLY_READING:FONT_APPLY_SYSTEM;
+    bool enabled=font_preview_can_apply();
     int px=ui_text_effective_px(UI_TEXT_BODY);
-    EpdRect first=font_apply_rect(0);
-    for(int i=0;i<FONT_APPLY_COUNT;++i){
+    EpdRect first=font_apply_rect(first_target);
+    const char *prompt=app_font_path_valid(s_selected.path)?UI_MSG("设为"):UI_MSG("请将字体移到 fonts 根目录");
+    ui_text_vc(fb,UI_LOCK_WIDTH/2,first.y-60,enabled?UI_TEXT_BODY:UI_TEXT_CAPTION,prompt,EPD_DRAW_ALIGN_CENTER,false);
+    for(int i=first_target;i<FONT_APPLY_COUNT;++i){
         int fit=ui_text_fit_px(UI_TEXT_BODY,labels[i],first.width-24,first.height-20);
         if(fit<px)px=fit;
     }
-    for(int i=0;i<FONT_APPLY_COUNT;++i){
+    for(int i=first_target;i<FONT_APPLY_COUNT;++i){
         EpdRect r=font_apply_rect(i);
-        ui_draw_round_rect(fb,r,24,UI_GRAY_BLACK);
-        ui_text_fixed_vc(fb,r.x+r.width/2,r.y+r.height/2,px,labels[i],EPD_DRAW_ALIGN_CENTER,false);
+        ui_draw_round_rect(fb,r,24,enabled?UI_GRAY_BLACK:0x99);
+        ui_text_fixed_vc_gray(fb,r.x+r.width/2,r.y+r.height/2,px,labels[i],
+                              EPD_DRAW_ALIGN_CENTER,enabled?UI_INK_BLACK:9,UI_INK_WHITE);
     }
 }
 
@@ -1038,15 +1052,17 @@ static void open_selected(app_ctx_t *ctx) {
         if(app_image_request_open(s_selected.path)){
             s_image_origin.valid=true;s_image_origin.folder=s_folder;s_image_origin.page=s_page;strlcpy(s_image_origin.dir,s_dir,sizeof(s_image_origin.dir));ctx->request_app=&app_image;
         }
-    } else if (!strcasecmp(ext, ".ttf") || !strcasecmp(ext, ".otf")) {
+    } else if (!strcasecmp(ext, ".ttf")) {
         if (ttf_font_prepare_preview(s_selected.path)) {
             s_font_preview_px=48;
+            s_font_preview_coverage=ttf_font_path_coverage(s_selected.path);
             s_view=FILE_VIEW_FONT_PREVIEW;
         } else file_notice(UI_MSG("字体无法加载"));
     } else file_notice(UI_MSG("没有可用的打开方式"));
 }
 
 static void delete_selected(void) {
+    if(app_font_path_protected(s_selected.path)){file_notice(UI_MSG("系统字体不可修改"));return;}
     if(fixed_media_root(s_selected.path)){file_notice(UI_MSG("系统目录不可修改"));return;}
     if (if_managed_path(s_selected.path) && !if_managed_document(&s_selected)) {
         s_confirm = FILE_CONFIRM_NONE;
@@ -1077,6 +1093,7 @@ static void delete_selected(void) {
 }
 
 static app_redraw_t save_rename(void) {
+    if(app_font_path_protected(s_selected.path)){file_notice(UI_MSG("系统字体不可修改"));return APP_REDRAW_PAGE;}
     if(fixed_media_root(s_selected.path)){file_notice(UI_MSG("系统目录不可修改"));return APP_REDRAW_PAGE;}
     if (if_managed_path(s_selected.path)) {
         file_notice(UI_MSG("文档重命名请在 Obsidian 中操作")); return APP_REDRAW_PAGE;
@@ -1151,6 +1168,7 @@ static app_redraw_t action_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev)
         return APP_REDRAW_PAGE;
     }
     for(int action=0;action<4;++action)if(file_tapped(ui_nav_action_button(action,4),ev)){
+        if(app_font_path_protected(s_selected.path)){file_notice(UI_MSG("系统字体不可修改"));return APP_REDRAW_PAGE;}
         if(fixed_media_root(s_selected.path)){file_notice(UI_MSG("系统目录不可修改"));return APP_REDRAW_PAGE;}
         if (if_managed_path(s_selected.path) && (action < 2 || !if_managed_document(&s_selected))) {
             file_notice(UI_MSG("文档目录由同步管理；删除请在内容页操作"));
@@ -1206,24 +1224,22 @@ static app_redraw_t batch_gesture(const ui_gesture_event_t *ev){
 static app_redraw_t apply_preview_font(font_apply_target_t target){
     const char *path=s_selected.path;
     struct stat st;
-    if(stat(path,&st)||!S_ISREG(st.st_mode)||!ttf_font_prepare_preview(path)){
+    if(!app_font_path_valid(path)){file_notice(UI_MSG("字体文件须位于 fonts 文件夹"));return APP_REDRAW_PAGE;}
+    if(!s_font_preview_coverage || stat(path,&st)||!S_ISREG(st.st_mode)||!ttf_font_prepare_preview(path)){
         file_notice(UI_MSG("字体无法加载"));return APP_REDRAW_PAGE;
     }
     esp_err_t err;
     const char *notice;
+    bool latin_only=s_font_preview_coverage==TTF_COVERAGE_LATIN;
     switch(target){
     case FONT_APPLY_SYSTEM:
-        err=app_settings_set_system_font_path(path);
+        err=app_font_save_choice(APP_FONT_SYSTEM,ui_i18n_english(),path);
         if(err==ESP_OK)app_font_activate_system();
         notice=UI_MSG("已设为系统字体");
         break;
-    case FONT_APPLY_BOOK:
-        err=app_settings_set_font_path(path);
-        notice=UI_MSG("已设为书籍字体");
-        break;
-    case FONT_APPLY_DOCUMENT:
-        err=content_markdown_font_set(path);
-        notice=UI_MSG("已设为文档字体");
+    case FONT_APPLY_READING:
+        err=app_font_save_choice(APP_FONT_READING,latin_only,path);
+        notice=latin_only?UI_MSG("已设为英文阅读字体"):UI_MSG("已设为阅读字体");
         break;
     default:
         return APP_REDRAW_NONE;
@@ -1251,7 +1267,9 @@ static app_redraw_t font_preview_gesture(const app_ctx_t *ctx,const ui_gesture_e
     }
     if(!tap)return APP_REDRAW_NONE;
     if(file_tapped(ui_nav_close_rect(),ev)){s_view=FILE_VIEW_LIST;return APP_REDRAW_PAGE;}
-    for(int i=0;i<FONT_APPLY_COUNT;++i)if(file_tapped(font_apply_rect(i),ev))return apply_preview_font(i);
+    if(!font_preview_can_apply())return APP_REDRAW_NONE;
+    int first_target=s_font_preview_coverage==TTF_COVERAGE_LATIN?FONT_APPLY_READING:FONT_APPLY_SYSTEM;
+    for(int i=first_target;i<FONT_APPLY_COUNT;++i)if(file_tapped(font_apply_rect(i),ev))return apply_preview_font(i);
     return APP_REDRAW_NONE;
 }
 

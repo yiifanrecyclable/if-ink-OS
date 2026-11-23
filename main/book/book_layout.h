@@ -26,6 +26,9 @@ bool book_layout_build_blocks(const char* utf8, size_t len, const blk_t* blocks,
 /// 设置行高百分比与段后距离百分比，重排时生效。/ Set line height and paragraph gap percentages for the next layout.
 void book_layout_set_spacing(unsigned line_percent, unsigned paragraph_percent);
 /// 正文额外字间距为 -4/-2/0/+2/+4 像素。/ Extra body tracking is -4/-2/0/+2/+4 pixels.
+void book_layout_set_hyphenation(bool enabled);
+/// 纯英文正文的两端对齐只扩展词间空格。/ Justify English prose using only interword spaces.
+void book_layout_set_english_justification(bool enabled);
 void book_layout_set_typography(int tracking_px);
 /// 普通正文首行缩进 0..3 字；不改变标题及居中、右对齐块。/ Indent ordinary body paragraphs by 0..3 em; keep headings and aligned blocks unchanged.
 void book_layout_set_first_line_indent(unsigned em);
@@ -52,9 +55,10 @@ void book_layout_set_image_dims(book_layout_image_dims_fn fn, void* ctx);
 /// 本页插图张数；越界返回 0。
 /// / Number of images placed on this page; 0 when out of range.
 int book_layout_page_image_count(size_t page);
-/// 取本页第 i 张图：序号、页内 y、显示宽高。越界返回 false。
-/// / Image i of this page: index, y within the page, and display width/height.
-bool book_layout_page_image_at(size_t page, int i, int* image, int* y, int* width, int* height);
+/// 取本页第 i 张图的序号、页内 y、显示宽高和栏号；越界返回 false。
+/// / Return the image index, page-relative y, display dimensions and column; false if out of range.
+bool book_layout_page_image_at(size_t page, int i, int* image, int* y, int* width, int* height,
+                               unsigned* column);
 
 int book_layout_page_image(size_t page);
 /// 布局代次，重排或释放后改变，用于使页内位图缓存失效。/ Layout generation changes after rebuild/free, invalidating page bitmap caches.

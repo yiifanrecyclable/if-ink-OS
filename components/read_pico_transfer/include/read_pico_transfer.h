@@ -53,7 +53,7 @@ typedef struct {
     esp_err_t (*file_edit_begin_cb)(const char *source,const char *target,bool *done); ///< 先保存全部设置引用；done表示重试已完成 / Persist references first; done marks an already-completed retry
     esp_err_t (*file_edit_end_cb)(void); ///< 文件操作后修复全部引用，失败可重试 / Repair all references after the edit, retryable on failure
     read_pico_transfer_editor_fn editor_cb; ///< UI任务执行网页草稿 / UI task handles web drafts
-    bool (*path_write_allowed_cb)(const char *path); ///< 拒绝修改正在使用的Banner资源 / Protect selected banner resources
+    bool (*path_write_allowed_cb)(const char *path); ///< 拒绝写入受保护的文件 / Protect managed and selected appearance files
     bool (*wallpaper_set_cb)(const char *path); ///< 图片上传完成后设为锁屏壁纸 / Select an uploaded image as lock wallpaper
 } read_pico_transfer_cfg_t;
 

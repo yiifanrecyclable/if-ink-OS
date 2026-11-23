@@ -100,6 +100,14 @@ with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="reader-landscape-")
     assert preference.read_bytes() == b"\x02"
     assert render()[0]["reader_offset"] == anchor
 
+    for reverse, x in ((False,500),(True,1114)):
+        font_panel, _ = render(panel=2,reverse=reverse)
+        assert font_panel["reader_hyphenation"] and font_panel["reader_hyphen_y"]==194
+        changed, _ = render(wide_tap(x,194,reverse),panel=2,reverse=reverse)
+        assert not changed["reader_hyphenation"] and changed["reader_offset"]==anchor
+        restored, _ = render(wide_tap(x,194,reverse),panel=2,reverse=reverse)
+        assert restored["reader_hyphenation"] and restored["reader_offset"]==anchor
+
     # Old installs may still have the handedness key. Direction alone drives the UI.
     hand = nvs / "rd_wide_left"
     for reverse in (False, True):
@@ -292,9 +300,9 @@ with tempfile.TemporaryDirectory(dir=ROOT / "build", prefix="reader-landscape-")
 
     for i in range(12):
         os.link(ROOT / "main/assets/builtin.ttf", card / "fonts" / f"Face-{i:02d}.ttf")
-    fonts, _ = render(wide_tap(260, 187), wide_tap(540, 650), panel=2)
+    fonts, _ = render(wide_tap(260, 272), wide_tap(540, 650), panel=2)
     assert fonts["reader_panel"] == 5 and fonts["reader_detail_page"] == 1
-    chosen, _ = render(wide_tap(260, 187), wide_tap(540, 650), wide_tap(270, 105), panel=2)
+    chosen, _ = render(wide_tap(260, 272), wide_tap(540, 650), wide_tap(270, 105), panel=2)
     assert chosen["reader_panel"] == 2 and chosen["reading_font_path"].startswith("/sdcard/fonts/Face-")
 
     doc, _ = render(orientation, panel=3, document=True)

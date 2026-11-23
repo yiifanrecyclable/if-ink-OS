@@ -24,6 +24,7 @@ static size_t measure_calls;
 static int first_draw_px, last_draw_px, first_draw_x, last_draw_x;
 static int last_tracking_px;
 static int fitted_target;
+static bool fitted_word_spaces;
 static int test_cjk_advance;
 static int test_opener_bearing;
 int test_guide_segments;
@@ -62,16 +63,17 @@ void ttf_draw_text_px_spaced(uint8_t* fb, int x, int y, int px, const char* text
     last_tracking_px = tracking_px;
     ttf_draw_text_px(fb, x, y, px, text, EPD_DRAW_ALIGN_LEFT, fg, bg);
 }
-bool ttf_text_range_px(int px, const char *text, int tracking, int target,
+bool ttf_text_range_px(int px, const char *text, int tracking, int target, bool word_spaces,
                        size_t start, size_t end, int *first, int *last, int *ink_bottom) {
-    (void)px; (void)text; (void)tracking; (void)target;
+    (void)px; (void)text; (void)tracking; (void)target; (void)word_spaces;
     (void)start; (void)end; (void)first; (void)last; (void)ink_bottom;
     assert(!"These layout fixtures do not render links");
     return false;
 }
 void ttf_draw_text_px_fitted(uint8_t* fb, int x, int y, int px, const char* text,
-                             int tracking_px, int target_width, uint8_t fg, uint8_t bg) {
+                             int tracking_px, int target_width, bool word_spaces, uint8_t fg, uint8_t bg) {
     fitted_target = target_width;
+    fitted_word_spaces = word_spaces;
     ttf_draw_text_px_spaced(fb, x, y, px, text, tracking_px, fg, bg);
 }
 int ttf_text_width_styled_px(int px,const char *text,unsigned flags){return ttf_text_width_px(px,text)+(flags&1?1:0)+(flags&2?px/5:0);}
@@ -95,6 +97,47 @@ static void assert_slice_text(uint8_t *fb,size_t page,EpdRect rect,int px) {
     do{status=book_layout_draw_slice(fb,page,rect,px,&cursor);assert(status>=0&&++units<20000);}while(status==0);
     assert(!strcmp(drawn,expected));free(expected);
 }
+
+static void check_english_alignment(uint8_t *fb) {
+    const char text[] = "red sun sky";
+    const size_t len = sizeof(text) - 1;
+    const EpdRect rect = {0, 0, 74, 15};
+    blk_t block = {.len = len, .image = -1};
+    book_layout_set_first_line_indent(0);
+    book_layout_set_english_justification(true);
+    assert(book_layout_build_blocks(text, len, &block, 1, rect, 10));
+    assert(book_layout_page_count() == 2 && book_layout_page_start_offset(1) == 7);
+    drawn[0] = 0;
+    book_layout_draw_page(fb, 0, rect, 10);
+    assert(!strcmp(drawn, "red sun") && fitted_target == rect.width && fitted_word_spaces);
+    drawn[0] = 0; fitted_target = 0;
+    book_layout_draw_page(fb, 1, rect, 10);
+    assert(!strcmp(drawn, "sky") && !fitted_target);
+
+    block.align = HTML_ALIGN_LEFT;
+    assert(book_layout_build_blocks(text, len, &block, 1, rect, 10));
+    drawn[0] = 0;
+    book_layout_draw_page(fb, 0, rect, 10);
+    assert(!strcmp(drawn, "red sun") && !fitted_target);
+    block.align = HTML_ALIGN_DEFAULT;
+
+    book_layout_set_markdown(true, NULL, NULL, 0);
+    assert(book_layout_build_blocks(text, len, &block, 1, rect, 10));
+    drawn[0] = 0;
+    book_layout_draw_page(fb, 0, rect, 10);
+    assert(!strcmp(drawn, "red sun") && last_draw_x == rect.width - 10);
+    drawn[0] = 0;
+    book_layout_draw_page(fb, 1, rect, 10);
+    assert(!strcmp(drawn, "sky") && last_draw_x == 20);
+    book_layout_set_english_justification(false);
+    assert(book_layout_build_blocks(text, len, &block, 1, rect, 10));
+    drawn[0] = 0;
+    book_layout_draw_page(fb, 0, rect, 10);
+    assert(last_draw_x == 60);
+    book_layout_set_markdown(false, NULL, NULL, 0);
+    book_layout_set_first_line_indent(2);
+}
+
 int main(void) {
     EpdRect r = {0, 0, 20, 30};
     const char text[] = "甲乙丙丁戊己庚辛壬癸";
@@ -113,11 +156,78 @@ int main(void) {
     const char mixed[] = "Wi甲iiW";
     assert(book_layout_build(mixed, strlen(mixed), r, 10));
     assert(book_layout_page_count() == 2);
-    assert(book_layout_page_start_offset(1) == 7);
+    assert(book_layout_page_start_offset(1) == 5);
     drawn[0] = 0;
     book_layout_draw_page(&fb, 0, r, 10);
     book_layout_draw_page(&fb, 1, r, 10);
-    assert(strcmp(drawn, mixed) == 0);
+    assert(!strcmp(drawn, mixed));
+    book_layout_set_first_line_indent(0);
+    const char *long_word = "abcdefghij";
+    EpdRect narrow = {0, 0, 40, 15};
+    assert(book_layout_build(long_word, strlen(long_word), narrow, 10));
+    assert(book_layout_page_count() == 3 && book_layout_page_start_offset(1) == 3 &&
+           book_layout_page_start_offset(2) == 7);
+    const char *wrapped[] = {"abc-", "defg", "hij"};
+    for (size_t i = 0; i < 3; ++i) {
+        drawn[0] = 0;
+        book_layout_draw_page(&fb, i, narrow, 10);
+        assert(!strcmp(drawn, wrapped[i]));
+        assert_slice_text(&fb,i,narrow,10);
+    }
+    assert(book_layout_build("abcd）", strlen("abcd）"), narrow, 10));
+    drawn[0]=0;book_layout_draw_page(&fb,0,narrow,10);
+    assert(!strcmp(drawn,"abcd"));
+    const char *authored = "ab-cd ef";
+    assert(book_layout_build(authored, strlen(authored), narrow, 10));
+    drawn[0]=0;book_layout_draw_page(&fb,0,narrow,10);
+    assert(!strcmp(drawn,"ab-"));
+    drawn[0]=0;book_layout_draw_page(&fb,1,narrow,10);
+    assert(drawn[0]!='-');
+
+    EpdRect fit_word = {0,0,70,15};
+    const char *mixed_word = "甲乙abcdef";
+    assert(book_layout_build(mixed_word,strlen(mixed_word),fit_word,10));
+    drawn[0]=0;book_layout_draw_page(&fb,0,fit_word,10);
+    assert(!strcmp(drawn,"甲乙abc-") && book_layout_page_start_offset(1)==9);
+    const char *unbroken[] = {"甲model42","甲can't", "甲ab-cdef", "甲www.test"};
+    EpdRect token_width={0,0,90,15};
+    for(size_t i=0;i<sizeof(unbroken)/sizeof(*unbroken);++i){
+        assert(book_layout_build(unbroken[i],strlen(unbroken[i]),token_width,10));
+        drawn[0]=0;
+        for(size_t page=0;page<book_layout_page_count();++page)book_layout_draw_page(&fb,page,token_width,10);
+        assert(!strcmp(drawn,unbroken[i]));
+    }
+    const char *heading_text = "abcdefgh";
+    blk_t heading_block={.offset=0,.len=8,.heading=true,.image=-1};
+    EpdRect title_box={0,0,100,30};
+    assert(book_layout_build_blocks(heading_text,8,&heading_block,1,title_box,10));
+    drawn[0]=0;book_layout_draw_page(&fb,0,title_box,10);
+    assert(!strchr(drawn,'-')&&book_layout_page_start_offset(1)>3);
+    heading_block.heading=false;heading_block.literal=true;
+    assert(book_layout_build_blocks(heading_text,8,&heading_block,1,narrow,10));
+    drawn[0]=0;book_layout_draw_page(&fb,0,narrow,10);
+    assert(!strcmp(drawn,"abcd"));
+
+    book_layout_set_hyphenation(false);
+    assert(book_layout_build(mixed_word,strlen(mixed_word),fit_word,10));
+    assert(book_layout_page_start_offset(1)==strlen("甲乙"));
+    drawn[0]=0;book_layout_draw_page(&fb,0,fit_word,10);
+    assert(!strcmp(drawn,"甲乙"));
+    drawn[0]=0;book_layout_draw_page(&fb,1,fit_word,10);
+    assert(!strcmp(drawn,"abcdef"));
+    const char *compound = "甲乙丙abcd-ef";
+    assert(book_layout_build(compound,strlen(compound),fit_word,10));
+    assert(book_layout_page_start_offset(1)==strlen("甲乙丙"));
+    drawn[0]=0;book_layout_draw_page(&fb,1,fit_word,10);
+    assert(!strcmp(drawn,"abcd-ef"));
+    assert(book_layout_build(long_word,strlen(long_word),narrow,10));
+    assert(book_layout_page_start_offset(1)==4);
+    drawn[0]=0;book_layout_draw_page(&fb,0,narrow,10);
+    assert(!strcmp(drawn,"abcd"));
+    book_layout_set_hyphenation(true);
+    book_layout_set_first_line_indent(2);
+    check_english_alignment(&fb);
+
     assert(book_layout_build("", 0, r, 10));
     assert(book_layout_page_count() == 1);
     assert(book_layout_build(NULL, 0, r, 10));
@@ -157,7 +267,7 @@ int main(void) {
     book_layout_draw_page(&fb, 0, r, 10);
     assert(measured_codepoints <= sizeof(long_line) * 2);
     assert(strlen(drawn) == sizeof(long_line));
-    assert(memcmp(drawn, long_line, sizeof(long_line)) == 0);
+    assert(!memcmp(drawn, long_line, sizeof(long_line)));
     assert(book_layout_page_start_offset(99) == sizeof(long_line));
     assert(!book_layout_build("\xed\xa0\x80", 3, r, 10));
     assert(!book_layout_build("\xf4\x90\x80\x80", 4, r, 10));
@@ -239,9 +349,9 @@ int main(void) {
     assert(book_layout_page_count()==1 && book_layout_page_image(0)==-1);
     assert(book_layout_page_image_count(0)==2);
     int img,y,w,h;
-    assert(book_layout_page_image_at(0,0,&img,&y,&w,&h)&&img==0&&w==48&&h==48&&y>0);
-    assert(book_layout_page_image_at(0,1,&img,&y,&w,&h)&&img==1&&w==96&&h==48);
-    assert(!book_layout_page_image_at(0,2,NULL,NULL,NULL,NULL));
+    assert(book_layout_page_image_at(0,0,&img,&y,&w,&h,NULL)&&img==0&&w==48&&h==48&&y>0);
+    assert(book_layout_page_image_at(0,1,&img,&y,&w,&h,NULL)&&img==1&&w==96&&h==48);
+    assert(!book_layout_page_image_at(0,2,NULL,NULL,NULL,NULL,NULL));
     drawn[0]=0;book_layout_draw_page(&fb,0,mixed_rect,10);assert(!strcmp(drawn,"AABBCC"));
     uint32_t generation=book_layout_generation();
     mixed_rect.height=90;
@@ -259,8 +369,13 @@ int main(void) {
     book_layout_free();html_text_free(&parsed);book_layout_set_image_dims(NULL,NULL);
     const char *text_spacer="<p>甲</p><p>　</p><p>乙</p>";
     assert(html_to_blocks(text_spacer,strlen(text_spacer),&parsed)==ESP_OK);
-    assert(book_layout_build_blocks(parsed.utf8,parsed.len,parsed.blocks,parsed.count,(EpdRect){0,0,100,20},10));
-    assert(book_layout_page_count()==3);
+    const EpdRect text_spacer_rect={0,0,100,20};
+    assert(book_layout_build_blocks(parsed.utf8,parsed.len,parsed.blocks,parsed.count,text_spacer_rect,10));
+    assert(book_layout_page_count()==2 && book_layout_page_start_offset(1)==parsed.blocks[2].offset);
+    drawn[0]=0;
+    book_layout_draw_page(&fb,0,text_spacer_rect,10);
+    book_layout_draw_page(&fb,1,text_spacer_rect,10);
+    assert(!strcmp(drawn,"甲乙"));
     book_layout_free();html_text_free(&parsed);
     EpdRect balanced = book_layout_balanced_rect((EpdRect){36, 0, 612, 100}, 48, 0);
     assert(balanced.x == 54 && balanced.width == 576);
@@ -364,7 +479,7 @@ int main(void) {
     assert(book_layout_build("abcd", 4, r, 10));
     drawn[0] = 0;
     book_layout_draw_page(&fb, 0, r, 10);
-    assert(!strcmp(drawn, "abcd") && first_draw_x == 20 && last_draw_x == 0);
+    assert(!strcmp(drawn, "abcd") && first_draw_x == 0 && last_draw_x == 0);
     book_layout_set_first_line_indent(0);
     book_layout_set_typography(2);
     r = (EpdRect){0, 0, 25, 15};
@@ -460,12 +575,18 @@ int main(void) {
     assert(!strcmp(drawn,"ABCDEFGH"));assert_slice_text(&fb,0,r,48);run.len=999;
     assert(!book_layout_build_blocks(md,strlen(md),md_blocks,4,r,48));
     const char *across="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMN";
-    run=(text_style_t){0,strlen(across),7};r=(EpdRect){0,0,180,160};
+    run=(text_style_t){0,strlen(across),7};r=(EpdRect){0,0,388,160};
     book_layout_set_first_line_indent(0);book_layout_set_spacing(150,50);
     assert(book_layout_build(across,strlen(across),r,48));assert(book_layout_page_count()>1);
     drawn[0]=0;rendered_styles=0;test_guide_segments=0;
     for(size_t page=0;page<book_layout_page_count();++page)book_layout_draw_page(&fb,page,r,48);
-    assert(!strcmp(drawn,across)&&rendered_styles==7&&test_guide_segments>0);
+    assert(strchr(drawn,'-')&&rendered_styles==7&&test_guide_segments>0);
+    size_t source_chars=0;
+    for(size_t i=0;drawn[i];++i)if(drawn[i]!='-'){
+        assert(source_chars<strlen(across)&&drawn[i]==across[source_chars]);
+        ++source_chars;
+    }
+    assert(source_chars==strlen(across));
     book_layout_set_markdown(false,NULL,NULL,0);r=(EpdRect){0,0,612,1000};
     assert(book_layout_build_blocks(md,strlen(md),md_blocks,4,r,48));drawn[0]=0;
     book_layout_draw_page(&fb,0,r,48);assert(first_draw_px==56);
@@ -493,7 +614,37 @@ int main(void) {
     book_layout_free();
     // 重排后旧游标不能恢复；空白、文字和样式使用同一续画实现。
     // A cursor cannot resume across reflow; text and styles share one implementation.
-    book_layout_set_markdown(false,NULL,NULL,0);r=(EpdRect){0,0,300,300};
+    book_layout_set_markdown(false,NULL,NULL,0);
+    const char paragraph_html[] = "<style>p{margin-top:3em;margin-bottom:5pt}</style><p>Alpha</p><p>Bravo</p>";
+    const char paragraph_txt[] = "Alpha\r\n \r\n　\r\nBravo";
+    html_text_t ebook = {0};
+    assert(html_to_blocks(paragraph_html,strlen(paragraph_html),&ebook)==ESP_OK);
+    assert(ebook.count==2 && ebook.blocks[0].margin_after_percent==42);
+    book_layout_set_first_line_indent(0);
+    const unsigned paragraph_steps[] = {0,31,75};
+    for(size_t i=0;i<sizeof(paragraph_steps)/sizeof(*paragraph_steps);++i){
+        unsigned gap=15*paragraph_steps[i]/100;
+        book_layout_set_spacing(150,paragraph_steps[i]);
+        r=(EpdRect){0,0,150,30+(int)gap};
+        assert(book_layout_build_blocks(ebook.utf8,ebook.len,ebook.blocks,ebook.count,r,10));
+        assert(book_layout_page_count()==1);
+        book_layout_cursor_t epub_cursor={0};
+        assert(book_layout_draw_slice(&fb,0,r,10,&epub_cursor)==0);
+        assert(epub_cursor.offset==ebook.blocks[1].offset && epub_cursor.used==15+gap);
+
+        assert(book_layout_build(paragraph_txt,strlen(paragraph_txt),r,10));
+        assert(book_layout_page_count()==1);
+        book_layout_cursor_t txt_cursor={0};
+        drawn[0]=0;
+        assert(book_layout_draw_slice(&fb,0,r,10,&txt_cursor)==0);
+        assert(txt_cursor.offset==(size_t)(strstr(paragraph_txt,"Bravo")-paragraph_txt));
+        assert(txt_cursor.used==epub_cursor.used);
+        assert(book_layout_draw_slice(&fb,0,r,10,&txt_cursor)==1 && !strcmp(drawn,"AlphaBravo"));
+    }
+    book_layout_free();
+    html_text_free(&ebook);
+    book_layout_set_spacing(150,50);
+    r=(EpdRect){0,0,300,300};
     assert(book_layout_build("one\ntwo\nthree",13,r,20));assert_slice_text(&fb,0,r,20);
     book_layout_cursor_t stale={0};assert(book_layout_draw_slice(&fb,0,r,20,&stale)==0);
     assert(book_layout_build("other",5,r,20));assert(book_layout_draw_slice(&fb,0,r,20,&stale)==-1);
@@ -557,6 +708,46 @@ int main(void) {
                                     illustrations, 3, r, 10));
     assert(book_layout_page_count() == 3 && book_layout_page_image(1) == 0);
     assert(book_layout_page_for_offset(11) == 2);
+
+    // 双栏共享图和文字的流式排版，跨栏后按图底继续画文字。
+    // Images share the text flow, and text resumes below an image that moved across columns.
+    assert(html_to_blocks(notes, strlen(notes), &parsed) == ESP_OK);
+    book_layout_set_image_dims(small_image_dims, NULL);
+    book_layout_set_first_line_indent(0);
+    EpdRect image_spread = {0,0,200,90};
+    assert(book_layout_build_blocks(parsed.utf8, parsed.len, parsed.blocks, parsed.count, image_spread, 10));
+    assert(book_layout_page_count() == 1 && book_layout_page_image_count(0) == 2);
+    unsigned image_column;
+    assert(book_layout_page_image_at(0,0,&img,&y,&w,&h,&image_column));
+    assert(img == 0 && image_column == 0 && y == 11 && w == 48 && h == 48);
+    assert(book_layout_page_image_at(0,1,&img,&y,&w,&h,&image_column));
+    assert(img == 1 && image_column == 1 && y == 0 && w == 82 && h == 41);
+    drawn[0] = 0;
+    spread = (book_layout_cursor_t){0};
+    int status;
+    while ((status = book_layout_draw_slice(&fb, 0, image_spread, 10, &spread)) == 0) {}
+    assert(status == 1 && spread.column == 1 && spread.used == 57);
+    assert(last_draw_x == book_layout_column_rect(image_spread, 1).x && !strcmp(drawn, "AABBCC"));
+
+    image_spread.height = 60;
+    assert(book_layout_build_blocks(parsed.utf8, parsed.len, parsed.blocks, parsed.count, image_spread, 10));
+    assert(book_layout_page_count() == 2);
+    assert(book_layout_page_image_at(0,1,&img,&y,&w,&h,&image_column));
+    assert(img == 1 && image_column == 1 && y == 11);
+    assert(book_layout_page_start_offset(1) == parsed.blocks[4].offset);
+    drawn[0] = 0;
+    book_layout_draw_page(&fb,0,image_spread,10);
+    book_layout_draw_page(&fb,1,image_spread,10);
+    assert(!strcmp(drawn, "AABBCC"));
+
+    image_spread.height = 41;
+    assert(book_layout_build_blocks(parsed.utf8, parsed.len, parsed.blocks, parsed.count, image_spread, 10));
+    assert(book_layout_page_count() == 5);
+    assert(book_layout_page_image(1) == 0 && !book_layout_page_image_count(1));
+    assert(book_layout_page_image(3) == 1 && !book_layout_page_image_count(3));
+    book_layout_free();
+    html_text_free(&parsed);
+    book_layout_set_image_dims(NULL, NULL);
 
     book_layout_set_vertical(true);
     r.height = 40;

@@ -65,8 +65,9 @@ bool simulator_document_image_ready(void){
     return s_inline_gray&&book_layout_page_image(s_page)==s_inline_index;
 }
 bool simulator_reader_image_slot(unsigned i,int *x,int *y,int *w,int *h){
-    if(!reader_image_slot(s_page,(int)i,NULL,y,w,h))return false;
-    EpdRect body=body_rect();*x=body.x+(body.width-*w)/2;*y+=body.y;return true;
+    EpdRect bounds;
+    if(!reader_image_slot(s_page,(int)i,NULL,&bounds))return false;
+    *x=bounds.x;*y=bounds.y;*w=bounds.width;*h=bounds.height;return true;
 }
 bool simulator_document_zoom(void){return false;}
 unsigned simulator_document_image_top(void){return 0;}
@@ -117,8 +118,14 @@ int simulator_reader_note_card_px(void){return s_note_card ? s_note_card->px : 0
 int simulator_reader_progress_geometry(unsigned index){return index==0?reader_progress_y():index==1?reader_actions_y():reader_actions_height();}
 int simulator_reader_control_geometry(unsigned index){return index==0?reader_control_top():index==1?reader_row_height():reader_control_rows();}
 int simulator_reader_layout(void){return s_reader_fullscreen?(s_reader_immersive?2:1):0;}
+const char *simulator_reader_markdown_heading(int index){return ui_message(reader_markdown_heading_name(index));}
+bool simulator_reader_english(void){return s_reader_english;}
+bool simulator_reader_hyphenation(void){return s_reader_hyphenate;}
+int simulator_reader_hyphen_y(void){EpdRect row=reader_landscape()?wide_hyphen_row():reader_hyphen_row();return row.y+row.height/2;}
+bool simulator_reader_vertical(void){return reader_book_vertical();}
+int simulator_reader_font_count(void){return ttf_font_picker_count(reader_font_coverage());}
 int simulator_reader_tap_layout(void){return reader_input_tap_layout();}
-int simulator_markdown_slider_y(unsigned index){EpdRect r=reader_markdown_row((int)index);return r.y+(index?98:54)+26;}
+int simulator_markdown_slider_y(unsigned index){EpdRect r=reader_markdown_slider_rect((int)index);return r.y+r.height/2;}
 unsigned simulator_reader_perf(unsigned i){return i==0?s_sim_event_draws:i==1?s_sim_event_loads:i==2?s_sim_area_updates:s_sim_area_violations;}
 unsigned simulator_reader_water_turns(void){return s_sim_water_turns;}
 int simulator_reader_detail_page(void){return s_control_page;}
@@ -153,16 +160,16 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
    // -1是跨页面打开的续读请求；按原文字节位置重排，不用界面的默认第0页覆盖它。
    // -1 requests resume across app routes; reflow the saved text offset instead of overriding it with UI page zero.
    size_t resume_offset=reader_page_offset(s_page);
-   s_reader_fullscreen=panel==100||app_settings_reader_fullscreen();s_reader_immersive=app_settings_reader_immersive();if(book_kind()!=BOOK_KIND_MARKDOWN&&px>0)s_px=px;
+   s_reader_fullscreen=panel==100||reader_layout().fullscreen;s_reader_immersive=reader_layout().immersive;if(book_kind()!=BOOK_KIND_MARKDOWN&&px>0)s_px=px;
    if(!load_chapter(&ctx,s_chapter,page<0?resume_offset:0,false))return 0;
    if(page>=0)s_page=(size_t)page;
    if(s_page>=book_layout_page_count())s_page=book_layout_page_count()-1;prepare_inline_image();
  }
- if(panel==READER_PANEL_FONT_PICKER)ttf_font_scan();
+ if(panel==READER_PANEL_FONT_PICKER)ttf_font_picker_begin(book_store_revision(),book_index_cache_epoch());
  if(view==TOC)app_font_activate_system();
  s_view=(book_view_t)view;s_reader_panel=view==READING?(reader_panel_t)panel:READER_PANEL_NONE;
  if(view==DOCUMENTS||view==DOCUMENT_BULK)s_document_mode=true;
- s_reader_fullscreen=panel==100||app_settings_reader_fullscreen();s_reader_immersive=app_settings_reader_immersive();if(panel==100)s_reader_panel=READER_PANEL_NONE;
+ s_reader_fullscreen=panel==100||reader_layout().fullscreen;s_reader_immersive=reader_layout().immersive;if(panel==100)s_reader_panel=READER_PANEL_NONE;
  if(view==TOC){s_toc_jump_open=panel==1;s_toc_jump_percent=45;}
  if(s_count)s_managed=s_shelf[0];
  if(view==EDIT)editor_start(false);

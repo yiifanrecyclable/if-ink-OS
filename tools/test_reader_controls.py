@@ -19,9 +19,9 @@ with tempfile.TemporaryDirectory(prefix='reader-controls-',dir=ROOT/'build') as 
     (base/'build/simulator/vfs/flash/books/controls.txt').write_text('阅读测试。字体变化后继续这一段，避免阅读位置跳动。\n'*1800)
     (base/'titles.txt').write_text('')
     env={**os.environ,'PICO_SIM_CARD_ROOT':str(base/'card')}
-    def frame(events='',panel=0,page=1,path='/flash/books/controls.txt',view=1):
+    def frame(events='',panel=0,page=1,path='/flash/books/controls.txt',view=1,**faults):
         args=[str(BINARY),f'book-{view}',path,str(page),'48','build/simulator/frame.bin','titles.txt',str(panel),','.join(['0']*30),'builtin',events,'']
-        result=subprocess.run(args,cwd=base,env=env,capture_output=True,text=True,timeout=30)
+        result=subprocess.run(args,cwd=base,env={**env,**faults},capture_output=True,text=True,timeout=30)
         assert result.returncode==0,result.stderr[-1000:]
         return json.loads(result.stdout)
     tap=lambda x,y:f't,{x},{y},{x},{y}'
@@ -124,13 +124,35 @@ with tempfile.TemporaryDirectory(prefix='reader-controls-',dir=ROOT/'build') as 
     (base/'card/markdown').mkdir(parents=True,exist_ok=True)
     (base/'card/markdown/second.md').write_text('# 文档\n\n全屏跨文档保留。'*80)
     assert frame(path='/flash/books/second.txt')['reader_fullscreen']
-    assert frame(path='/sdcard/markdown/second.md')['reader_fullscreen']
+    assert not frame(path='/sdcard/markdown/second.md')['reader_fullscreen']
     state=frame(tap(255,ay+height//2),panel=1)
     assert state['reader_layout']==2 and state['reader_panel']==1
-    assert frame(path='/sdcard/markdown/second.md')['reader_layout']==2
+    doc = '/sdcard/markdown/second.md'
+    assert frame(path=doc)['reader_layout']==0
+    doc_controls = frame(path=doc, panel=1)['reader_progress_geometry']
+    assert frame(tap(255,doc_controls[1]+doc_controls[2]//2),path=doc,panel=1)['reader_layout']==1
     state=frame(tap(255,ay+height//2),panel=1)
     assert state['reader_layout']==0 and state['reader_panel']==1
     assert not frame(path='/flash/books/second.txt')['reader_fullscreen']
+    assert frame(path=doc)['reader_layout']==1
+    # 中文书籍也显示开关，保存失败时撤回重排。/ The toggle remains available in Chinese text and a failed write rolls back the reflow.
+    default = frame(panel=2)
+    assert default['reader_hyphenation']
+    y = default['reader_hyphen_y']
+    step = default['reader_controls_geometry'][1]
+    assert y==196+step+step//2
+    assert frame(tap(300,y+step),panel=2)['reader_panel']==5
+    failure = frame(tap(600,y),panel=2,PICO_TEST_NVS_SET_FAIL='en_hyphen')
+    assert failure['reader_hyphenation'] and failure['reader_offset']==default['reader_offset']
+    off = frame(tap(600,y),panel=2)
+    assert not off['reader_hyphenation'] and off['reader_panel']==2
+    assert off['reader_offset']==default['reader_offset'] and not frame()['reader_hyphenation']
+    md = frame(panel=2,path=doc)
+    assert not md['reader_hyphenation'] and max(md['markdown_slider_y'])+22<md['reader_hyphen_y']==822
+    on = frame(tap(600,md['reader_hyphen_y']),panel=2,path=doc)
+    assert on['reader_hyphenation'] and on['reader_offset']==md['reader_offset']
+    assert frame()['reader_hyphenation']
+
     assert frame(tap(595,ay+height//2),panel=1)['reader_panel']==0
     state=frame(tap(160,220+3*rowh+rowh//2),panel=9)
     assert state['reader_panel']==9

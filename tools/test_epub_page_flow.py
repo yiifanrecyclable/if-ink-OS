@@ -9,16 +9,20 @@ def png48():
     def chunk(kind, body):
         return struct.pack('>I', len(body)) + kind + body + struct.pack('>I', zlib.crc32(kind + body))
     rows = b''.join(b'\0' + bytes([100]) * 48 for _ in range(48))
-    return b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 48, 48, 8, 0, 0, 0, 0)) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b'')
+    return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', 48, 48, 8, 0, 0, 0, 0))
+            + chunk(b'tEXt', b'Comment\0' + b'x' * 8192) + chunk(b'IDAT', zlib.compress(rows)) + chunk(b'IEND', b''))
 
-def epub(path, image):
+def epub(path, image, wrapped=False):
     with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as book:
         book.writestr('META-INF/container.xml', '<container><rootfiles><rootfile full-path="content.opf"/></rootfiles></container>')
         book.writestr('content.opf', '<package><metadata><title>' + path.stem + '</title></metadata><manifest><item id="body" href="body.xhtml" media-type="application/xhtml+xml"/>' + ('<item id="note" href="note.png" media-type="image/png"/>' if image else '') + '</manifest><spine><itemref idref="body"/></spine></package>')
-        body = '<p>正文之前。</p><img src="note.png"/><p>正文之后。</p>' if image else '<p>' + '普通正文，连续翻页。' * 500 + '</p>'
+        source = 'wrapper.svg' if wrapped else 'note.png'
+        body = f'<p>正文之前。</p><img src="{source}"/><p>正文之后。</p>' if image else '<p>' + '普通正文，连续翻页。' * 500 + '</p>'
         book.writestr('body.xhtml', '<html><body>' + body + '</body></html>')
         if image:
             book.writestr('note.png', png48())
+        if wrapped:
+            book.writestr('wrapper.svg', '<svg><image href="note.png"/></svg>')
 
 with tempfile.TemporaryDirectory(dir=ROOT / 'build', prefix='epub-flow-') as temp:
     work = Path(temp); card = work / 'card'; output = work / 'build/simulator'
@@ -50,4 +54,12 @@ with tempfile.TemporaryDirectory(dir=ROOT / 'build', prefix='epub-flow-') as tem
     events += ['t,130,320,130,320']
     final, _ = render(0, events=';'.join(events))
     assert final['book_view'] == 1 and final['book_path'].endswith('Note.epub') and final['pages'] == 1, final
-    print('PASS: 48px EPUB note stays with text; cover press is unchanged; 30 book switches preserve reading.')
+    epub(card / 'books/Wrapped.epub', True, wrapped=True)
+    settings = output / 'nvs/read_pico'
+    settings.mkdir(parents=True, exist_ok=True)
+    (settings / 'book_screen').write_bytes(b'\x02')
+    for name in ('Note', 'Wrapped'):
+        layout, _ = render(1, path=f'/sdcard/books/{name}.epub')
+        assert layout['pages']==1, layout
+        assert len(layout['reader_images'])==1 and layout['reader_images'][0][2:]==[48,48], layout
+    print('PASS: EPUB prefix and SVG fallback flow inline in two columns; cover press and 30 book switches.')

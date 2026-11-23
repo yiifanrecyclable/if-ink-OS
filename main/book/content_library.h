@@ -81,6 +81,16 @@ esp_err_t content_book_pin_set(const char *path, bool pinned);
 bool content_book_pin_valid(const char *key, const char *path);
 
 /// 所有文档共享正文/H1/H2/H3 字号；缺失或损坏时用48/72/64/56，图书设置独立。/ Document body/H1/H2/H3 sizes, defaults 48/72/64/56, independent of books.
+typedef struct {
+    uint8_t margin, line, paragraph, tracking, indent, rule, fullscreen, immersive;
+    int8_t rule_offset;
+} content_document_layout_t;
+bool content_english_hyphenation(void);
+esp_err_t content_set_english_hyphenation(bool enabled);
+bool content_document_layout_valid(const content_document_layout_t *layout);
+esp_err_t content_document_layout_load(content_document_layout_t *layout);
+esp_err_t content_document_layout_save(const content_document_layout_t *layout);
+
 void content_markdown_sizes(uint8_t sizes[4]);
 bool content_markdown_sizes_valid(const uint8_t sizes[4]);
 esp_err_t content_markdown_sizes_set(const uint8_t sizes[4]);
@@ -88,6 +98,12 @@ esp_err_t content_markdown_sizes_set(const uint8_t sizes[4]);
 const char *content_markdown_font(void);
 bool content_markdown_font_valid(const char *path);
 esp_err_t content_markdown_font_set(const char *path);
+const char *content_english_font(bool document);
+bool content_english_system_font_valid(const char *path);
+esp_err_t content_english_system_font_checked(char *path, size_t capacity);
+esp_err_t content_english_system_font_set(const char *path);
+esp_err_t content_english_font_checked(bool document, char *path, size_t capacity);
+esp_err_t content_english_font_set(bool document, const char *path);
 
 /// 编辑和备份使用checked读取，错误时保持输出不变。/ Checked reads for edits/backups preserve output on error.
 esp_err_t content_banner_load_checked(content_banner_config_t *config);

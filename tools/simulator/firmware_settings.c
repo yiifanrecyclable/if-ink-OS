@@ -20,6 +20,9 @@ static app_redraw_t preview_settings_gesture(app_ctx_t *ctx,const ui_gesture_eve
  if(s_page==SETTINGS_WALLPAPER_PREVIEW&&(result==APP_REDRAW_PAGE||result==APP_REDRAW_FULL))render(ctx,ctx->fb);
  return result;
 }
+int simulator_system_font_count(void){
+ return s_page==SETTINGS_SYSTEM_FONT?font_list_count():0;
+}
 int simulator_settings(uint8_t *fb,int page,int scroll,const char *events){
  if(page==SETTINGS_BANNER_BROWSER)page=SETTINGS_BANNER_IMAGE;
  if(page==6)page=5;if(page==8)page=9;
@@ -28,7 +31,7 @@ int simulator_settings(uint8_t *fb,int page,int scroll,const char *events){
  bool quote=page==23;if(quote)app_device_settings_request_home_quote();
  app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);if(quote)home_quote_editor_open();
  if(page==SETTINGS_BANNER_IMAGE||page==SETTINGS_BANNER_BROWSER)banner_picker_open();
- if(page==SETTINGS_SYSTEM_FONT)ttf_font_scan();
+ if(page==SETTINGS_SYSTEM_FONT)ttf_font_picker_begin(book_store_revision(),book_index_cache_epoch());
  if(page==SETTINGS_QUOTE_FONT)quote_font_picker_open();
  if(page==SETTINGS_WALLPAPER_PREVIEW)page=SETTINGS_WALLPAPER_FIXED;
  if(page==SETTINGS_WALLPAPER_FIXED||page==SETTINGS_WALLPAPER_FOLDER)wallpaper_picker_open(&ctx,page==SETTINGS_WALLPAPER_FOLDER);

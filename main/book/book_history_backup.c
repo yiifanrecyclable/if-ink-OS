@@ -67,6 +67,16 @@ static bool valid_record(unsigned ns, uint8_t type, const char *key, const uint8
         }
         if(!strcmp(key,"md_font"))return type==NVS_TYPE_STR&&len<=CONTENT_MARKDOWN_FONT_BYTES&&
             data[len-1]==0&&strnlen((const char *)data,len)==len-1&&content_markdown_font_valid((const char *)data);
+        if(!strcmp(key,"book_font_en")||!strcmp(key,"md_font_en")||!strcmp(key,"sys_font_en"))return type==NVS_TYPE_STR&&
+            len<=CONTENT_MARKDOWN_FONT_BYTES&&data[len-1]==0&&strnlen((const char *)data,len)==len-1&&
+            (!strcmp(key,"sys_font_en")?content_english_system_font_valid((const char *)data):
+                                         content_home_quote_font_valid((const char *)data));
+        if(!strcmp(key,"en_hyphen"))return type==NVS_TYPE_U8&&len==1&&data[0]<=1;
+        if(!strcmp(key,"md_layout_v1")){
+            content_document_layout_t layout;
+            if(type!=NVS_TYPE_BLOB||len!=sizeof(layout))return false;
+            memcpy(&layout,data,sizeof(layout));return content_document_layout_valid(&layout);
+        }
         if(!strcmp(key,"md_sizes"))return type==NVS_TYPE_BLOB&&len==4&&content_markdown_sizes_valid(data);
         if(!strcmp(key,"quote_valign"))return type==NVS_TYPE_U8&&len==1&&content_home_quote_valign_valid(data[0]);
         if(!strcmp(key,"quote_align"))return type==NVS_TYPE_U8&&len==1&&content_home_quote_alignment_valid(data[0]);

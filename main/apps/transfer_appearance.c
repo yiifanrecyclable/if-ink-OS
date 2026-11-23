@@ -11,6 +11,7 @@
 #include "book_cover.h"
 #include "book_ticket.h"
 #include "ttf_font.h"
+#include "../font/font_path_policy.h"
 #include "cJSON.h"
 #include "esp_heap_caps.h"
 #include <stdlib.h>
@@ -165,6 +166,7 @@ static bool draft(const cJSON *o,content_banner_config_t *cfg){
     cfg->quote_px=size;cfg->align=align;cfg->valign=valign;cfg->date_y=date;cfg->text_y=text;return content_banner_valid(cfg);
 }
 bool transfer_appearance_path_writable(const char *path){
+    if(app_font_path_protected(path))return false;
     content_banner_config_t cfg;if(content_banner_load_checked(&cfg)!=ESP_OK)return false;
     const char *assets[]={cfg.mode?cfg.image:"",cfg.show_text?cfg.font:""};size_t n=strlen(path);
     for(unsigned i=0;i<2;++i)if(assets[i][0]&&!strncasecmp(path,assets[i],n)&&(!assets[i][n]||assets[i][n]=='/'))return false;

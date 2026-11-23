@@ -2,6 +2,7 @@
 #include "book_cover.h"
 #include "book_cover_auto.h"
 #include "book_epub.h"
+#include "book_gif.h"
 #include "book_image_header.h"
 #include "book_title.h"
 #include <errno.h>
@@ -235,6 +236,7 @@ bool book_image_grayscale(const uint8_t *data, size_t size, bool png,
     if (!data || !size || !out || !out_width || !out_height ||
         out_width > 1216 || out_height > 1216 || (size_t)out_width * out_height > 684u * 1216u)
         return false;
+    if (!png && book_gif_signature(data, size)) return book_gif_gray(data, size, out_width, out_height, out);
     return png ? png_gray(data, size, out_width, out_height, out)
                : jpeg_gray(data, size, out_width, out_height, out);
 }
@@ -245,6 +247,8 @@ bool book_image_dimensions(const uint8_t *data, size_t size, bool png,
     *width = *height = 0;
     if (png) {
         if (!book_png_frame(data, size, width, height)) return false;
+    } else if (book_gif_signature(data, size)) {
+        return book_gif_frame(data, size, width, height);
     } else {
         unsigned frame_width = 0, frame_height = 0;
         // 帧头对基线、渐进式都能给出尺寸，而 esp_jpeg 只认基线。

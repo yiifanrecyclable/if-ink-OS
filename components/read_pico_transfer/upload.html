@@ -23,7 +23,7 @@ Frozen: file writes retain SD/document transaction boundaries; editing never dri
 <details><summary>按类型上传到固定目录</summary>
 <section class="upload" data-kind="book"><h2>上传书籍</h2><p class="hint">EPUB、TXT → books</p><input type="file" accept=".epub,.txt" multiple aria-label="选择书籍"><button class="send">上传到 books</button><p class="result" role="status"></p></section>
 <section class="upload" data-kind="document"><h2>上传文档</h2><p class="hint">Markdown → markdown。图文笔记建议通过 Obsidian 插件发送。</p><input type="file" accept=".md" multiple aria-label="选择 Markdown 文档"><button class="send">上传到 markdown</button><p class="result" role="status"></p></section>
-<section class="upload" data-kind="font"><h2>上传字体</h2><p class="hint">TTF、OTF → fonts</p><input type="file" accept=".ttf,.otf" multiple aria-label="选择字体"><button class="send">上传到 fonts</button><p class="result" role="status"></p></section>
+<section class="upload" data-kind="font"><h2>上传字体</h2><p class="hint">TTF → fonts</p><input type="file" accept=".ttf" multiple aria-label="选择字体"><button class="send">上传到 fonts</button><p class="result" role="status"></p></section>
 <section class="upload" data-kind="picture"><h2>上传图片</h2><p class="hint">PNG、JPG、JPEG → pictures</p><input type="file" accept=".jpg,.jpeg,.png" multiple aria-label="选择图片"><button class="send">上传到 pictures</button><p class="result" role="status"></p></section></details><p class="hint" style="margin-top:18px">Markdown 文档与附件由系统管理，可下载；改名和删除请在设备内容页操作。</p></section></main>
 <dialog id="editor"><h2 id="editorTitle"></h2><p id="editorDescription"></p><input id="editorName" type="text" maxlength="238" aria-label="新名称"><div class="dialog-actions"><button id="editorCancel">取消</button><button id="editorConfirm" class="primary">确认</button></div></dialog>
 <script>
@@ -47,7 +47,7 @@ $('newFolder').onclick=()=>openEditor('mkdir');
 $('previous').onclick=()=>{if(page){--page;loadDirectory().catch(showError)}};
 $('next').onclick=()=>{if(page+1<pages){++page;loadDirectory().catch(showError)}};
 function upload(file,url,onProgress){return new Promise((resolve,reject)=>{const xhr=new XMLHttpRequest();xhr.open('PUT',url);xhr.upload.onprogress=e=>onProgress(e.loaded,e.total||file.size);xhr.onload=()=>{try{resolve({status:xhr.status,body:JSON.parse(xhr.responseText)})}catch{if(xhr.status>=400)resolve({status:xhr.status,body:{error:({400:'文件名、格式或请求无效',403:'此目录受保护，请使用上传文档板块',409:'同名文件已存在',413:'文件超过上限',503:'TF 卡未就绪或服务正忙，请稍后重试'})[xhr.status]||'设备拒绝上传（HTTP '+xhr.status+'）'}});else reject(Error('设备响应无法解析，请检查文件是否已保存'))}};xhr.onerror=()=>reject(Error('连接中断，请保持手机连接 Pico 热点'));xhr.send(file)})}
-const types={document:{re:/\.md$/i,url:'/document-upload',limit:262144},file:{re:null,url:'/file-upload',limit:0},book:{re:/\.(epub|txt)$/i,url:'/upload',limit:0},font:{re:/\.(ttf|otf)$/i,url:'/font-upload',limit:33554432},picture:{re:/\.(jpg|jpeg|png)$/i,url:'/image-upload',limit:20971520}};
+const types={document:{re:/\.md$/i,url:'/document-upload',limit:262144},file:{re:null,url:'/file-upload',limit:0},book:{re:/\.(epub|txt)$/i,url:'/upload',limit:0},font:{re:/\.ttf$/i,url:'/font-upload',limit:33554432},picture:{re:/\.(jpg|jpeg|png)$/i,url:'/image-upload',limit:20971520}};
 const cropWidth=684,cropHeight=1216;
 let cropImage=null,cropSourceName='',cropZoom=1,cropX=0,cropY=0,cropPointer=null,cropSelection=0;
 function cropScale(){return cropImage?Math.max(cropWidth/cropImage.naturalWidth,cropHeight/cropImage.naturalHeight)*cropZoom:1}
