@@ -4,7 +4,7 @@
   --ink: #20201e;
   --muted: #777770;
   --line: #e4e4dd;
-  --paper: #f7f7f4;
+  --paper: #fff;
   --orange: #f4a000;
   --content: 1160px;
   font-family: Inter, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
@@ -23,7 +23,7 @@ a:focus-visible, button:focus-visible, [tabindex="0"]:focus-visible { outline: 2
 [hidden] { display: none !important; }
 .skip-link { position: fixed; z-index: 20; top: -60px; left: 18px; padding: 10px 16px; background: var(--ink); color: #fff; }
 .skip-link:focus { top: 12px; }
-.topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 42px; width: min(100%, 1440px); height: 78px; padding: 0 clamp(24px, 5.6vw, 84px); margin: 0 auto; background: rgb(247 247 244 / 94%); border-bottom: 1px solid var(--line); backdrop-filter: blur(14px); }
+.topbar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 42px; width: min(100%, 1440px); height: 78px; padding: 0 clamp(24px, 5.6vw, 84px); margin: 0 auto; background: #fff; border-bottom: 1px solid var(--line); }
 .wordmark { display: inline-flex; align-items: center; gap: 11px; font-size: 16px; line-height: 1.25; font-weight: 650; text-decoration: none; white-space: nowrap; }
 .wordmark-mark { display: grid; place-items: center; width: 33px; height: 34px; padding-right: 4px; background: var(--ink); color: #fff; font: italic 22px/1 Georgia, serif; letter-spacing: -2px; }
 .wordmark small { display: block; margin-top: 4px; color: var(--muted); font-size: 9px; font-weight: 400; letter-spacing: .4px; }
@@ -94,7 +94,7 @@ h1, h2, h3, p { margin-top: 0; }
 .plugin-preview img { display: block; width: 100%; height: auto; aspect-ratio: 668 / 265; object-fit: contain; border: 1px solid var(--line); }
 .plugin-preview > span { display: flex; justify-content: space-between; gap: 12px; padding-top: 7px; }
 .install-section, .downloads-section { padding: 110px max(28px, calc((100vw - var(--content)) / 2)) 118px; scroll-margin-top: 78px; }
-.install-section { background: #efefe9; }
+.install-section { background: #fff; }
 .install-heading { margin-bottom: 40px; }
 .install-heading .eyebrow, .downloads-heading .eyebrow { margin-bottom: 17px; }
 .install-heading h2, .downloads-heading h2 { margin-bottom: 13px; }
