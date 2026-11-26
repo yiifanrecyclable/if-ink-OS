@@ -89,5 +89,5 @@ void simulator_files(uint8_t *fb,int view,int folder,const char *dir,const char 
 }
 
 int simulator_wallpaper_picker_state(int part){const int values[]={s_picker,s_picker_rotation,s_picker_grid,s_view==FILE_VIEW_WALLPAPER_PREVIEW,s_picker_eligible,s_page,s_count,visible_rows(),file_pager_top()};return part<9?values[part]:0;}
-int simulator_wallpaper_picker_hit(int part){EpdRect r=part==0?picker_exit_rect():part==1?picker_up_rect():part==2?grid_toggle_rect():picker_button_rect();return r.x;}
+int simulator_wallpaper_picker_hit(int part){EpdRect r=part==0?ui_nav_subpage_close_rect():part==1?picker_up_rect():part==2?grid_toggle_rect():picker_button_rect();return r.x;}
 const char *simulator_wallpaper_picker_dir(void){return s_dir;}

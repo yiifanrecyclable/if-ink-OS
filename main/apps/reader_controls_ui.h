@@ -207,10 +207,9 @@ static void reader_page_status(uint8_t *fb) {
 
 static void reader_control_header(uint8_t *fb,const char *title){
     EpdRect close = reader_portrait_close_rect();
-    ui_nav_close_in(fb, close);
+    ui_nav_subpage_frame(fb);
     reader_control_text(fb, UI_LOCK_WIDTH / 2, close.y + close.height / 2,
                         UI_TEXT_TITLE, title, EPD_DRAW_ALIGN_CENTER, false);
-    ui_hairline(fb, UI_PAGE_Y(151), 0, UI_LOCK_WIDTH, UI_GRAY_SECTION_LINE);
 }
 static void reader_control_pager(uint8_t *fb,int count,int page){
     int pages=count?1+(count-1)/reader_control_rows():1;

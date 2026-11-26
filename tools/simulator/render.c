@@ -55,7 +55,6 @@ int simulator_document_rows(void);
 int simulator_document_row_top(void);
 const char *simulator_document_page_first(void);
 int simulator_document_row_height(void);
-int simulator_management_rows(void);
 void simulator_pindou(uint8_t *fb,const char *events);
 void simulator_files(uint8_t *fb,int view,int folder,const char *dir,const char *events);
 const char *simulator_book_path(void);
@@ -74,8 +73,8 @@ bool simulator_document_starred_only(void),simulator_document_menu(void),simulat
 const char *simulator_document_first(void);
 const char *simulator_document_item(unsigned i),*simulator_shelf_item(unsigned i);
 int simulator_shelf_geometry(unsigned row,unsigned part);
-bool simulator_content_sort_open(void),simulator_document_batch_confirm(void);
-unsigned simulator_document_selected_count(void),simulator_content_sort_mode(bool documents);
+bool simulator_content_sort_open(void);
+unsigned simulator_content_sort_mode(bool documents);
 #include "book_source.h"
 #include "document_store.h"
 #include "content_library.h"
@@ -335,6 +334,11 @@ int main(int argc, char **argv) {
     const char *probe=getenv("PICO_SIM_SETTINGS_TRACE_PHASE");if(probe)app_settings_trace_storage(probe);
     printf("{\"pages\":%zu,\"width\":684,\"height\":1216,\"settings_page\":%d,\"transfer_view\":%d,\"route\":%d,\"book_view\":%d,\"reader_panel\":%d,\"reader_fullscreen\":%s,\"reader_page\":%d,\"reader_px\":%d,\"files_view\":%d,\"files_folder\":%d,\"image_view\":%d,\"book_path\":", pages,settings_page,transfer_view,simulator_route,simulator_book_view,simulator_reader_panel,simulator_reader_fullscreen?"true":"false",simulator_reader_page,simulator_reader_px,simulator_files_view,simulator_files_folder,simulator_image_view);
     json_string(simulator_book_path());
+    extern bool simulator_transfer_forget_open(void),simulator_transfer_saved_wifi(void);
+    extern int simulator_transfer_forget_card_top(void);
+    printf(",\"transfer_forget_open\":%s,\"transfer_saved_wifi\":%s,\"transfer_forget_card_top\":%d",
+           simulator_transfer_forget_open()?"true":"false",simulator_transfer_saved_wifi()?"true":"false",
+           simulator_transfer_forget_card_top());
     printf(",\"shelf_indexed\":%s",simulator_shelf_indexed()?"true":"false");
     printf(",\"image_path\":");json_string(simulator_image_path());
     extern int simulator_files_page(void);
@@ -388,7 +392,7 @@ int main(int argc, char **argv) {
     for(unsigned i=0;i<12;++i){if(i)printf(",");printf("%u",simulator_reader_binding(i));}printf("]");
     printf(",\"font_builtin\":%s,\"font_path\":",active_builtin?"true":"false");json_string(active_font);
     if(font_probe)printf(",\"font_text_covered\":%s,\"builtin_text_covered\":%s",font_text_covered?"true":"false",builtin_text_covered?"true":"false");
-    printf(",\"ui_body_px\":%d,\"ui_title_px\":%d,\"ui_caption_px\":%d,\"ui_row_height\":%d,\"ui_detail_height\":%d,\"document_rows\":%d,\"document_row_step\":%d,\"management_rows\":%d,\"home_geometry\":[",ui_text_effective_px(UI_TEXT_BODY),ui_text_effective_px(UI_TEXT_TITLE),ui_text_effective_px(UI_TEXT_CAPTION),ui_list_row_height(false),ui_list_row_height(true),simulator_document_rows(),simulator_document_row_height(),simulator_management_rows());
+    printf(",\"ui_body_px\":%d,\"ui_title_px\":%d,\"ui_caption_px\":%d,\"ui_row_height\":%d,\"ui_detail_height\":%d,\"document_rows\":%d,\"document_row_step\":%d,\"home_geometry\":[",ui_text_effective_px(UI_TEXT_BODY),ui_text_effective_px(UI_TEXT_TITLE),ui_text_effective_px(UI_TEXT_CAPTION),ui_list_row_height(false),ui_list_row_height(true),simulator_document_rows(),simulator_document_row_height());
     for(int i=0;i<12;++i){if(i)printf(",");printf("%d",simulator_home_geometry(i));}printf("]");
     printf(",\"document_row_top\":%d",simulator_document_row_top());
     printf(",\"update_state\":%d,\"update_confirmation\":%s",simulator_settings_update_state(),simulator_settings_update_confirmation()?"true":"false");
@@ -413,7 +417,7 @@ int main(int argc, char **argv) {
     printf(",\"fonts_dir\":");json_string(app_settings_fonts_dir());
     printf(",\"document_count\":%zu,\"document_starred_only\":%s,\"document_menu\":%s,\"document_delete_confirm\":%s,\"document_first\":",simulator_document_count(),simulator_document_starred_only()?"true":"false",simulator_document_menu()?"true":"false",simulator_document_delete_confirm()?"true":"false");json_string(simulator_document_first());
     const cloud_config_t *restored=simulator_cloud_backup_restored();
-    printf(",\"content_sort_open\":%s,\"book_sort_mode\":%u,\"document_sort_mode\":%u,\"document_selected_count\":%u,\"document_batch_confirm\":%s,\"document_items\":[",simulator_content_sort_open()?"true":"false",simulator_content_sort_mode(false),simulator_content_sort_mode(true),simulator_document_selected_count(),simulator_document_batch_confirm()?"true":"false");
+    printf(",\"content_sort_open\":%s,\"book_sort_mode\":%u,\"document_sort_mode\":%u,\"document_items\":[",simulator_content_sort_open()?"true":"false",simulator_content_sort_mode(false),simulator_content_sort_mode(true));
     for(unsigned i=0;i<3;++i){if(i)printf(",");json_string(simulator_document_item(i));}printf("],\"book_items\":[");
     for(unsigned i=0;i<3;++i){if(i)printf(",");json_string(simulator_shelf_item(i));}printf("]");
     extern int simulator_content_card_geometry(unsigned);

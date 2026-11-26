@@ -88,6 +88,11 @@ int main(void) {
     assert(t.image_count == 3 && t.link_count == 2);
     assert(!t.links[0].image_label[0] && !t.links[1].image_label[0]);
     html_text_free(&t);
+    t = parse("<nav epub:type='toc'><p><a href='chapter.xhtml'>Chapter</a></p></nav>"
+              "<p id='paragraph'>Text <a id='ref' href='#note'>[1]</a></p>", "Chapter\nText [1]");
+    assert(t.link_count == 2 && t.links[0].navigation && !t.links[1].navigation);
+    assert(!strcmp(t.links[1].anchor, "ref") && !strcmp(t.links[1].block_anchor, "paragraph"));
+    html_text_free(&t);
     html_test_fail_after = 3;
     t = parse("<p>lead</p><p>a<a href='#fn'><img src='note.png'/></a>b</p>", "lead\na*b");
     assert(t.count == 2 && !t.link_count && !t.image_count);
@@ -97,18 +102,22 @@ int main(void) {
                              "<p>Second</p></aside><p>Outside</p>";
     size_t anchor = SIZE_MAX;
     assert(html_to_blocks_with_css_anchor(short_note, strlen(short_note), NULL, 0, "note", &anchor, &t) == ESP_OK);
-    assert(t.note_kind == HTML_NOTE_EXPLICIT && t.note_start <= anchor && anchor < t.note_end);
+    assert(t.anchor_in_note && t.note_kind == HTML_NOTE_EXPLICIT && t.note_start <= anchor && anchor < t.note_end);
     assert(t.note_end - anchor == strlen("First\nSecond") &&
            !memcmp(t.utf8 + anchor, "First\nSecond", t.note_end - anchor));
     html_text_free(&t);
     const char *plain_note = "<p>Body</p><p><a id='note' href='#ref'>[1]</a> Plain note.</p><p>Outside</p>";
     assert(html_to_blocks_with_css_anchor(plain_note, strlen(plain_note), NULL, 0, "note", &anchor, &t) == ESP_OK);
-    assert(t.note_kind == HTML_NOTE_PARAGRAPH && t.note_start == anchor);
+    assert(!t.anchor_in_note && t.note_kind == HTML_NOTE_PARAGRAPH && t.note_start == anchor);
     assert(t.note_end - anchor == strlen("[1] Plain note."));
     html_text_free(&t);
     const char *unclosed_note = "<p>Body</p><aside role='doc-footnote'><p id='note'>Unclosed</p>";
     assert(html_to_blocks_with_css_anchor(unclosed_note, strlen(unclosed_note), NULL, 0, "note", &anchor, &t) == ESP_OK);
     assert(anchor != SIZE_MAX && t.note_kind == HTML_NOTE_NONE);
+    html_text_free(&t);
+    const char *rich_note = "<aside role='doc-footnote' id='note'><p>Note</p><img src='image.png'/></aside>";
+    assert(html_to_blocks_with_css_anchor(rich_note, strlen(rich_note), NULL, 0, "note", &anchor, &t) == ESP_OK);
+    assert(t.anchor_in_note && t.note_kind == HTML_NOTE_NONE);
     html_text_free(&t);
     const char* external = ".center{text-align:center}";
     assert(html_to_blocks_with_css("<p class='center'>甲</p>", strlen("<p class='center'>甲</p>"),

@@ -71,7 +71,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='responsive-ui-') as tm
             state,current=render('book-1')
             if reader is None:reader=current
             else:assert reader[80*342:]==current[80*342:],'reading body/tools must retain independent typography'
-            for view in ('files-0','files-1','book-4','book-9','settings-9','settings-20','transfer-2'):
+            for view in ('files-0','files-1','book-0','book-8','settings-9','settings-20','transfer-2'):
                 render(view)
             state,_=render('settings-20','u,300,850,300,500')
             assert state['settings_geometry'][9]<=state['settings_geometry'][10]

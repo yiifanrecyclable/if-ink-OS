@@ -18,6 +18,7 @@
 #define UI_NAV_INACTIVE_GRAY 0x88
 #define UI_NAV_BACK_BORDER_GRAY 0x58
 #define UI_STATUS_SIGNATURE_PX 28
+#define UI_SUBPAGE_RULE_Y UI_PAGE_Y(151)
 
 /// 导航绘制和刷新共用同一实际边界。/ Share exact geometry between navigation paint and refresh.
 EpdRect ui_nav_rect(void);
@@ -54,5 +55,10 @@ EpdRect ui_nav_close_rect(void);
 void ui_nav_close(uint8_t *fb);
 void ui_nav_close_in(uint8_t *fb, EpdRect area);
 void ui_nav_parent(uint8_t *fb,EpdRect rect,bool enabled);
+/// 常规阅读页与简单竖屏子页共用的标题栏。/ Header shared by the regular reader and simple portrait subpages.
+EpdRect ui_nav_subpage_close_rect(void);
+bool ui_nav_subpage_close_hit(const ui_gesture_event_t *ev);
+void ui_nav_subpage_frame(uint8_t *fb);
+void ui_nav_subpage_header(uint8_t *fb, const char *title, int title_px);
 int ui_nav_hit(uint16_t x, uint16_t y);
 void ui_nav_request(app_ctx_t *ctx, int index);

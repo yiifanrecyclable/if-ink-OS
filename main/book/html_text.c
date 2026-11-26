@@ -52,8 +52,10 @@ typedef struct {
     size_t link_cap, link_start;
     char link_href[HTML_LINK_HREF_CAP];
     char link_image_label[HTML_NOTE_LABEL_CAP];
-    const char *block_anchor, *link_anchor;
-    size_t block_anchor_len, link_anchor_len;
+    const char *block_anchor, *link_anchor, *link_block_anchor;
+    size_t block_anchor_len, link_anchor_len, link_block_anchor_len;
+    unsigned navigation_depth;
+    char navigation_tag[16];
     html_note_image_probe_fn image_probe;
     void *image_probe_ctx;
     note_region_t note;
@@ -573,7 +575,9 @@ static void finish_link(writer_t *w) {
         if (w->text.link_count < w->link_cap) {
             size_t bytes = strlen(w->link_href) + 1;
             const size_t anchor_len = w->link_anchor_len;
-            char *href = heap_caps_malloc(bytes + (anchor_len ? anchor_len + 1 : 0), PSRAM_CAPS);
+            const size_t anchor_bytes = anchor_len ? anchor_len + 1 : 0;
+            const size_t block_len = w->link_block_anchor_len;
+            char *href = heap_caps_malloc(bytes + anchor_bytes + (block_len ? block_len + 1 : 0), PSRAM_CAPS);
             if (href) {
                 memcpy(href, w->link_href, bytes);
                 char *anchor = NULL;
@@ -582,8 +586,15 @@ static void finish_link(writer_t *w) {
                     memcpy(anchor, w->link_anchor, anchor_len);
                     anchor[anchor_len] = 0;
                 }
+                char *block_anchor = anchor;
+                if (block_len) {
+                    block_anchor = href + bytes + anchor_bytes;
+                    memcpy(block_anchor, w->link_block_anchor, block_len);
+                    block_anchor[block_len] = 0;
+                }
                 w->text.links[w->text.link_count++] = (html_link_t){
                     .start = start, .end = w->text.len, .href = href, .anchor = anchor,
+                    .block_anchor = block_anchor, .navigation = w->navigation_depth != 0,
                     .backlink = w->link_backlink, .noteref = w->link_noteref,
                 };
                 memcpy(w->text.links[w->text.link_count - 1].image_label,
@@ -612,7 +623,10 @@ static void start_link(writer_t *w, const char *attrs, const char *end) {
     }
     w->link_href[out] = 0;
     const char *fragment = strchr(w->link_href, '#');
-    if (!fragment || !fragment[1] || w->link_href[0] == '/' || strpbrk(w->link_href, ":\\\r\n")) {
+    const char *ext = fragment ? NULL : strrchr(w->link_href, '.');
+    if ((fragment && !fragment[1]) || (!fragment && !w->navigation_depth &&
+        (!ext || (strcasecmp(ext, ".xhtml") && strcasecmp(ext, ".html") && strcasecmp(ext, ".htm")))) ||
+        w->link_href[0] == '/' || strpbrk(w->link_href, ":\\\r\n")) {
         w->link_href[0] = 0;
         return;
     }
@@ -620,9 +634,12 @@ static void start_link(writer_t *w, const char *attrs, const char *end) {
     memset(w->link_image_label, 0, sizeof(w->link_image_label));
     w->link_anchor = w->block_anchor;
     w->link_anchor_len = w->block_anchor_len;
+    w->link_block_anchor = w->block_anchor;
+    w->link_block_anchor_len = 0;
     if (tag_anchor(attrs, end, &value, &len) && len && len < HTML_LINK_ANCHOR_CAP) {
         w->link_anchor = value;
         w->link_anchor_len = len;
+        w->link_block_anchor_len = w->block_anchor_len;
     }
     bool role = attr_value(attrs, end, "role", &value, &len);
     w->link_backlink = role && class_has(value, len, "doc-backlink");
@@ -631,6 +648,26 @@ static void start_link(writer_t *w, const char *attrs, const char *end) {
         w->link_backlink |= class_has(value, len, "backlink");
         w->link_noteref |= class_has(value, len, "noteref");
     }
+}
+
+static void open_navigation(writer_t *w, const char *name, const char *attrs, const char *end) {
+    if (w->navigation_depth) {
+        if (name_equal(name, w->navigation_tag)) ++w->navigation_depth;
+        return;
+    }
+    if (!name_equal(name, "nav")) {
+        static const char *const containers[] = {"body", "div", "section", "aside", "article", "main", "ol", "ul"};
+        size_t i = 0;
+        while (i < sizeof(containers) / sizeof(*containers) && !name_equal(name, containers[i])) ++i;
+        if (i == sizeof(containers) / sizeof(*containers)) return;
+        const char *value;
+        size_t len;
+        if (!(attr_value(attrs, end, "epub:type", &value, &len) && class_has(value, len, "toc")) &&
+            !(attr_value(attrs, end, "role", &value, &len) && class_has(value, len, "doc-toc"))) return;
+    }
+    finish_link(w);
+    memcpy(w->navigation_tag, name, strlen(name) + 1);
+    w->navigation_depth = 1;
 }
 
 // After the image, accept only space and closing inline tags before </a>.
@@ -712,6 +749,8 @@ static bool note_number(const char *value, size_t len, char label[HTML_NOTE_LABE
 }
 
 static bool image_note_label(writer_t *w, const char *attrs, const char *end, const char *path) {
+    const char *fragment = strchr(w->link_href, '#');
+    if (!fragment || w->navigation_depth) return false;
     unsigned width = image_size_attr(attrs, end, "width");
     unsigned height = image_size_attr(attrs, end, "height");
     if (width > NOTE_IMAGE_MAX_SIDE || height > NOTE_IMAGE_MAX_SIDE) return false;
@@ -720,8 +759,7 @@ static bool image_note_label(writer_t *w, const char *attrs, const char *end, co
     char *label = w->link_image_label;
     bool numbered = (attr_value(attrs, end, "alt", &value, &count) && note_number(value, count, label)) ||
                     (attr_value(attrs, end, "title", &value, &count) && note_number(value, count, label));
-    const char *fragment = strchr(w->link_href, '#') + 1;
-    const char *suffix = note_name_suffix(fragment);
+    const char *suffix = note_name_suffix(fragment + 1);
     const char *leaf = strrchr(path, '/');
     leaf = leaf ? leaf + 1 : path;
     if (!numbered && suffix) numbered = note_number(suffix, strlen(suffix), label);
@@ -807,7 +845,10 @@ static void record_note_region(writer_t *w, const char *name, const char *attrs,
         memcpy(note->tag, name, strlen(name) + 1);
     }
     if (matched) {
-        if (note->depth) note->matched = true;
+        if (note->depth) {
+            note->matched = true;
+            w->text.anchor_in_note = true;
+        }
         if (w->paragraph_open && next_text == w->paragraph_start) w->paragraph_matched = true;
     }
     if (!strcmp(name, "table") || !strcmp(name, "math") || !strcmp(name, "video") || !strcmp(name, "audio"))
@@ -879,6 +920,12 @@ esp_err_t html_to_blocks_with_css_target(const char* html, size_t len,
                         resume_head = false;
                     } else skip[0] = 0;
                     continue;
+                }
+                if (closing && w->navigation_depth && name_equal(name, w->navigation_tag)) {
+                    if (w->navigation_depth == 1) finish_link(w);
+                    --w->navigation_depth;
+                } else if (!closing && !self_closing) {
+                    open_navigation(w, name, html + at, html + end);
                 }
                 if (name_equal(name, "a")) {
                     finish_link(w);

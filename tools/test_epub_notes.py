@@ -76,6 +76,24 @@ def write_epub(path, href, section_boundary=False, marker='[1]', spine_notes=Tru
                       other_note + (filler if spine_notes else '') + '</body></html>')
 
 
+def write_contents_sample(path, contents):
+    with ZipFile(path, 'w', ZIP_DEFLATED) as epub:
+        epub.writestr('META-INF/container.xml',
+                      '<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>')
+        epub.writestr('OPS/book.opf', '''<package><metadata><title>Contents links</title></metadata>
+          <manifest><item id="contents" href="toc.xhtml" media-type="application/xhtml+xml"/>
+          <item id="chapter" href="chapter.xhtml" media-type="application/xhtml+xml"/></manifest>
+          <spine><itemref idref="contents"/><itemref idref="chapter"/></spine></package>''')
+        filler = '<p>正文继续。 The chapter continues with several paragraphs.</p>' * 70
+        epub.writestr('OPS/toc.xhtml', '<html><body>' + contents + '</body></html>')
+        epub.writestr('OPS/chapter.xhtml', '<html><body>' + filler +
+                      '<p id="note-1">第二章锚点。 <a href="toc.xhtml#contents">[1]</a> </p>' +
+                      '<p id="fn23">第三节标题。</p>' +
+                      '<h2 id="section">章节标题</h2>' +
+                      '<p id="section-1"><a href="toc.xhtml#contents">[1]</a> 第二章正文。</p>' +
+                      filler + '</body></html>')
+
+
 def raw(x, y, wide, reverse):
     if not wide:
         return x, y
@@ -125,6 +143,22 @@ def main():
         write_epub(card / 'books/Superscript.epub', 'appendix/notes.xhtml#fn1', marker='¹²³')
         write_epub(card / 'books/Auxiliary.epub', 'appendix/notes.xhtml#fn1', spine_notes=False)
         write_epub(card / 'books/TwoNotes.epub', 'appendix/notes.xhtml#fn1', multiple_notes=True)
+        contents_cases = (
+            ('ContentsNav', '<nav epub:type="toc" id="contents"><p>'
+             '<a epub:type="noteref" href="chapter.xhtml#note-1">[1]</a></p></nav>', True),
+            ('ContentsLegacy', '<p id="contents"><a href="chapter.xhtml#section">章节标题</a></p>', True),
+            ('ContentsNumbered', '<p id="contents"><a href="chapter.xhtml#section-1">[1]</a></p>', True),
+            ('ContentsNoteLike', '<p>章节 <a href="chapter.xhtml#fn23">23</a></p>', True),
+            ('ContentsRole', '<div role="doc-toc"><div><p><a epub:type="noteref" '
+             'href="chapter.xhtml#fn23">23</a></p></div></div>', True),
+            ('ContentsType', '<div epub:type="toc"><p><a epub:type="noteref" '
+             'href="chapter.xhtml#fn23">23</a></p></div>', True),
+            ('ContentsChapter', '<p><a href="chapter.xhtml">Chapter two</a></p>', False),
+        )
+        for book, contents, _ in contents_cases:
+            write_contents_sample(card / f'books/{book}.epub', contents)
+        write_contents_sample(card / 'books/ExplicitNoBacklink.epub',
+                              '<p>See <a epub:type="noteref" href="chapter.xhtml#fn23">23</a>.</p>')
         write_image_note_sample(card / 'books' / IMAGE_NOTE_SAMPLE)
         write_short_note_sample(card / 'books' / SHORT_NOTE_SAMPLE)
         write_image_epub(card / 'books/ShortParagraph.epub',
@@ -134,7 +168,7 @@ def main():
         for name, content in (('LongNote', '<p>More text.</p>' * 13),
                               ('IllustratedNote', '<p>See the figure.</p><img src="badge.png"/>'),
                               ('InlineImageNote', '<p>See the figure.</p><img src="data:image/png;base64,AA=="/>'),
-                              ('LinkedNote', '<p>See <a href="#ref">other text</a> or <a href="#outside">outside</a>.</p>')):
+                              ('LinkedNote', '<p>See <a href="#outside">outside</a> for more.</p>')):
             write_image_epub(card / f'books/{name}.epub', card_source,
                              f'<aside id="note" epub:type="footnote">{content}</aside><p id="outside">Outside.</p>', 20)
         for name, side in (('ProbedIcon', 14), ('LinkedFigure', 220)):
@@ -142,8 +176,9 @@ def main():
                              '<p>前<a href="#details"><img src="badge.png" alt="3"/></a>后</p>',
                              '<p id="details">Details</p>', side)
         write_image_epub(card / 'books/Unnumbered.epub',
-                         '<p>中<a href="#fn"><img src="data:image/png;base64,AA=="/></a>中'
-                         '<a href="#fn">[12]</a><a href="#fn"><img src="badge.png" alt="3"/></a></p>',
+                         '<p>中<a epub:type="noteref" href="#fn"><img src="data:image/png;base64,AA=="/></a>中'
+                         '<a epub:type="noteref" href="#fn">[12]</a>'
+                         '<a epub:type="noteref" href="#fn"><img src="badge.png" alt="3"/></a></p>',
                          '<p id="fn">Note without a number</p>', 14)
 
         def render(book, *points, page='0', wide=False, reverse=False, key=None, px=48):
@@ -163,6 +198,28 @@ def main():
             assert result.returncode == 0, result.stderr
             assert 'runtime error:' not in result.stderr, result.stderr
             return json.loads(result.stdout), (out / 'frame.bin').read_bytes()
+
+        for book, _, has_anchor in contents_cases:
+            _, frame = render(book)
+            link = find_marker(frame, False, False, False)
+            assert link is not None, book
+            target, _ = render(book, link)
+            assert target['reader_chapter'] == 1 and not target['reader_note_open'], target
+            assert not target['reader_note_return_label'] and not target['reader_note_card_top'], target
+            assert (target['reader_offset'] > 0) == has_anchor, target
+            resumed, _ = render(book, page='-1')
+            assert resumed['reader_chapter'] == 1 and resumed['reader_offset'] == target['reader_offset'], resumed
+            turned, _ = render(book, page='-1', key=2)
+            assert turned['reader_chapter'] == 1 and turned['reader_offset'] > resumed['reader_offset'], turned
+            resumed, _ = render(book, page='-1')
+            assert resumed['reader_chapter'] == 1 and resumed['reader_offset'] == turned['reader_offset'], resumed
+        _, frame = render('ExplicitNoBacklink')
+        marker = find_marker(frame, False, False, False)
+        assert marker is not None
+        note, _ = render('ExplicitNoBacklink', marker)
+        assert note['reader_chapter'] == 1 and note['reader_note_return_label'] == '返回正文', note
+        resumed, _ = render('ExplicitNoBacklink', page='-1')
+        assert resumed['reader_chapter'] == 0, resumed
 
         for wide, reverse, vertical in ((False, False, False), (True, False, False),
                                         (True, True, False), (False, False, True)):
@@ -219,7 +276,7 @@ def main():
                 text_link = find_marker(frame, wide, reverse, vertical, exclude=mark)
                 assert text_link is not None
                 reached, _ = render(book, text_link)
-                assert reached['reader_note_open'] and reached['reader_offset'] > note['reader_offset'], reached
+                assert not reached['reader_note_open'] and reached['reader_offset'] > note['reader_offset'], reached
                 endnote, frame = render(book, page=str(origin['pages'] - 1))
                 reverse_mark = find_marker(frame, False, False, False)
                 assert reverse_mark is not None
@@ -272,8 +329,15 @@ def main():
         for book in ('LongNote', 'IllustratedNote', 'InlineImageNote', 'LinkedNote'):
             _, frame = render(book)
             mark = find_marker(frame, False, False, False)
-            fallback, _ = render(book, mark)
+            fallback, frame = render(book, mark)
             assert fallback['reader_note_open'] and not fallback['reader_note_card_top'], fallback
+            if book == 'LinkedNote':
+                outside = find_marker(frame, False, False, False)
+                assert outside is not None
+                linked, _ = render(book, mark, outside)
+                assert not linked['reader_note_open'] and linked['reader_offset'] > fallback['reader_offset'], linked
+                resumed, _ = render(book, page='-1')
+                assert resumed['reader_offset'] == linked['reader_offset'], resumed
         for wide in (False, True):
             (nvs / 'book_screen').write_bytes(bytes([2 if wide else 0]))
             _, frame = render('LongNote', wide=wide, px=28)
@@ -288,7 +352,8 @@ def main():
         origin, frame = render('ProbedIcon')
         mark = find_marker(frame, False, False, False)
         assert not origin['reader_images'] and mark is not None, origin
-        assert render('ProbedIcon', mark)[0]['reader_note_open']
+        linked, _ = render('ProbedIcon', mark)
+        assert not linked['reader_note_open'] and linked['reader_offset'] > origin['reader_offset'], linked
         for px in (32, 48, 72):
             book = 'Unnumbered'
             origin, frame = render(book, px=px)
@@ -418,7 +483,7 @@ def main():
         mark = find_marker(frame, False, False, False)
         sized, _ = render(Path(SHORT_NOTE_SAMPLE).stem, mark, px=64)
         assert sized['reader_note_card_title'] == '注释1' and sized['reader_note_card_px'] == 57, sized
-        print('PASS: note titles preserve markers; both layouts use the real half-screen height; landscape has no close hotspot')
+        print('PASS: contents jumps persist progress; footnote cards, returns and reading progress remain correct')
 
 
 if __name__ == '__main__':

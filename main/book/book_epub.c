@@ -1589,7 +1589,7 @@ bool book_epub_link_target(book_epub_t *book, size_t from, const char *href,
     if (!href || !chapter || !anchor || capacity < 2)
         return false;
     const char *part = strchr(href, '#');
-    if (!part || !part[1]) return false;
+    if (part && !part[1]) return false;
     const int source = chapter_entry(book, from);
     if (source < 0) return false;
     char path[EPUB_PATH_CAP];
@@ -1600,13 +1600,15 @@ bool book_epub_link_target(book_epub_t *book, size_t from, const char *href,
     if (entry != source) {
         for (target = 0; target < book->count && book->chapters[target].zip_index != entry; ++target) {}
         if (target == book->count) {
+            if (!part) return false;
             // 临时引用使用 ZIP 条目编号，不追加到正文阅读顺序。/ Address auxiliary documents without adding them to the spine.
             target = EPUB_AUXILIARY_BASE + (size_t)entry;
             if (chapter_entry(book, target) < 0 || zip_entry_size(book->zip, entry) > EPUB_ENTRY_MAX) return false;
         }
     }
     size_t used = 0;
-    for (++part; *part; ++part) {
+    if (part) ++part;
+    while (part && *part) {
         int c = (unsigned char)*part;
         if (c == '%') {
             if (!part[1] || !part[2]) return false;
@@ -1617,6 +1619,7 @@ bool book_epub_link_target(book_epub_t *book, size_t from, const char *href,
         }
         if (c <= 32 || c == 127 || used + 1 >= capacity) return false;
         anchor[used++] = (char)c;
+        ++part;
     }
     anchor[used] = 0;
     *chapter = target;

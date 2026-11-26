@@ -40,7 +40,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='system-text-') as tmp:
         assert render('settings-27','t,500,1052,500,1052')[0]['settings_page']==12
         assert render('settings-27','t,500,1052,500,1052;t,60,105,60,105')[0]['settings_page']==27
         assert render('settings-27','t,60,105,60,105')[0]['settings_page']==0
-        for native in ('settings-0','settings-20','files-0','book-4','settings-9','settings-24','transfer-2'):
+        for native in ('settings-0','settings-20','files-0','book-8','settings-9','settings-24','transfer-2'):
             render(native)
     assert title_pixels[3]>title_pixels[0],title_pixels
     # 配网来源决定返回设置或传书选择，密码取消先回无线网络。/ Settings context survives password cancellation and returns to Settings.

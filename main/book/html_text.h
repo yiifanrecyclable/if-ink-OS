@@ -53,8 +53,8 @@ typedef struct { size_t offset, len; uint8_t flags; } text_style_t;
 typedef struct {
     uint32_t start, end;
     char *href;
-    const char *anchor;
-    bool backlink, noteref;
+    const char *anchor, *block_anchor;
+    bool backlink, noteref, navigation;
     char image_label[HTML_NOTE_LABEL_CAP];
 } html_link_t;
 
@@ -72,6 +72,7 @@ typedef struct {
     size_t link_count;
     size_t note_start, note_end; ///< Normalized text range enclosing the requested anchor.
     html_note_kind_t note_kind;
+    bool anchor_in_note; ///< 锚点落在有语义标注的脚注内。/ Anchor is inside a semantic footnote, even without a usable card.
     markdown_cell_t *cells; ///< 自有 Markdown 单元格表，普通图书为空 / Owned Markdown cells, absent in ordinary books
     size_t cell_count;
     text_style_t* styles; ///< 自有样式表，普通图书为空 / Owned style table, empty for ordinary books

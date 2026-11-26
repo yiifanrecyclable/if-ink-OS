@@ -446,7 +446,7 @@ static void settings_option(uint8_t *fb,EpdRect rect,bool selected) {
     epd_fill_rect((EpdRect){rect.x,rect.y+rect.height,rect.width,2},UI_GRAY_ITEM_LINE,fb);
 }
 static void settings_divider(uint8_t *fb, int y, int x, int width) {
-    epd_fill_rect((EpdRect){x, y, width, 2}, UI_GRAY_SECTION_LINE, fb);
+    epd_fill_rect((EpdRect){x, y, width, UI_SECTION_LINE_HEIGHT}, UI_GRAY_SECTION_LINE, fb);
 }
 static void row(uint8_t *fb, int y, const char *label, const char *value) {
     ui_text_vc(fb, 54, y+SETTINGS_ROW_H/2, UI_TEXT_BODY, label, EPD_DRAW_ALIGN_LEFT, false);
@@ -460,12 +460,10 @@ static void section(uint8_t *fb, int y, const char *title) {
 /* ---- 设置子页标题 / Settings sub-page headers ---- */
 
 static bool settings_close_hit(const ui_gesture_event_t *ev){
-    EpdRect r=ui_nav_close_rect();return ui_rect_hit(r,ev->x0,ev->y0)&&ui_rect_hit(r,ev->x,ev->y);
+    return ui_nav_subpage_close_hit(ev);
 }
 static void back_header(uint8_t *fb, const char *title) {
-    ui_nav_close(fb);
-    ui_text_vc(fb, 342,UI_PAGE_Y(107), 34, title, EPD_DRAW_ALIGN_CENTER, false);
-    settings_divider(fb,UI_PAGE_Y(174), 36, 612);
+    ui_nav_subpage_header(fb, title, ui_text_effective_px(34));
 }
 
 static void setting_icon(uint8_t *fb, int index, int cx, int cy) {
@@ -828,7 +826,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     if(s_page==SETTINGS_FIRMWARE_INFO){firmware_info_draw(fb);return;}
     if(s_page==SETTINGS_ONLINE_UPDATE){online_draw(fb);return;}
     if(s_page==SETTINGS_CLOUD){
-        cloud_config_t cfg;cloud_config_load(&cfg);back_header(fb,UI_MSG("坚果云同步"));
+        cloud_config_t cfg;cloud_config_load(&cfg);
         char folder[241],account[129];ui_snprintf(folder,sizeof(folder),"%s",cfg.folder);ui_snprintf(account,sizeof(account),"%s",cfg.account[0]?cfg.account:UI_MSG("未设置"));fit_value(folder,330);fit_value(account,330);
         row(fb,cloud_row_y(0)-s_cloud_scroll,UI_MSG("同步文件夹"),folder);row(fb,cloud_row_y(1)-s_cloud_scroll,UI_MSG("账号"),account);row(fb,cloud_row_y(2)-s_cloud_scroll,UI_MSG("应用密码"),cloud_config_valid(&cfg,true)?UI_MSG("已保存  ›"):UI_MSG("未设置  ›"));memset(cfg.password,0,sizeof(cfg.password));
         ui_text(fb,44,cloud_guide_heading()-s_cloud_scroll,UI_TEXT_TITLE,UI_MSG("使用说明"),EPD_DRAW_ALIGN_LEFT,false);
@@ -870,10 +868,8 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         return;
     }
     if (s_page == SETTINGS_TIME_EDIT) {
-        ui_nav_close(fb);
-        ui_text(fb, 36,UI_PAGE_Y(151), 47, UI_MSG("日期与时间"), EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 36,UI_PAGE_Y(216), 23, UI_MSG("北京时间 · UTC+8"), EPD_DRAW_ALIGN_LEFT, false);
-        ui_hairline(fb,UI_PAGE_Y(259), 36, 612, UI_GRAY_LIGHT);
+        back_header(fb, UI_MSG("手动设置时间"));
+        ui_text(fb, 36,UI_PAGE_Y(188), 23, UI_MSG("北京时间 · UTC+8"), EPD_DRAW_ALIGN_LEFT, false);
         static const char *const labels[] = {UI_MSG("年"), UI_MSG("月"), UI_MSG("日"), UI_MSG("时"), UI_MSG("分")};
         int values[] = {s_year, s_month, s_day, s_hour, s_minute};
         for (int i = 0; i < 5; ++i) {
@@ -1695,7 +1691,7 @@ static app_redraw_t on_key(app_ctx_t *ctx, int key) {
         ui_nav_request(ctx,0);
         return APP_REDRAW_NONE;
     }
-    EpdRect target = ui_nav_close_rect();
+    EpdRect target = ui_nav_subpage_close_rect();
     ui_gesture_event_t tap = ui_tap_at(target.x + target.width / 2, target.y + target.height / 2);
     return on_gesture(ctx,&tap);
 }

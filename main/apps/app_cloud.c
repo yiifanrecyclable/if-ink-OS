@@ -34,8 +34,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     cloud_get_status(&status);
     ui_clear_page(fb);
     ui_nav_status(fb);
-    ui_nav_back(fb, 36,UI_PAGE_Y(79));
-    ui_text_vc(fb, 342,UI_PAGE_Y(113), 34, UI_MSG("坚果云同步"), EPD_DRAW_ALIGN_CENTER, false);
+    ui_nav_subpage_header(fb, UI_MSG("坚果云同步"), ui_text_effective_px(34));
     char folder[241];
     ui_snprintf(folder, sizeof(folder), "%s", status.folder[0] ? status.folder : CLOUD_DEFAULT_FOLDER);
     cloud_fit(folder, 22, 190);
@@ -199,7 +198,7 @@ static app_redraw_t gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         ui_nav_request(ctx, tab);
         return APP_REDRAW_NONE;
     }
-    if (ev->y0 < UI_PAGE_Y(170) && ev->x0 < 160) {
+    if (ui_nav_subpage_close_hit(ev)) {
         return cloud_back(ctx);
     }
     if (status.busy) {

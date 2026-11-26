@@ -19,6 +19,7 @@
 #include "read_pico_pmu_protocol.h"
 #include "read_pico_transfer.h"
 #include "ui_kit.h"
+#include "ui_gesture.h"
 #include "settings.h"
 #define UI_NAV_NETWORK_ICON_PX 28
 
@@ -80,6 +81,50 @@ void ui_nav_close_in(uint8_t *fb, EpdRect r){
     header_stroke(fb,x-10,y+10,x+10,y-10,UI_GRAY_BLACK);
 }
 void ui_nav_close(uint8_t *fb){ ui_nav_close_in(fb,ui_nav_close_rect()); }
+EpdRect ui_nav_subpage_close_rect(void) {
+    return (EpdRect){24, UI_STATUS_HEIGHT, 68, 68};
+}
+
+bool ui_nav_subpage_close_hit(const ui_gesture_event_t *ev) {
+    EpdRect close = ui_nav_subpage_close_rect();
+    return ev->type == UI_GESTURE_TAP && ui_rect_hit(close, ev->x0, ev->y0) &&
+           ui_rect_hit(close, ev->x, ev->y);
+}
+
+void ui_nav_subpage_frame(uint8_t *fb) {
+    ui_nav_close_in(fb, ui_nav_subpage_close_rect());
+    epd_fill_rect((EpdRect){0, UI_SUBPAGE_RULE_Y, UI_LOCK_WIDTH, UI_SECTION_LINE_HEIGHT}, UI_GRAY_SECTION_LINE, fb);
+}
+
+void ui_nav_subpage_header(uint8_t *fb, const char *title, int title_px) {
+    ui_nav_subpage_frame(fb);
+    title = ui_message(title);
+    const int width = UI_LOCK_WIDTH - 200;
+    char shown[160];
+    if (ui_text_fixed_width_px(title_px, title) > width) {
+        size_t len = strnlen(title, sizeof(shown) - 1);
+        while (((unsigned char)title[len] & 0xc0) == 0x80) --len;
+        memcpy(shown, title, len);
+        shown[len] = 0;
+        while (len && ui_text_fixed_width_px(title_px, shown) > width) {
+            do { --len; } while (((unsigned char)shown[len] & 0xc0) == 0x80);
+            shown[len] = 0;
+        }
+        title = shown;
+    }
+    EpdRect close = ui_nav_subpage_close_rect();
+    const int center = close.y + close.height / 2;
+    // 按实际字形留出分割线前的空白。/ Reserve space above the rule using the actual glyph bounds.
+    const int ink_limit = 2 * (UI_SUBPAGE_RULE_Y - center - 12);
+    while (title_px > 16) {
+        int above, below;
+        ui_text_fixed_measure_px(title_px, title, &above, &below);
+        if (above + below <= ink_limit) break;
+        --title_px;
+    }
+    ui_text_fixed_vc(fb, UI_LOCK_WIDTH / 2, center, title_px, title, EPD_DRAW_ALIGN_CENTER, false);
+}
+
 void ui_nav_parent(uint8_t *fb,EpdRect r,bool enabled){
     int x=r.x+r.width/2,y=r.y+r.height/2;uint8_t gray=enabled?UI_GRAY_BLACK:0xb0;
     header_stroke(fb,x-13,y,x+13,y,gray);

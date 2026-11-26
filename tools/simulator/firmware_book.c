@@ -99,8 +99,6 @@ int simulator_content_card_geometry(unsigned i){
                         close.x,close.y,close.width,close.height};
     return i<sizeof(values)/sizeof(values[0])?values[i]:0;
 }
-unsigned simulator_document_selected_count(void){return document_selected_count();}
-bool simulator_document_batch_confirm(void){return s_document_batch_confirm;}
 unsigned simulator_content_sort_mode(bool documents){return documents?s_document_options.mode:s_book_options.mode;}
 bool simulator_shelf_indexed(void){return s_shelf_paged;}
 const char *simulator_book_path(void){return s_requested_open[0]?s_requested_open:s_path;}
@@ -144,6 +142,7 @@ static void simulator_settle_covers(app_ctx_t *ctx){
  s_view=view;
 }
 size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char *path,const char *events){
+ if(view<SHELF||view>DOCUMENTS||(view>MANAGE&&view<SEARCH))return 0;
  if(panel==6||panel==8)panel=READER_PANEL_TOOLS;
  if(panel==10)panel=READER_PANEL_SHORTCUTS;
  shelf_perf_init();
@@ -152,7 +151,7 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  if(!getenv("PICO_SIM_SHELF_INDEX") || s_scan_pending)scan_shelf(&ctx);
  s_scan_pending=false;
  if(getenv("PICO_SIM_SHELF_INDEX"))shelf_index_publish();
- if(view==DOCUMENTS||view==DOCUMENT_BULK)ensure_documents();
+ if(view==DOCUMENTS)ensure_documents();
  // -1只表示阅读续读；列表页必须从非负页码开始。/ -1 requests reader resume; list pages must start at a nonnegative index.
  ctx.leaf=(view!=READING&&view!=TOC)?(page<0?0:page):0;
  if(view==READING||view==TOC){
@@ -168,12 +167,12 @@ size_t simulator_book(uint8_t *fb,int view,int panel,int page,int px,const char 
  if(panel==READER_PANEL_FONT_PICKER)ttf_font_picker_begin(book_store_revision(),book_index_cache_epoch());
  if(view==TOC)app_font_activate_system();
  s_view=(book_view_t)view;s_reader_panel=view==READING?(reader_panel_t)panel:READER_PANEL_NONE;
- if(view==DOCUMENTS||view==DOCUMENT_BULK)s_document_mode=true;
+ if(view==DOCUMENTS)s_document_mode=true;
  s_reader_fullscreen=panel==100||reader_layout().fullscreen;s_reader_immersive=reader_layout().immersive;if(panel==100)s_reader_panel=READER_PANEL_NONE;
  if(view==TOC){s_toc_jump_open=panel==1;s_toc_jump_percent=45;}
  if(s_count)s_managed=s_shelf[0];
  if(view==EDIT)editor_start(false);
- if(view==SEARCH){s_search_parent=BULK;ui_text_input_open(&s_search_input,s_search_draft,sizeof(s_search_draft),true,false,UI_INPUT_ENGLISH);}
+ if(view==SEARCH){s_search_parent=SHELF;ui_text_input_open(&s_search_input,s_search_draft,sizeof(s_search_draft),true,false,UI_INPUT_ENGLISH);}
  simulator_settle_covers(&ctx);render(&ctx,fb);s_presented_view=s_view;
  simulator_settle_documents(&ctx);
  unsigned draws=s_sim_reader_draws,loads=ttf_sim_font_loads;
@@ -207,7 +206,6 @@ unsigned simulator_markdown_size(unsigned index){return index<4?(s_reader_slider
 int simulator_document_rows(void){return document_rows();}
 int simulator_document_row_top(void){return document_row(0).y;}
 int simulator_document_row_height(void){return document_row_step();}
-int simulator_management_rows(void){return management_rows();}
 
 const char *simulator_document_page_first(void){return simulator_document_item((unsigned)(simulator_reader_page*document_rows()));}
 

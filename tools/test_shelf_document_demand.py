@@ -21,7 +21,7 @@ unit=r'''
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-enum {SHELF,READING,TOC,MANAGE,BULK,IMPORT,SEARCH,EDIT,DOCUMENTS,DOCUMENT_BULK};
+enum {SHELF,READING,TOC,MANAGE,SEARCH=6,EDIT,DOCUMENTS};
 enum {APP_REDRAW_NONE,APP_REDRAW_PAGE,ESP_OK=0,ESP_ERR_NOT_FINISHED=8,READER_PANEL_NONE=0};
 typedef int app_redraw_t;
 typedef int esp_err_t;
@@ -106,7 +106,7 @@ for name in ('static void discard_document_cache(void) {',
              'static void refresh_finished_document(void) {'):
  unit+=block(name)+'\n'
 unit+=block('static bool open_requested_book(app_ctx_t* ctx) {')+'\n'
-unit+='static app_redraw_t tick_scan(app_ctx_t *ctx){const cst836u_touch_t *touch=ctx->touch;'+block('if (s_document_scan_pending &&')+block('if (s_scan_pending && (s_view == SHELF || s_view == BULK) &&')+'return APP_REDRAW_NONE;}\n'
+unit+='static app_redraw_t tick_scan(app_ctx_t *ctx){const cst836u_touch_t *touch=ctx->touch;'+block('if (s_document_scan_pending &&')+block('if (s_scan_pending && s_view == SHELF &&')+'return APP_REDRAW_NONE;}\n'
 unit+=block('static app_redraw_t content_tab_action(app_ctx_t *ctx, bool documents) {')+'\n'
 unit+=block('static app_redraw_t reader_return(app_ctx_t *ctx, bool home) {')+'\n'
 unit+=r'''
@@ -137,11 +137,9 @@ int main(void){
  media_ready=false;assert(content_tab_action(&c,true)==APP_REDRAW_PAGE&&documents==4&&!s_document_cache_valid);
  media_ready=true;assert(content_tab_action(&c,true)==APP_REDRAW_PAGE&&s_document_scan_pending&&documents==4);
  assert(tick_scan(&c)==APP_REDRAW_PAGE&&documents==5);
- for(int i=DOCUMENTS;i<=DOCUMENT_BULK;++i){
-  reset(i);assert(tick_scan(&c)==APP_REDRAW_NONE&&!shelves&&!documents&&s_scan_pending);
-  s_document_scan_pending=true;
-  assert(tick_scan(&c)==APP_REDRAW_PAGE&&!shelves&&documents==1&&s_scan_pending);
- }
+ reset(DOCUMENTS);assert(tick_scan(&c)==APP_REDRAW_NONE&&!shelves&&!documents&&s_scan_pending);
+ s_document_scan_pending=true;
+ assert(tick_scan(&c)==APP_REDRAW_PAGE&&!shelves&&documents==1&&s_scan_pending);
  reset(SHELF);s_cover_next_ms=c.now_ms+150;
  assert(tick_scan(&c)==APP_REDRAW_NONE&&!shelves);
  c.now_ms+=150;c.released=true;

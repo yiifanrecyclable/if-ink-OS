@@ -35,10 +35,6 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='feedback-011-') as dir
     for events,wanted in ((tap(665,1105),1),('k,2,0,0,0',1),('k,2,0,0,0;k,0,0,0,0',0)):
         state,_=frame(view='files-0',page=3,extra='/sdcard/books',events=events)
         assert state['files_page']==wanted and state['files_folder']==3 and state['route']==-1,state
-    # 管理列表实体键分页时不清掉所选项或离开列表。/ Side keys paginate management lists without leaving them.
-    for view in ('book-4','book-9'):
-        state,_=frame(view=view,page=0,events='k,2,0,0,0')
-        assert state['reader_page']==1 and state['book_view']==int(view[5:]),state
     # 黑色字淡到9级，关面板精确恢复；控件拖动不再次淡化正文。/ Dark ink fades to level 9, closes exactly, and never compounds while dragging.
     baseline,plain=frame();state,faded=frame(panel=1);top=state['reader_controls_geometry'][0]
     assert plain[180*342:(top-7)*342]!=faded[180*342:(top-7)*342]
@@ -58,12 +54,13 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='feedback-011-') as dir
     assert frame(path='/sdcard/markdown/Doc00.md')[0]['reader_tap_layout']==1
     frame(panel=15,events=tap(100,500))
     assert frame(events=tap(40,600))[0]['reader_page']==0
-    # 文档选字形不会改变图书字体；重新打开仍使用已选字体。/ A document face persists without changing the book preference.
+    # 文档中选择的通用阅读字体也用于书籍。/ The reading face chosen in a document also applies to books.
     path='/sdcard/markdown/Doc00.md'
     picker,_=frame(path=path,panel=5);rh=picker['reader_controls_geometry'][1]
-    state,_=frame(path=path,panel=2,events=tap(300,250)+';'+tap(200,196+rh//2))
-    assert state['reader_panel']==2 and state['markdown_font_path']=='/sdcard/fonts/Document.ttf',state
-    assert state['reading_font_path']==baseline['reading_font_path']
-    assert frame(path=path)[0]['font_path']=='/sdcard/fonts/Document.ttf'
-    assert frame()[0]['font_builtin']
-print('PASS: complete pagination arrows/keys, manager pages, non-compounding fade/restore, shared rows/columns and independent persistent Markdown font.')
+    state,_=frame(path=path,panel=2,events=tap(300,209)+';'+tap(200,196+rh//2))
+    face='/sdcard/fonts/Document.ttf'
+    assert state['reader_panel']==2 and state['reading_font_path']==face,state
+    assert state['markdown_font_path']==baseline['markdown_font_path']
+    assert frame(path=path)[0]['font_path']==face
+    assert frame()[0]['font_path']==face
+print('PASS: complete pagination arrows/keys, file manager pages, non-compounding fade/restore, shared rows/columns and shared persistent reading font.')

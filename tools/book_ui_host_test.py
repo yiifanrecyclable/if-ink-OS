@@ -62,7 +62,6 @@ static bool ui_rect_hit(EpdRect r,int x,int y){return x>=r.x&&x<r.x+r.width&&y>=
 typedef struct {char name[256],author[128],path[288];uint32_t size;uint16_t chapter;bool is_flash,has_progress;uint8_t pct;uint32_t recent;bool selected,removed,search_match,favorite;} shelf_entry_t;
 #define BOOK_ROWS 13
 #define BOOK_GRID_ROWS 9
-#define BOOK_BULK_ROWS 6
 #define BOOKMARK_MAX 24
 #define BOOK_SCAN_DEPTH_LIMIT 12
 typedef struct {DIR* dir;char path[288];} shelf_scan_frame_t;
@@ -71,10 +70,7 @@ typedef struct {uint32_t magic,file_size;uint16_t count,reserved;char path[288];
 #define BOOK_STORE_PATH_MAX 288
 #define UI_BTN_H 84
 static EpdRect ui_row_rect(int i,int count,int y,int height){EpdRect r=ui_bar_rect(i,count);r.y=y;r.height=height;return r;}
-static char s_query[65],s_search_draft[65],s_batch_message[128];
-typedef enum {BATCH_DELETE,BATCH_CLEAR,BATCH_UNSHELF} batch_kind_t;
-static bool s_batch_confirm;
-static batch_kind_t s_batch_kind;
+static char s_query[65],s_search_draft[65];
 static bool read_pico_search_match(const char* name,const char* query){return !*query||strstr(name,query)!=NULL;}
 static int book_chapter_count(void){return 1;}
 static size_t book_navigation_count(void){return (size_t)book_chapter_count();}
@@ -185,7 +181,7 @@ static void invalidate_covers(void){}
 static shelf_entry_t s_managed;
 static bool s_delete_confirm,s_file_removed,s_clear_confirm;
 static char s_manage_message[128];
-typedef enum {SHELF,SETTINGS,READING,TOC,MANAGE,BULK,IMPORT,SEARCH,EDIT} book_view_t;
+typedef enum {SHELF,SETTINGS,READING,TOC,MANAGE,SEARCH,EDIT} book_view_t;
 static book_view_t s_view,s_search_parent;
 static bool test_draw_locked,test_system_face=true;
 static void lock_draw(void){assert(!test_draw_locked);test_draw_locked=true;}
@@ -277,8 +273,8 @@ static void vSemaphoreDelete(void* p){(void)p;}
 static app_redraw_t turn_page(app_ctx_t* ctx,int dir){(void)ctx;(void)dir;return APP_REDRAW_NONE;}
 static app_redraw_t paint_catalog_page(app_ctx_t* ctx){(void)ctx;return APP_REDRAW_AREA;}
 static int test_delete_error,test_forget_error,test_notify_count,test_delete_calls;
-static bool test_removed,test_mixed;
-static int book_store_delete(const char* path,bool* removed){(void)path;test_delete_calls++;*removed=test_removed;return test_mixed ? (strstr(path,"book001") ? -1 : 0) : test_delete_error;}
+static bool test_removed;
+static int book_store_delete(const char* path,bool* removed){(void)path;test_delete_calls++;*removed=test_removed;return test_delete_error;}
 static int book_progress_forget(const char* path){for(book_progress_watch_t* w=test_watches;w;w=w->next)if(!strcmp(w->path,path))atomic_store(&w->invalidated,true);return test_forget_error;}
 static void book_store_notify_changed(void){test_notify_count++;}
 static unsigned book_store_revision(void){return (unsigned)test_notify_count;}
@@ -305,7 +301,7 @@ static void ui_text(uint8_t* fb,int x,int y,int px,const char* text,int align,bo
 unit += function("book_layout_balanced_rect", layout_source) + "\n"
 unit += function("set_reader_view") + "\n"
 for name in ("inline_ink_gray", "reader_margin_width", "reader_margin_levels", "reader_margin_level_for", "reader_margin_for_level", "slider_index", "reader_margin_input", "reader_area", "reader_fullscreen_progress_area", "body_rect_for_tracking", "body_rect", "progress_rect", "copy_text", "reader_footer_strip_number", "favorite_key", "favorite_read_handle", "shelf_hidden_key", "shelf_hidden_read_handle", "shelf_hidden_load", "shelf_hidden_save", "shelf_rows", "shelf_matches", "compare_books", "sort_shelf", "shelf_reserve", "delete_retry_find", "delete_retry_reserve", "delete_retry_discard", "scan_shelf_dir", "shelf_backfill_visit", "shelf_backfill_read_books", "scan_shelf", "refresh_cached_progress",
-             "pending_find", "pending_reserve", "pending_restore", "pending_discard", "pending_mark_latest", "pending_drop_invalidated", "pending_flush", "reader_page_offset", "save_progress", "retry_progress", "layout_name", "manage_panel", "manage_rect", "batch_rect", "manage_back_rect", "bulk_filter_rect", "leaves", "selected_count", "clear_selection", "toggle_selection", "select_page", "bookmark_compact", "search_keys", "search_begin", "refresh_search_matches", "search_finish", "search_action", "manage_apply", "manage_action", "batch_apply", "batch_action", "reader_manual_refresh", "apply_reader_option", "reader_return", "on_key", "on_key_long", "draw_wrapped_name", "open_requested_book", "on_enter", "book_on_exit"):
+             "pending_find", "pending_reserve", "pending_restore", "pending_discard", "pending_mark_latest", "pending_drop_invalidated", "pending_flush", "reader_page_offset", "save_progress", "retry_progress", "layout_name", "manage_panel", "manage_rect", "leaves", "bookmark_compact", "search_keys", "search_begin", "refresh_search_matches", "search_finish", "search_action", "manage_apply", "manage_action", "reader_manual_refresh", "apply_reader_option", "reader_return", "on_key", "on_key_long", "draw_wrapped_name", "open_requested_book", "on_enter", "book_on_exit"):
     unit += function(name) + "\n"
 for name in ( "shelf_turn_page", "shelf_page_arrow_rect", "reader_vertical_tap"):
     unit += function(name) + "\n"
@@ -443,41 +439,8 @@ int main(void) {
            !strcmp(s_shelf[0].author,"作者")&&s_shelf[0].favorite&&s_shelf[0].has_progress&&
            s_shelf[0].pct==42&&s_shelf[0].chapter==3&&s_shelf[0].recent==19);
     refresh_cached_progress(&ctx);assert(s_count==66);
-    // 六个按钮可命中；取消不写入，失败可重试，移出不删除文件或修改进度。
-    // All six buttons respond; cancellation is safe and failed removal retries without data loss.
-    s_view=BULK;clear_selection();toggle_selection(0);
-    EpdRect unshelf= batch_rect(5);int removal_delete_calls=test_delete_calls;
-    batch_action(&ctx,unshelf.x+1,unshelf.y+1);
-    assert(s_batch_confirm&&s_batch_kind==BATCH_UNSHELF&&!shelf_hidden_load(outside));
-    EpdRect dismiss=ui_row_rect(0,2,620,UI_BTN_H);
-    batch_action(&ctx,dismiss.x+1,dismiss.y+1);
-    assert(!s_batch_confirm&&!shelf_hidden_load(outside)&&selected_count()==1);
-    test_hidden_error=ESP_FAIL;batch_apply(&ctx);
-    assert(s_count==66&&selected_count()==1&&!shelf_hidden_load(outside));
-    test_hidden_error=ESP_OK;batch_apply(&ctx);
-    assert(s_count==65&&!selected_count()&&shelf_hidden_load(outside)&&test_delete_calls==removal_delete_calls);
-    struct stat outside_stat;assert(stat(outside,&outside_stat)==0&&outside_stat.st_size==1);
-    book_progress_t retained;
-    assert(book_progress_load(outside,1,&retained)&&retained.pct==42&&retained.byte_off==17);
-    scan_shelf(&ctx);refresh_cached_progress(&ctx);assert(s_count==65&&shelf_hidden_load(outside));
-    assert(shelf_hidden_save(outside,false));refresh_cached_progress(&ctx);
-    assert(s_count==66&&!shelf_hidden_load(outside));
-    assert(shelf_hidden_save(test_progress[3].path,true));scan_shelf(&ctx);assert(s_count==65);
-    assert(shelf_hidden_save(test_progress[3].path,false));
-    char hidden_key[11];shelf_hidden_key(outside,hidden_key);
-    assert(nvs_set_str(2,hidden_key,changed)==ESP_OK);
-    assert(!shelf_hidden_save(outside,true)&&!shelf_hidden_load(outside));
-    assert(!shelf_hidden_save(outside,false));
-    assert(nvs_erase_key(2,hidden_key)==ESP_OK);
-    test_progress_count=0;test_recent_path[0]=test_favorite_key[0]=0;
-    assert(unlink(outside)==0&&unlink(changed)==0&&rmdir(outside_dir)==0);
-    scan_shelf(&ctx);assert(s_count==65);
-    ctx.leaf=3;s_view=MANAGE;s_clear_confirm=false;s_file_removed=false;
-    EpdRect back=manage_rect(0,3);manage_action(&ctx,back.x+1,back.y+1);
-    assert(s_view==SHELF&&ctx.leaf==3);
-    EpdRect circle=manage_back_rect();assert(circle.y==92&&circle.height==44);
-    EpdRect filter=bulk_filter_rect(1);assert(filter.y==216&&filter.height==70);
-    s_view=MANAGE;manage_action(&ctx,circle.x+20,circle.y+20);assert(s_view==SHELF);
+    // 旧版隐藏记录仍会从书架过滤。/ Legacy hidden records still filter the shelf.
+    assert(shelf_hidden_save(outside,true));scan_shelf(&ctx);assert(s_count==65&&shelf_hidden_load(outside));
     assert(!strcmp(s_shelf[0].name,"book000")&&!strcmp(s_shelf[64].name,"book064"));
     test_degraded=true;scan_shelf(&ctx);assert(s_count==65&&s_shelf_warning[0]);test_degraded=false;
     test_root_count=2;strcpy(test_roots[1].path,"/nonexistent-book-root");scan_shelf(&ctx);assert(s_count==65&&s_shelf_warning[0]);test_root_count=1;
@@ -508,23 +471,11 @@ int main(void) {
     assert(draw_wrapped_name(NULL,long_name,176)+104<870);assert(!strcmp(test_wrapped,long_name));
     for(int i=0;i<80;i++){memcpy(long_name+i*3,"书",3);}long_name[240]=0;test_wrapped[0]=0;
     assert(draw_wrapped_name(NULL,long_name,176)+104<870);assert(!strcmp(test_wrapped,long_name));
-    scan_shelf(&ctx);s_view=BULK;toggle_selection(0);toggle_selection(14);assert(selected_count()==2);
-    s_recent_sort=true;sort_shelf(&ctx);assert(selected_count()==2);select_page(1);assert(selected_count()==8);
+    scan_shelf(&ctx);s_view=SHELF;
     ctx.leaf=2;strcpy(s_query,"book");search_begin();strcpy(s_search_draft,"bad");search_finish(&ctx,false);
-    assert(ctx.leaf==2&&!strcmp(s_query,"book")&&selected_count()==8);
-    search_begin();assert(on_key(&ctx,UI_KEY_3)==APP_REDRAW_PAGE&&ctx.leaf==2&&s_view==BULK);
-    search_begin();assert(on_key(&ctx,UI_KEY_1)==APP_REDRAW_PAGE&&ctx.leaf==2&&s_view==BULK);
-    s_batch_confirm=true;assert(on_key(&ctx,UI_KEY_3)==APP_REDRAW_PAGE&&!s_batch_confirm&&ctx.leaf==2);
-    s_batch_confirm=true;assert(on_key(&ctx,UI_KEY_1)==APP_REDRAW_PAGE&&!s_batch_confirm&&ctx.leaf==2);
-    search_begin();strcpy(s_search_draft,"book001");search_finish(&ctx,true);assert(!selected_count()&&s_visible_count==1);
-    search_begin();memset(s_search_draft,'x',64);s_search_draft[64]=0;search_action(&ctx,0);assert(strlen(s_search_draft)==64);search_action(&ctx,41);assert(strlen(s_search_draft)==63);search_action(&ctx,42);assert(!s_search_draft[0]);search_action(&ctx,43);
-    strcpy(s_query,"");refresh_search_matches();sort_shelf(&ctx);clear_selection();s_view=BULK;toggle_selection(0);toggle_selection(1);
-    s_batch_confirm=true;calls=test_delete_calls;EpdRect bc=ui_row_rect(0,2,620,UI_BTN_H);batch_action(&ctx,bc.x+1,bc.y+1);assert(!s_batch_confirm&&test_delete_calls==calls);
-    s_batch_kind=BATCH_DELETE;test_removed=true;test_delete_error=-1;batch_apply(&ctx);assert(selected_count()==2);
-    calls=test_delete_calls;test_forget_error=0;batch_apply(&ctx);assert(!selected_count()&&test_delete_calls==calls&&s_count==63);
-    scan_shelf(&ctx);clear_selection();toggle_selection(0);toggle_selection(1);test_mixed=true;
-    batch_apply(&ctx);assert(s_count==64&&selected_count()==1&&s_shelf[0].removed);
-    calls=test_delete_calls;batch_apply(&ctx);assert(s_count==63&&!selected_count()&&test_delete_calls==calls);
+    assert(ctx.leaf==2&&!strcmp(s_query,"book")&&s_view==SHELF);
+    search_begin();strcpy(s_search_draft,"book001");search_finish(&ctx,true);assert(s_visible_count==1);
+    strcpy(s_query,"");refresh_search_matches();sort_shelf(&ctx);
     // 保存失败的 A 不应因无关 B 变动而丢失。/ An unrelated B change must retain A's failed save.
     strcpy(s_path,"/sdcard/books/a.txt");s_text="text";s_page=2;s_unsaved=8;
     assert(pending_reserve(s_path));pending_mark_latest(s_path);test_save_error=-1;save_progress();
@@ -539,7 +490,7 @@ int main(void) {
     calls=test_save_calls;retry_progress();assert(test_save_calls==calls);test_forget_error=0;
     // 文件删除后清理失败，切页回来仍可重试。/ Cleanup after deletion remains retryable across page exits.
     scan_shelf(&ctx);s_managed=s_shelf[0];s_view=MANAGE;s_delete_confirm=true;s_file_removed=false;
-    test_mixed=false;test_removed=true;test_delete_error=-1;manage_apply(&ctx);
+    test_removed=true;test_delete_error=-1;manage_apply(&ctx);
     assert(s_file_removed);assert(unlink(s_managed.path)==0);
     book_on_exit(&ctx);on_enter(&ctx);scan_shelf(&ctx);
     bool found_retry=false;
@@ -547,15 +498,6 @@ int main(void) {
     assert(found_retry);
     s_view=MANAGE;calls=test_delete_calls;test_forget_error=0;manage_apply(&ctx);
     assert(s_view==SHELF&&test_delete_calls==calls);
-    // 批量失败记录同样跨页存活，重试仅清元数据。/ Batch cleanup retries also survive exits without repeating unlink.
-    scan_shelf(&ctx);clear_selection();toggle_selection(0);toggle_selection(1);s_batch_kind=BATCH_DELETE;
-    batch_apply(&ctx);assert(selected_count()==2&&s_delete_retries);
-    for(int i=0;i<s_count;i++)if(s_shelf[i].removed)assert(unlink(s_shelf[i].path)==0);
-    book_on_exit(&ctx);on_enter(&ctx);scan_shelf(&ctx);
-    int retry_count=0;
-    for(int i=0;i<s_count;i++)if(s_shelf[i].removed){s_shelf[i].selected=true;++retry_count;}
-    assert(retry_count==2);calls=test_delete_calls;batch_apply(&ctx);
-    assert(!s_delete_retries&&test_delete_calls==calls&&!selected_count());
     // 首页指定的书籍无需先扫描或绘制书架。/ Home's requested book opens before a shelf scan.
     snprintf(s_requested_open,sizeof(s_requested_open),"%s/book010.txt",test_roots[0].path);
     s_requested_open_home=true;s_shelf_cache_valid=false;calls=test_open_calls;

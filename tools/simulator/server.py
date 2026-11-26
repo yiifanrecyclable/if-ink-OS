@@ -504,9 +504,6 @@ class Preview:
         if screen=='baseline-home':
             if 230<=y<555: go('reader')
             elif 176<=y<225 and x>480: go('book-details')
-        elif screen=='book-0':
-            if 80<=y<190 and x>480: go('book-bulk' if x<575 else 'book-import')
-            elif 200<=y<1040: go('reader')
         elif screen.startswith('reader'):
             if screen=='reader':
                 if 230<x<454: go('reader-fullscreen')

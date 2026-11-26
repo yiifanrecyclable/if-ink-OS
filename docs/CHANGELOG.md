@@ -4,6 +4,12 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.6 Beta 3 / 2026-11-26
+
+- 统一子页面标题栏，收窄关闭按钮的触控范围；存储卡管理页将路径和文件数移到分割线下方；忘记 Wi-Fi 改为页面底部二次确认。/ Unify subpage headers, narrow the close-button hit area, move storage-card path and file count below the divider, and place Forget Wi-Fi confirmation at the bottom of the page.
+- 修复 EPUB 内置目录项被误判为注释、导致阅读进度不更新。/ Fix built-in EPUB navigation entries being mistaken for comments and preventing reading progress updates.
+- 移除旧导入页及两个闲置的批量操作页；批量操作继续由存储卡管理提供，图片列表保留。/ Remove the legacy import page and two unused batch pages; batch operations remain in Storage Card Management and the image list stays available.
+
 ## 0.2.6 Beta 2 / 2026-11-23
 
 - EPUB 封面的独立中文标签不再污染后续英文正文识别。/ Isolate Chinese EPUB cover labels from English prose detection in subsequent content.

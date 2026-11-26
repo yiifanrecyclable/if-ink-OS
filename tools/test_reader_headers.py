@@ -23,7 +23,8 @@ with tempfile.TemporaryDirectory(dir=root/'build') as d:
         return json.loads(r.stdout),(sim/'frame.bin').read_bytes()
     def tap(x,y):return f't,{x},{y},{x},{y}'
     def row(f,y):return f[y*342:(y+1)*342]
-    def top(f):return f[:56*342]
+    # The live clock at the left may change between simulator calls.
+    def top(f):return bytes(f[y*342+x] for y in range(56) for x in range(115,342))
     body=draw()[1]
     toc=draw(toc=True)[1]
     bar=top(toc)

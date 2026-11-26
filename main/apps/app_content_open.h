@@ -15,7 +15,6 @@ bool app_image_request_open(const char *path);
 void app_files_request_folder(int folder);
 /// 图片查看结束后，下一次文件页进入恢复原目录/页码。/ Restore the prior directory/page on the next Files entry after image viewing.
 void app_files_request_image_return(void);
-void app_book_request_manage(void);
 bool app_book_reader_body_visible(void);
 bool app_book_reader_active(void);
 bool app_book_landscape_visible(void);

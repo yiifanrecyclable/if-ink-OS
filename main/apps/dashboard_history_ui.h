@@ -11,7 +11,10 @@ static uint64_t s_history_seconds[HOME_HISTORY_MAX_ROWS];
 static bool s_history_has_card,s_history_save_failed;
 
 static EpdRect history_more_rect(void){return (EpdRect){504,home_geometry().heat_title-40,160,80};}
-static EpdRect history_target_rect(void){return (EpdRect){468,UI_STATUS_HEIGHT,196,80};}
+static EpdRect history_target_rect(void){
+    EpdRect close = ui_nav_subpage_close_rect();
+    return (EpdRect){468,close.y,196,close.height};
+}
 static int history_list_top(void){return UI_STATUS_HEIGHT+126;}
 static int history_row_height(void) {
     int height=ui_text_line_height(UI_TEXT_BODY)+52;
@@ -80,11 +83,10 @@ static int history_bar_width(uint64_t seconds,unsigned minutes) {
 static int history_target_row_height(void){int h=ui_text_line_height(UI_TEXT_BODY)+36;return h<104?104:h;}
 static EpdRect history_target_row(int index){return (EpdRect){36,history_list_top()+index*history_target_row_height(),612,history_target_row_height()};}
 static void history_render(uint8_t *fb) {
-    ui_clear_page(fb);ui_nav_status(fb);ui_nav_back(fb,36,UI_STATUS_HEIGHT+2);
-    ui_text_vc(fb,342,UI_STATUS_HEIGHT+38,UI_TEXT_TITLE,s_history_target_open?UI_MSG("目标设定"):UI_MSG("阅读打卡"),EPD_DRAW_ALIGN_CENTER,false);
+    ui_clear_page(fb);ui_nav_status(fb);
     unsigned target=content_reading_target_minutes();
-    epd_fill_rect((EpdRect){36,UI_STATUS_HEIGHT+102,612,2},UI_GRAY_SECTION_LINE,fb);
     if(s_history_target_open){
+        ui_nav_subpage_header(fb,UI_MSG("目标设定"),ui_text_effective_px(UI_TEXT_TITLE));
         for(int i=0;i<6;++i){
             unsigned minutes=(unsigned)(i+1)*30;EpdRect row=history_target_row(i);char label[48];
             history_duration(label,sizeof(label),(uint64_t)minutes*60);
@@ -96,8 +98,12 @@ static void history_render(uint8_t *fb) {
         if(s_history_target_error)ui_text_vc(fb,342,UI_NAV_PAGER_TOP-24,UI_TEXT_CAPTION,UI_MSG("保存失败，请重试"),EPD_DRAW_ALIGN_CENTER,false);
         ui_nav_draw(fb,0);return;
     }
+    EpdRect target_button = history_target_rect();
+    const char *title = UI_MSG("阅读打卡");
+    int title_width = 2*(target_button.x - UI_LOCK_WIDTH/2 - 8);
+    ui_nav_subpage_header(fb,title,ui_text_fit_px(UI_TEXT_TITLE,title,title_width,target_button.height));
     int target_px=ui_text_fit_px(UI_TEXT_BODY,UI_MSG("目标设定"),180,ui_text_line_height(UI_TEXT_BODY));
-    ui_text_fixed_vc(fb,648,UI_STATUS_HEIGHT+38,target_px,UI_MSG("目标设定"),EPD_DRAW_ALIGN_RIGHT,false);
+    ui_text_fixed_vc(fb,648,target_button.y+target_button.height/2,target_px,UI_MSG("目标设定"),EPD_DRAW_ALIGN_RIGHT,false);
     for(int row=0;row<s_history_count;++row){
         int top=history_list_top()+row*history_row_height();
         uint32_t day=s_history_today-(uint32_t)(s_history_page*history_rows()+row);
@@ -126,15 +132,19 @@ static app_redraw_t history_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev)
         if(!tab){s_history_open=s_history_target_open=false;return APP_REDRAW_PAGE;}
         ui_nav_request(ctx,tab);return APP_REDRAW_NONE;
     }
-    if(ev->x0<104&&ev->y0>=UI_STATUS_HEIGHT&&ev->y0<UI_STATUS_HEIGHT+80)return history_back();
     if(s_history_target_open){
+        if(ui_nav_subpage_close_hit(ev))return history_back();
         for(int i=0;i<6;++i)if(ui_rect_hit(history_target_row(i),ev->x0,ev->y0)){
             if(content_reading_target_set((unsigned)(i+1)*30)!=ESP_OK){s_history_target_error=true;return APP_REDRAW_PAGE;}
             s_history_target_open=false;return APP_REDRAW_PAGE;
         }
         return APP_REDRAW_NONE;
     }
-    if(ui_rect_hit(history_target_rect(),ev->x0,ev->y0)){s_history_target_open=true;s_history_target_error=false;return APP_REDRAW_PAGE;}
+    if(ui_nav_subpage_close_hit(ev))return history_back();
+    EpdRect target_button=history_target_rect();
+    if(ui_rect_hit(target_button,ev->x0,ev->y0)&&ui_rect_hit(target_button,ev->x,ev->y)){
+        s_history_target_open=true;s_history_target_error=false;return APP_REDRAW_PAGE;
+    }
     for(int direction=-1;direction<=1;direction+=2)if(ui_rect_hit(ui_nav_pager_rect(direction),ev->x0,ev->y0))return history_turn(direction);
     return APP_REDRAW_NONE;
 }

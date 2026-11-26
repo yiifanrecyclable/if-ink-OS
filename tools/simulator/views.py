@@ -24,10 +24,8 @@ for key,name,native,mask in (
  ('reader-toc-jump','目录 · 跳转','book-2',1)):
     add(key,name,'阅读',native,mask=mask)
 for key,name,view,mask in (
- ('book-details','图书详情',3,0),('book-bulk','批量管理',4,0),
- ('book-import','导入方式',5,0),('book-search','搜索',6,0),('book-edit','编辑书名',7,0)):
+ ('book-details','图书详情',3,0),('book-search','搜索',6,0),('book-edit','编辑书名',7,0)):
     add(key,name,'内容管理',f'book-{view}',mask=mask)
-add('documents-manage','文档 · 批量管理','内容管理','book-9')
 for key,name,view,folder in (
  ('files-books','书籍目录',0,0),('files-pictures','图片目录',0,1),
  ('files-fonts','字体目录',0,2),('files-card','TF 卡目录',0,3),

@@ -681,20 +681,27 @@ static void draw_file_checkbox(uint8_t *fb,int y,bool checked){
     }
 }
 
-// 文件列表的分隔线保持两像素，墨水屏上比浅色发丝线更容易辨认。
-// Two-pixel file dividers stay legible on the panel without changing the layout.
-static void file_rule(uint8_t *fb, int x, int y, int width) {
-    epd_fill_rect((EpdRect){x, y, width, 2}, UI_GRAY_SECTION_LINE, fb);
-}
-
 static void fit_name(char *name, int px, int width) {
-    while (*name && ttf_text_width_px(ui_text_effective_px(px), name) > width) {
+    px = ui_text_effective_px(px);
+    while (*name && ui_text_fixed_width_px(px, name) > width) {
         size_t n = strlen(name) - 1;
         while (n && ((unsigned char)name[n] & 0xc0) == 0x80) --n;
         name[n] = 0;
     }
 }
 
+static void draw_folder_summary(uint8_t *fb) {
+    char path[sizeof(s_dir)+32], summary[80];
+    ui_snprintf(path, sizeof(path), UI_MSG("TF卡%s"), folder_root(s_folder) + 7);
+    int folders = 0;
+    for (int i = 0; i < s_count; ++i) folders += s_files[i].is_dir;
+    ui_snprintf(summary, sizeof(summary), UI_MSG("%d个文件夹 · %d个文件"), folders, s_count-folders);
+    int px = ui_text_effective_px(UI_TEXT_CAPTION);
+    fit_name(path, UI_TEXT_CAPTION, 612 - ui_text_fixed_width_px(px, summary) - 20);
+    const int top = UI_SUBPAGE_RULE_Y + UI_SECTION_LINE_HEIGHT + 5;
+    ui_text_fixed_ink_top(fb, 36, top, px, path, EPD_DRAW_ALIGN_LEFT);
+    ui_text_fixed_ink_top(fb, 648, top, px, summary, EPD_DRAW_ALIGN_RIGHT);
+}
 
 
 static void editor_start(void) {
@@ -845,12 +852,11 @@ static bool font_preview_can_apply(void){
     return s_font_preview_coverage!=0&&app_font_path_valid(s_selected.path);
 }
 static void render_font_preview(uint8_t *fb){
-    ui_nav_close(fb);
     char stem[128];copy_utf8(stem,sizeof(stem),s_selected.name);
     char *ext=strrchr(stem,'.');if(ext)*ext=0;
     const char *name=ttf_font_localized_name(stem);
     int title_px=ui_text_fit_px(UI_TEXT_TITLE,name,480,64);
-    ui_text_fixed_vc(fb,342,UI_PAGE_Y(107),title_px,name,EPD_DRAW_ALIGN_CENTER,false);
+    ui_nav_subpage_header(fb,name,title_px);
     render_font_sample_and_slider(fb);
     bool latin_only=s_font_preview_coverage==TTF_COVERAGE_LATIN;
     const char *labels[]={UI_MSG("系统字体"),
@@ -893,17 +899,10 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     if(s_view==FILE_VIEW_FONT_PREVIEW){render_font_preview(fb);return;}
     if(s_picker&&s_view==FILE_VIEW_WALLPAPER_PREVIEW){picker_render_preview(fb);return;}
     if (s_folder >= 0) {
-        if(s_picker)picker_header(fb);else ui_nav_close(fb);
-        if(!s_picker)ui_text_vc(fb, 342,UI_PAGE_Y(107), 34, s_view == FILE_VIEW_MOVE ? UI_MSG("选择目标文件夹") : names[s_folder], EPD_DRAW_ALIGN_CENTER, false);
+        if(s_picker)picker_header(fb);
+        else ui_nav_subpage_header(fb, s_view == FILE_VIEW_MOVE ? UI_MSG("选择目标文件夹") : names[s_folder], ui_text_effective_px(34));
         if(grid_available()){EpdRect toggle=grid_toggle_rect();ui_draw_icon(fb,toggle.x+toggle.width/2,toggle.y+toggle.height/2,42,grid_active()?UI_ICON_LIST:UI_ICON_LAYOUT_GRID,UI_GRAY_BLACK);}
-        char path[144];
-        ui_snprintf(path, sizeof(path), UI_MSG("TF卡%s"), folder_root(s_folder) + 7);
-        ui_text(fb, 36,UI_PAGE_Y(172), 20, path, EPD_DRAW_ALIGN_LEFT, false);
-        int folders = 0, files = 0;
-        for (int i = 0; i < s_count; ++i) s_files[i].is_dir ? ++folders : ++files;
-        char summary[48]; ui_snprintf(summary, sizeof(summary), UI_MSG("%d个文件夹 · %d个文件"), folders, files);
-        ui_text(fb, 648,UI_PAGE_Y(172), 20, summary, EPD_DRAW_ALIGN_RIGHT, false);
-        file_rule(fb, 36,UI_PAGE_Y(202), 612);
+        draw_folder_summary(fb);
         if (!s_count) ui_text(fb, 36,UI_PAGE_Y(238), 27, UI_MSG("此目录还没有文件"), EPD_DRAW_ALIGN_LEFT, false);
         batch_kind_t kind=batch_kind();
         if(grid_active())render_grid(fb);
@@ -1266,7 +1265,7 @@ static app_redraw_t font_preview_gesture(const app_ctx_t *ctx,const ui_gesture_e
         return APP_REDRAW_AREA;
     }
     if(!tap)return APP_REDRAW_NONE;
-    if(file_tapped(ui_nav_close_rect(),ev)){s_view=FILE_VIEW_LIST;return APP_REDRAW_PAGE;}
+    if(ui_nav_subpage_close_hit(ev)){s_view=FILE_VIEW_LIST;return APP_REDRAW_PAGE;}
     if(!font_preview_can_apply())return APP_REDRAW_NONE;
     int first_target=s_font_preview_coverage==TTF_COVERAGE_LATIN?FONT_APPLY_READING:FONT_APPLY_SYSTEM;
     for(int i=first_target;i<FONT_APPLY_COUNT;++i)if(file_tapped(font_apply_rect(i),ev))return apply_preview_font(i);
@@ -1274,8 +1273,11 @@ static app_redraw_t font_preview_gesture(const app_ctx_t *ctx,const ui_gesture_e
 }
 
 // 选择器保留设置页归属，不触发文件操作卡片。/ The picker stays in Settings and never opens file action cards.
-static EpdRect picker_exit_rect(void){return ui_nav_close_rect();}
-static EpdRect picker_up_rect(void){return(EpdRect){92,UI_PAGE_Y(73),68,68};}
+static EpdRect picker_up_rect(void){
+    EpdRect close = ui_nav_subpage_close_rect();
+    close.x += close.width;
+    return close;
+}
 static EpdRect picker_button_rect(void){return(EpdRect){142,UI_NAV_TOP-78,400,64};}
 static EpdRect picker_preview_rect(void){return(EpdRect){166,UI_PAGE_Y(194),352,626};}
 static EpdRect file_pager_rect(int direction){EpdRect r=ui_nav_pager_rect(direction);if(s_picker)r.y-=90;return r;}
@@ -1298,11 +1300,10 @@ static void picker_preview_open(app_ctx_t *ctx){
     s_view=FILE_VIEW_WALLPAPER_PREVIEW;
 }
 static void picker_header(uint8_t *fb){
-    EpdRect up=picker_up_rect();ui_nav_close(fb);
-    bool can_up=s_view==FILE_VIEW_WALLPAPER_PREVIEW||strcmp(s_dir,"/sdcard");
-    ui_nav_parent(fb,up,can_up);
     const char *title=s_picker_rotation?UI_MSG("壁纸轮播"):UI_MSG("固定壁纸");
-    ui_text_fixed_vc(fb,UI_LOCK_WIDTH/2,UI_PAGE_Y(107),ui_text_fit_px(UI_TEXT_HEADING,title,320,60),title,EPD_DRAW_ALIGN_CENTER,false);
+    ui_nav_subpage_header(fb,title,ui_text_fit_px(UI_TEXT_HEADING,title,320,60));
+    bool can_up=s_view==FILE_VIEW_WALLPAPER_PREVIEW||strcmp(s_dir,"/sdcard");
+    ui_nav_parent(fb,picker_up_rect(),can_up);
 }
 static void picker_button(uint8_t *fb,const char *label,bool enabled){
     EpdRect r=picker_button_rect();ui_draw_round_rect(fb,r,r.height/2,enabled?UI_GRAY_BLACK:UI_GRAY_ITEM_LINE);
@@ -1337,8 +1338,8 @@ static app_redraw_t picker_gesture(app_ctx_t *ctx,const ui_gesture_event_t *ev){
     }
     if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
     int x=ev->x0,y=ev->y0;
-    if(ui_rect_hit(picker_exit_rect(),x,y)){s_picker_done=true;return APP_REDRAW_PAGE;}
-    if(ui_rect_hit(picker_up_rect(),x,y)){picker_parent();return APP_REDRAW_PAGE;}
+    if(ui_nav_subpage_close_hit(ev)){s_picker_done=true;return APP_REDRAW_PAGE;}
+    if(file_tapped(picker_up_rect(),ev)){picker_parent();return APP_REDRAW_PAGE;}
     int tab=ui_nav_hit(x,y);if(tab>=0){s_picker_done=true;ui_nav_request(ctx,tab);return APP_REDRAW_NONE;}
     if(s_view==FILE_VIEW_WALLPAPER_PREVIEW){
         if(ui_rect_hit(picker_button_rect(),x,y)){
@@ -1408,7 +1409,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         if (ev->type == UI_GESTURE_SWIPE_L || ev->type == UI_GESTURE_SWIPE_R)
             return file_turn(ev->type == UI_GESTURE_SWIPE_L ? 1 : -1);
         if (ev->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
-        if (file_tapped(ui_nav_close_rect(),ev)) {
+        if (ui_nav_subpage_close_hit(ev)) {
             if (strcmp(s_dir, move_root())) {
                 char *slash = strrchr(s_dir, '/'); if (slash) *slash = 0;
                 scan_folder(3);
@@ -1438,7 +1439,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     int tab = ui_nav_hit(ev->x0, ev->y0);
     if (!long_press && tab >= 0) { ui_nav_request(ctx, tab); return APP_REDRAW_NONE; }
     if (s_folder >= 0) {
-        if (!long_press && file_tapped(ui_nav_close_rect(),ev)) {
+        if (!long_press && ui_nav_subpage_close_hit(ev)) {
             batch_reset();
             if (s_folder == 3 && strcmp(s_dir, "/sdcard")) {
                 char *slash = strrchr(s_dir, '/'); if (slash) *slash = 0;
@@ -1511,7 +1512,7 @@ static app_redraw_t on_key(app_ctx_t *ctx, int key) {
         return APP_REDRAW_NONE;
     }
     if (s_view == FILE_VIEW_RENAME) return cancel_rename();
-    EpdRect target = ui_nav_close_rect();
+    EpdRect target = ui_nav_subpage_close_rect();
     if (s_view == FILE_VIEW_ACTIONS)
         target = s_confirm ? ui_nav_action_button(0,2) : file_card().close;
     else if (s_view == FILE_VIEW_BATCH)
@@ -1571,7 +1572,7 @@ app_redraw_t app_files_wallpaper_key(app_ctx_t *ctx,int key){
     }
     // Pictures is the entry directory. Other directories still use the on-screen parent action.
     bool exit = s_view == FILE_VIEW_LIST && (!strcmp(s_dir,"/sdcard/pictures") || !strcmp(s_dir,"/sdcard"));
-    EpdRect target = exit ? picker_exit_rect() : picker_up_rect();
+    EpdRect target = exit ? ui_nav_subpage_close_rect() : picker_up_rect();
     ui_gesture_event_t tap = ui_tap_at(target.x + target.width / 2, target.y + target.height / 2);
     return app_files_wallpaper_gesture(ctx,&tap);
 }

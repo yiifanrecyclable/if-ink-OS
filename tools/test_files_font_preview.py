@@ -78,9 +78,15 @@ with tempfile.TemporaryDirectory(prefix='files-font-preview-', dir=ROOT/'build')
     assert smaller['files_font_preview_px']==24 and bigger['files_font_preview_px']==72
     assert fonts(smaller)==fonts(bigger)==fonts(initial)
     assert small_frame[230*342:520*342]!=large_frame[230*342:520*342]
-    assert small_frame[:208*342]==large_frame[:208*342] and small_frame[868*342:]==large_frame[868*342:]
+    assert small_frame[56*342:208*342]==large_frame[56*342:208*342] and small_frame[868*342:]==large_frame[868*342:]
     for image in (listing,frame):
-        assert all(tone(image,cx,cy)==0 for cx,cy in ((58,83),(50,75),(66,75),(50,91),(66,91)))
+        assert all(tone(image,cx,90+dy)==0 for cx,dy in ((58,0),(50,-8),(66,-8),(50,8),(66,8)))
+        assert image[127*342:129*342] == bytes([0x55])*684
+    assert listing[129*342:134*342] == b'\xff'*5*342
+    assert all(any(tone(listing,x,y)<15 for x in columns for y in (134,135)) for columns in (range(36,300),range(360,648)))
+    for event in (tap(115,90),'t,58,90,115,90'):
+        assert render(sequence(open_font,event))[0]['files_view']==5
+    assert render(sequence(open_font,'k,1,0,0,0'))[0]['files_view']==0
     cancelled,_ = render(sequence(open_font,close))
     assert cancelled['files_view']==0 and cancelled['files_dir']=='/sdcard/fonts' and fonts(cancelled)==fonts(initial)
     assert render(tap(342,83))[0]['files_dir']=='/sdcard/fonts'

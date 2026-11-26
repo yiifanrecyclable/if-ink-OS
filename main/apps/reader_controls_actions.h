@@ -304,8 +304,8 @@ static app_redraw_t reader_controls_gesture(app_ctx_t *ctx,const ui_gesture_even
         }
     }
     if (type == UI_GESTURE_TAP) {
-        app_redraw_t note = reader_note_tap(ctx, x, y);
-        if (note != APP_REDRAW_NONE) return note;
+        app_redraw_t link = reader_link_tap(ctx, x, y);
+        if (link != APP_REDRAW_NONE) return link;
         if (reader_landscape()) {
             for(int zone=0;zone<3;++zone)
                 if(ui_rect_hit(wide_tap_rect(zone),x,y))

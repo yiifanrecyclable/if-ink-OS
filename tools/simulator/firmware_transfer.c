@@ -9,6 +9,9 @@
 #include "app_registry.h"
 extern int simulator_route,simulator_transfer_mode;
 int simulator_transfer_entry(void){return s_usb_requested?3:s_hotspot_requested?2:s_wifi_upload_requested?1:s_wifi_setup_requested?4:0;}
+bool simulator_transfer_forget_open(void){return s_forget_confirm;}
+bool simulator_transfer_saved_wifi(void){return s_saved_configured;}
+int simulator_transfer_forget_card_top(void){return s_forget_confirm?forget_card().top:0;}
 int simulator_transfer(uint8_t *fb,int view,int mode,const char *events){
  bool settings_entry=mode==3;
  if(settings_entry){mode=READ_PICO_TRANSFER_MODE_STA;app_transfer_request_wifi_setup();}
@@ -20,6 +23,10 @@ int simulator_transfer(uint8_t *fb,int view,int mode,const char *events){
  s_network_count=3;
  for(int i=0;i<3;++i){s_networks[i]=(read_pico_transfer_network_t){.supported=true,.requires_password=true,.rssi=-35-i*12};snprintf(s_networks[i].ssid,33,"Pico-demo-%d",i+1);}
  s_selected=s_networks[0];s_scan_pending=false;
+ if(view==TRANSFER_NETWORKS&&getenv("PICO_SIM_SAVED_WIFI")){
+     read_pico_transfer_save_wifi("Pico-demo-saved","");
+     read_pico_transfer_get_saved_wifi(s_saved_ssid,&s_saved_configured);
+ }
  if(mode==2){s_usb_start_pending=true;on_tick(&ctx);}
  if(view==TRANSFER_HOME&&mode!=2){read_pico_transfer_cfg_t cfg={.mode=mode};read_pico_transfer_start(&cfg);}
  if(view==TRANSFER_PASSWORD)ui_text_input_open(&s_password_input,s_password,sizeof(s_password),false,true,UI_INPUT_ENGLISH);

@@ -108,6 +108,7 @@ extern "C" {
 #define UI_GRAY_WHITE 0xFF
 // 分区与条目共用线色。/ Shared section and item separator tones.
 #define UI_GRAY_SECTION_LINE 0x58
+#define UI_SECTION_LINE_HEIGHT 2
 #define UI_GRAY_ITEM_LINE 0xbb
 #define UI_GRAY_LIGHT 0x90
 #define UI_GRAY_BLACK 0x00

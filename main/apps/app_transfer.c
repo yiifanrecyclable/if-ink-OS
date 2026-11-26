@@ -181,12 +181,9 @@ static void render(app_ctx_t* ctx, uint8_t* fb);
 static void stop_session(void);
 static bool stop_upload_if_idle(void);
 
-static void transfer_header(uint8_t *fb, const char *title, const char *subtitle) {
+static void transfer_header(uint8_t *fb, const char *title) {
     ui_nav_status(fb);
-    if(s_wifi_settings_only)ui_nav_close(fb);else ui_nav_back(fb,36,UI_PAGE_Y(79));
-    ui_text_vc(fb, 342,UI_PAGE_Y(107), 34, title, EPD_DRAW_ALIGN_CENTER, false);
-    if (subtitle && subtitle[0]) ui_text(fb, 36,UI_PAGE_Y(153), 20, subtitle, EPD_DRAW_ALIGN_LEFT, false);
-    if (subtitle && subtitle[0]) ui_hairline(fb,UI_PAGE_Y(190), 36, 612, UI_GRAY_LIGHT);
+    ui_nav_subpage_header(fb, title, ui_text_effective_px(34));
 }
 
 static EpdRect method_control_rect(int id) {
@@ -198,10 +195,9 @@ static EpdRect method_control_rect(int id) {
 static void draw_methods(uint8_t *fb) {
     ui_clear_page(fb);
     epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_NAV_TOP}, UI_GRAY_WHITE, fb);
-    transfer_header(fb, UI_MSG("WiFi/热点"), NULL);
+    transfer_header(fb, UI_MSG("WiFi/热点"));
     ui_text(fb, 42,UI_PAGE_Y(180), 21, UI_MSG("选择方式"), EPD_DRAW_ALIGN_LEFT, false);
     EpdRect card = {36,UI_PAGE_Y(224), 612, 224};
-    epd_fill_rect((EpdRect){36,UI_PAGE_Y(164),612,2},UI_GRAY_SECTION_LINE,fb);
     epd_fill_rect((EpdRect){card.x,card.y+card.height,card.width,2},UI_GRAY_ITEM_LINE,fb);
     static const char *titles[] = {"WiFi", UI_MSG("热点")};
     static const char *details[] = {
@@ -247,8 +243,8 @@ static void clear_password(void) {
 static EpdRect network_control_rect(int id) {
     if (id >= 0 && id < NETWORK_ROWS) return (EpdRect){36,UI_PAGE_Y(465 + id * ui_list_row_height(true)), 612, ui_list_row_height(true)};
     if (id == 6) return (EpdRect){501,UI_PAGE_Y(244), 123, 56};
-    if (id == 11) return s_forget_confirm ? ui_row_rect(0, 2,UI_PAGE_Y(600), UI_BTN_H) : (EpdRect){501,UI_PAGE_Y(315), 123, 52};
-    if (id == 12) return ui_row_rect(1, 2,UI_PAGE_Y(600), UI_BTN_H);
+    if (s_forget_confirm && (id == 11 || id == 12)) return ui_nav_action_button(id-11, 2);
+    if (id == 11) return (EpdRect){501,UI_PAGE_Y(315), 123, 52};
     bool paged = s_network_count > NETWORK_ROWS;
     if (id == 7) return paged ? (EpdRect){36,UI_PAGE_Y(873), 64, 66} : (EpdRect){0};
     if (id == 8) return paged ? (EpdRect){112,UI_PAGE_Y(873), 460, 66} : (EpdRect){36,UI_PAGE_Y(873), 612, 66};
@@ -260,9 +256,30 @@ static EpdRect network_control_rect(int id) {
 
 
 
-static void provisioning_button(uint8_t* fb, EpdRect rect, const char* text, int id) {
-    if (s_pressed == id) ui_draw_pressed_round_rect(fb, rect, UI_BTN_RADIUS);
-    ui_draw_button(fb, rect, text, false);
+static ui_action_card_t forget_card(void) {
+    const int caption = ui_text_line_height(UI_TEXT_CAPTION);
+    ui_action_card_t card = ui_nav_action_card(s_network_message[0] ? caption+12 : 0);
+    card.top += card.path_height;
+    card.close.y += card.path_height;
+    return card;
+}
+
+static void draw_forget_card(uint8_t *fb) {
+    ui_action_card_t card = forget_card();
+    ui_nav_draw_action_card(fb,card);
+    ui_nav_close_in(fb,card.close);
+    int body = ui_text_line_height(UI_TEXT_BODY), caption = ui_text_line_height(UI_TEXT_CAPTION);
+    ui_text_vc(fb,36,card.top+20+body/2,UI_TEXT_BODY,UI_MSG("遗忘网络"),EPD_DRAW_ALIGN_LEFT,false);
+    char name[sizeof(s_saved_ssid)];
+    ui_snprintf(name,sizeof(name),"%s",s_saved_ssid);
+    if (s_network_message[0]) {
+        ui_text_vc(fb,36,card.top+card.header_height+caption/2,UI_TEXT_CAPTION,
+                   s_network_message,EPD_DRAW_ALIGN_LEFT,false);
+    }
+    fit_label(name,UI_TEXT_CAPTION,card.close.x-52);
+    ui_text_vc(fb,36,card.top+20+body+caption/2,UI_TEXT_CAPTION,name,EPD_DRAW_ALIGN_LEFT,false);
+    const char *const labels[] = {UI_MSG("确认遗忘"),UI_MSG("取消")};
+    ui_nav_draw_action_row(fb,labels,2);
 }
 
 // 配网操作用无边框文字按钮，分区与列表共用系统分割线。
@@ -277,20 +294,7 @@ static void network_button(uint8_t *fb, int id, const char *label) {
 static void draw_networks(uint8_t* fb) {
     ui_clear_page(fb);
     epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_NAV_TOP}, UI_GRAY_WHITE, fb);
-    if (s_forget_confirm) {
-        transfer_header(fb, UI_MSG("遗忘网络"), UI_MSG("仅清除当前 WiFi，不影响其他网络和图书"));
-        char name[33];
-        ui_snprintf(name, sizeof(name), "%s", s_saved_ssid);
-        fit_label(name, UI_PX_BODY, ui_content_width());
-        ui_text(fb, UI_MARGIN,UI_PAGE_Y(350), UI_PX_BODY, name, EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, UI_MARGIN,UI_PAGE_Y(450), UI_PX_CAPTION, s_network_message, EPD_DRAW_ALIGN_LEFT, false);
-        provisioning_button(fb, network_control_rect(11), UI_MSG("确认遗忘"), 11);
-        provisioning_button(fb, network_control_rect(12), UI_MSG("取消"), 12);
-        ui_nav_draw(fb, 3);
-        return;
-    }
-    transfer_header(fb, UI_MSG("无线网络"), NULL);
-    epd_fill_rect((EpdRect){36,UI_PAGE_Y(168),612,2},UI_GRAY_SECTION_LINE,fb);
+    transfer_header(fb, UI_MSG("无线网络"));
     ui_text(fb, 42,UI_PAGE_Y(182), 24, UI_MSG("当前网络"), EPD_DRAW_ALIGN_LEFT, false);
     if (s_saved_configured) {
         char saved[40]; ui_snprintf(saved, sizeof(saved), "%s", s_saved_ssid); fit_label(saved, 29, 375);
@@ -354,6 +358,7 @@ static void draw_networks(uint8_t* fb) {
              s_status.network_ready ? UI_MSG("退出此页后，WiFi 仍保持连接。") : UI_MSG("连接后，可退出此页继续使用。"));
     fit_label(message, 21, 600);
     ui_text(fb, 42,UI_PAGE_Y(1014), 21, message, EPD_DRAW_ALIGN_LEFT, false);
+    if (s_forget_confirm) draw_forget_card(fb);
     ui_nav_draw(fb, 3);
 }
 
@@ -584,6 +589,18 @@ static app_redraw_t provisioning_gesture(app_ctx_t* ctx, const ui_gesture_event_
     return APP_REDRAW_AREA;
 }
 
+static app_redraw_t forget_card_gesture(const ui_gesture_event_t *ev) {
+    if (ev->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
+    ui_action_card_t card = forget_card();
+    if ((ev->y0 < card.top && ev->y < card.top) ||
+        (ev->y0 >= UI_NAV_TOP && ev->y >= UI_NAV_TOP) ||
+        (ui_rect_hit(card.close,ev->x0,ev->y0) && ui_rect_hit(card.close,ev->x,ev->y)))
+        return provisioning_action(12);
+    int origin = provisioning_hit(ev->x0,ev->y0);
+    if (origin >= 0 && provisioning_hit(ev->x,ev->y) == origin) return provisioning_action(origin);
+    return APP_REDRAW_NONE;
+}
+
 static EpdRect status_rect(void) { return (EpdRect){36,UI_PAGE_Y(676), 612, 270}; }
 static uint64_t free_bytes(void* arg) { return book_store_free_bytes(arg); }
 
@@ -648,9 +665,8 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
     if (s_usb_entry) {
         ui_clear_page(fb);
         bool active = usb_storage_active();
-        transfer_header(fb, UI_MSG("USB 读卡"), NULL);
+        transfer_header(fb, UI_MSG("USB 读卡"));
         ui_text(fb, 42,UI_PAGE_Y(181), 20, UI_MSG("连接状态"), EPD_DRAW_ALIGN_LEFT, false);
-        epd_fill_rect((EpdRect){36,UI_PAGE_Y(164),612,2},UI_GRAY_SECTION_LINE,fb);
         const char *state = s_usb_start_pending ? UI_MSG("正在准备 TF 卡") :
             !active ? UI_MSG("USB 读卡未开启") :
             s_usb_host_connected ? UI_MSG("电脑已连接") : UI_MSG("等待电脑连接");
@@ -683,9 +699,8 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
     if (s_view == TRANSFER_NETWORKS) { draw_networks(fb); return; }
     if (s_view == TRANSFER_PASSWORD) { draw_password(fb); return; }
     ui_clear_page(fb);
-    transfer_header(fb, s_mode == READ_PICO_TRANSFER_MODE_AP ? UI_MSG("热点传书") : UI_MSG("WiFi 传书"), NULL);
+    transfer_header(fb, s_mode == READ_PICO_TRANSFER_MODE_AP ? UI_MSG("热点传书") : UI_MSG("WiFi 传书"));
     EpdRect connection = {36,UI_PAGE_Y(168), 612, 132};
-    epd_fill_rect((EpdRect){connection.x,connection.y,connection.width,2},UI_GRAY_SECTION_LINE,fb);
     epd_fill_rect((EpdRect){connection.x,connection.y+connection.height,connection.width,2},UI_GRAY_ITEM_LINE,fb);
     char name[64];
     ui_snprintf(name, sizeof(name), "%s", s_mode == READ_PICO_TRANSFER_MODE_AP ? s_status.ssid : s_status.wifi_ssid);
@@ -1043,6 +1058,7 @@ static app_redraw_t transfer_back(app_ctx_t *ctx) {
 static app_redraw_t on_gesture(app_ctx_t* ctx, const ui_gesture_event_t* ev) {
     if (s_status.state == READ_PICO_TRANSFER_UPLOADING) return APP_REDRAW_NONE;
     if(s_view==TRANSFER_PASSWORD)return password_gesture(ctx,ev);
+    if(s_view==TRANSFER_NETWORKS&&s_forget_confirm)return forget_card_gesture(ev);
     if (ev->type == UI_GESTURE_TAP && s_view != TRANSFER_PASSWORD && !usb_storage_active()) {
         int tab = ui_nav_hit(ev->x0, ev->y0);
         if (tab >= 0 && tab == ui_nav_hit(ev->x, ev->y)) {
@@ -1052,11 +1068,7 @@ static app_redraw_t on_gesture(app_ctx_t* ctx, const ui_gesture_event_t* ev) {
             return APP_REDRAW_NONE;
         }
     }
-    if (ev->type == UI_GESTURE_TAP && (s_wifi_settings_only ?
-        ui_rect_hit(ui_nav_close_rect(),ev->x0,ev->y0)&&ui_rect_hit(ui_nav_close_rect(),ev->x,ev->y) :
-        ev->y0 < UI_PAGE_Y(160) && ev->x0 < 120)) {
-        return transfer_back(ctx);
-    }
+    if (ui_nav_subpage_close_hit(ev)) return transfer_back(ctx);
     if (s_view == TRANSFER_METHODS) return method_gesture(ctx, ev);
     if (s_view != TRANSFER_HOME) return provisioning_gesture(ctx, ev);
     int old = s_pressed;

@@ -41,14 +41,12 @@ static enum EpdRotation display_rotation;
 static int physical_w,physical_h,preset=100,locks,scaled;
 static bool tracing;
 static EpdRect allowed;
-enum {SHELF,BULK};static int s_view=SHELF;
 typedef struct {char name[256];} shelf_entry_t;
 static shelf_entry_t s_shelf[18];
 static const shelf_entry_t *shelf_entry_at(int index){return &s_shelf[index];}
 static struct {uint8_t *gray;unsigned width,height;} s_covers[9];
 static int app_settings_system_font_size(void){return preset;}
 static int ui_text_line_height(int role){(void)role;return preset/4+8;}
-static EpdRect management_row(int i){return (EpdRect){40,148+i*80,604,80};}
 int epd_width(void){return physical_w;}int epd_height(void){return physical_h;}
 static void ui_text_set_system_scale(bool on){assert(on);++scaled;}
 static void lock_draw(void){assert(!locks);++locks;}

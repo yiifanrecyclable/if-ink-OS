@@ -52,6 +52,9 @@ with tempfile.TemporaryDirectory(prefix='history-',dir=R/'build') as tmp:
     assert frame(opened+';k,0,0,0,0')['history_state'][2]==0
     assert frame(opened+';k,1,0,0,0')['history_state'][0]==0
     assert frame(opened+';t,50,94,50,94')['history_state'][0]==0
+    assert frame(opened+';t,50,94,115,94')['history_state'][0]==1
+    assert frame(opened+';t,590,130,590,130')['history_state'][1]==0
+    assert (out/'frame.bin').read_bytes()[127*342:129*342]==bytes([0x55])*684
     assert start['reading_target']==90 and start['history_bar_widths'][:4]==[612,408,612,0]
     # Six real selections persist across renderer launches; bars use the target rather than the page maximum.
     for minutes in (30,60,90,120,150,180):
@@ -65,6 +68,8 @@ with tempfile.TemporaryDirectory(prefix='history-',dir=R/'build') as tmp:
             assert width==expected,(minutes,elapsed,width,expected)
     # Target choices fit all six rows; cancel/back keeps the prior value and list page.
     picker=frame(opened+';t,590,94,590,94');assert picker['history_state'][1]==1
+    assert frame(opened+';t,590,94,590,94;t,58,90,58,90')['history_state'][:3]==[1,0,0]
+    assert frame(opened+';t,590,94,590,94;t,58,90,95,90')['history_state'][:3]==[1,1,0]
     assert frame(opened+';t,590,94,590,94;k,1,0,0,0')['history_state'][:3]==[1,0,0]
     assert frame()['reading_target']==180
     # Home's current-day cell and list bar both reach full/dark only at the same daily target.

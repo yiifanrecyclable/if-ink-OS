@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""真实内容页手势与批量操作，仅使用临时TF卡。 / Native gestures and batch actions over a temporary card."""
+"""真实内容页手势与单项操作，仅使用临时 TF 卡。/ Native content gestures over a temporary card."""
 from pathlib import Path
 import json,os,shutil,struct,subprocess,tempfile,zlib
 ROOT=Path(__file__).resolve().parents[1]
@@ -187,59 +187,25 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='content-library-test-'
     render(8,events(single_clear,confirm_action,above));assert not command('progress-load','/sdcard/markdown/B.md')['present']
     assert (card/'markdown/B.md').exists() and (card/'markdown/attachments/B-only.png').exists()
     command('progress-save','/sdcard/markdown/B.md')
-    # 管理页同样提供来源、排序、独立搜索；筛选/重扫清除勾选。/ Shared source/sort/search controls clear selections on filtering or rescan.
-    assert render(9,tap(342,251))['content_sort_open']
-    assert render(9,events(tap(340,350),tap(130,251)))['document_selected_count']==0
-    assert render(9,events(tap(340,350),tap(550,981)))['document_selected_count']==0
-    # 旧批量星标/置顶区域现在不会修改标记；空的第六操作格不触发批量操作。
-    # Old batch star/pin locations and the empty sixth action cell cannot modify document flags.
-    prefs={p.name:p.read_bytes() for p in (card/'markdown/.index').glob('*.prefs')}
-    d=render(9,events(tap(340,350),tap(180,898),tap(550,1051)))
-    assert d['document_selected_count']==1 and not d['document_batch_confirm']
-    assert prefs=={p.name:p.read_bytes() for p in (card/'markdown/.index').glob('*.prefs')}
-    search=tap(550,251);apply=tap(590,1152);letter_b=tap(311,1055)
-    assert render(9,search)['book_view']==6
-    found=render(9,events(search,letter_b,apply));assert found['book_view']==9 and names(found,'document_items')==['B.md']
-    assert found['document_selected_count']==0
-    b=render(9,events(search,letter_b,apply,tap(342,1144),tap(110,121)))
+    # 现行文档页的搜索只作用于文档，退出内容页时清掉筛选。/ Search stays scoped to Documents and clears on exit.
+    search=tap(539,92);apply=tap(590,1152);letter_b=tap(311,1055)
+    assert render(8,search)['book_view']==6
+    found=render(8,events(search,letter_b,apply));assert found['book_view']==8 and names(found,'document_items')==['B.md']
+    b=render(8,events(search,letter_b,apply,tap(342,1144),tap(110,121)))
     assert b['book_view']==0 and len(names(b,'book_items'))==3
-    assert render(9,tap(342,1144))['book_view']==8
-    assert render(4,tap(342,1144))['book_view']==0
-    d=render(8,events(sort_open,tap(342,649),tap(342,735)));assert names(d,'document_items')==['C.md','A.md','B.md']
-    assert d['document_count']==3 and not d['document_starred_only'] and not d['content_sort_open']
-    clear=events(tap(340,542),tap(342,1051))
-    assert render(9,clear)['document_batch_confirm']
-    assert command('progress-load','/sdcard/markdown/B.md')['present']
-    assert not render(9,events(clear,tap(190,658)))['document_batch_confirm']
-    assert command('progress-load','/sdcard/markdown/B.md')['present']
-    render(9,events(clear,tap(490,658)))
-    assert not command('progress-load','/sdcard/markdown/B.md')['present']
     assert command('progress-load','/sdcard/books/Book10.txt')['present']
-    # 删除失败后保留勾选及缺失正文条目，随后同次开机可重试清理。/ Preserve failed cleanup selections and retry during the same boot.
-    assert (card/'markdown/attachments/B-only.png').exists(), 'owned image disappeared before delete'
-    checkpoint=work/'checkpoint';shutil.copytree(card,checkpoint/'card');shutil.copytree(build/'nvs',checkpoint/'nvs')
-    delete=events(tap(340,542),tap(130,1051),tap(490,658))
-    d=render(9,delete,fail_progress_write_once('/sdcard/markdown/B.md'))
-    assert d['document_selected_count']==1 and d['document_count']==3
+    doc_row='l,340,190,340,190'
+    render(8,events(search,letter_b,apply,doc_row,delete_item,confirm_action))
     assert not (card/'markdown/B.md').exists()
-    shutil.rmtree(card);shutil.copytree(checkpoint/'card',card)
-    shutil.rmtree(build/'nvs');shutil.copytree(checkpoint/'nvs',build/'nvs')
-    d=render(9,events(delete,tap(130,1051),tap(490,658)),fail_progress_write_once('/sdcard/markdown/B.md'))
-    assert d['document_count']==2 and not (card/'markdown/B.md').exists()
     assert not (card/'markdown/attachments/B-only.png').exists() and (card/'markdown/attachments/shared.png').exists()
-    render(9,events(tap(340,446),tap(130,1051),tap(490,658)))
+    render(8,events(search,letters('a'),apply,doc_row,delete_item,confirm_action))
     assert not (card/'markdown/A.md').exists() and not (card/'markdown/attachments/shared.png').exists()
     assert (card/'markdown/C.md').exists() and all((card/'books'/n).exists() for n in ('Book2.txt','Book10.txt','Book20.txt'))
     for i in range(7):(card/'markdown'/f'D{i}.md').write_text(f'# D{i}\n\nText\n')
-    d=render(9,events(tap(340,350),'u,340,900,340,350',tap(340,350),tap(342,251),name,direction,dismiss_sort))
-    assert d['document_selected_count']==2 and d['book_view']==9
-    assert render(8)['document_sort_mode']==0 and render(0)['book_sort_mode']==3
-    assert render(9,tap(550,1144))['reader_page']==1
-    assert render(9,events(tap(550,1144),tap(130,1144)))['reader_page']==0
+    assert render(8,events(sort_open,name,direction,dismiss_sort))['document_sort_mode']==0
+    assert render(0)['book_sort_mode']==3
     for i in range(7):(card/'books'/f'Extra{i}.txt').write_text('Extra book\n')
     assert render(0)['pages']==2
-    assert render(4,tap(550,1144))['reader_page']==1
-    assert render(4,events(tap(550,1144),tap(130,1144)))['reader_page']==0
     paged='t,620,1090,620,1090;l,130,350,130,350'
     assert render(0,paged)['reader_page']==1
     closed=render(0,events(paged,close));assert closed['book_view']==0 and closed['reader_page']==1
