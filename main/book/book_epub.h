@@ -32,6 +32,8 @@ const char *book_epub_navigation_anchor(book_epub_t *book, size_t position);
 size_t book_epub_navigation_source_offset(book_epub_t *book, size_t position);
 /// 复制 UTF-8 标题，容量不足报错而不截断。/ Copy a UTF-8 title; report insufficient capacity instead of truncating.
 esp_err_t book_epub_chapter_title(book_epub_t *book, size_t index, char *buf, size_t cap);
+/// 阅读页只显示实际标题。/ Return an actual reader caption, if available.
+esp_err_t book_epub_reader_title(book_epub_t *book, size_t chapter, size_t navigation, char *buf, size_t cap);
 /// 加载 UTF-8 与标题/段落块；调用方 html_text_free。/ Load UTF-8 and heading/paragraph blocks; caller uses html_text_free.
 esp_err_t book_epub_load(book_epub_t *book, size_t index, html_text_t *out);
 bool book_epub_link_target(book_epub_t *book, size_t from, const char *href,

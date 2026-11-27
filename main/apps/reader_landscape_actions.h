@@ -60,9 +60,14 @@ static app_redraw_t wide_toc_action(app_ctx_t *ctx, const ui_gesture_event_t *ev
         }
         return APP_REDRAW_PAGE;
     }
-    if(x<24||x>=WIDE_PANE_WIDTH-24||y<24||y>=24+WIDE_TOC_ROWS*WIDE_LIST_STEP)return APP_REDRAW_NONE;
-    int target=ctx->leaf*WIDE_TOC_ROWS+(y-24)/WIDE_LIST_STEP;
-    return (size_t)target<book_navigation_count()?reader_toc_target(ctx,target,x):APP_REDRAW_NONE;
+    if(x<24||x>=WIDE_PANE_WIDTH-24||y<WIDE_TOC_TOP||y>=WIDE_TOC_TOP+WIDE_TOC_ROWS*WIDE_LIST_STEP)return APP_REDRAW_NONE;
+    size_t index=(size_t)ctx->leaf*WIDE_TOC_ROWS+(y-WIDE_TOC_TOP)/WIDE_LIST_STEP;
+    if (index >= book_toc_entry_count()) return APP_REDRAW_NONE;
+    int target = book_toc_entry_target(index);
+    if (target == BOOK_TOC_START &&
+        !ui_rect_hit((EpdRect){24,WIDE_TOC_TOP,WIDE_PANE_WIDTH-48,WIDE_LIST_STEP},ev->x,ev->y))
+        return APP_REDRAW_NONE;
+    return reader_toc_target(ctx,target,x);
 }
 
 static app_redraw_t wide_detail_action(app_ctx_t *ctx, uint16_t x,uint16_t y) {

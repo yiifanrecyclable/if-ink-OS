@@ -19,8 +19,11 @@ int book_toc_visible_rows(void);
 #define BOOK_TOC_JUMP_CANCEL (-8)
 #define BOOK_TOC_JUMP_CONFIRM (-9)
 #define BOOK_TOC_JUMP_TRACK (-10)
+#define BOOK_TOC_START (-11)
 
 int book_toc_pages(size_t chapters);
+size_t book_toc_entry_count(void);
+int book_toc_entry_target(size_t index);
 int book_toc_hit(uint16_t x, uint16_t y, int page, size_t chapters);
 int book_toc_jump_hit(uint16_t x, uint16_t y);
 int book_toc_jump_percent(uint16_t x);

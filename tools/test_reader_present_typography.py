@@ -4,9 +4,10 @@
 from pathlib import Path
 import subprocess,tempfile,sys
 R=Path(__file__).resolve().parents[1]
-base=(R/'tools/test_navigation_perf.py').read_text().split('unit+=function(home,')[0]
+base=(R/'tools/test_navigation_perf.py').read_text().split('# Home-only harness',1)[0]
 ns={'__file__':str(R/'tools/test_navigation_perf.py')};exec(base,ns)
 function=ns['function'];unit=ns['unit'];book=(Path(sys.argv[1]) if len(sys.argv)>1 else R/'main/apps/app_book.c').read_text()
+nav=(R/'main/ui/ui_nav.c').read_text()
 unit=unit.replace("static void ui_text_set_system_scale(bool b){assert(b);step('S',0);}","static bool s_system_text_scale;static void ui_text_set_system_scale(bool b){s_system_text_scale=b;}")
 unit=unit.replace('static bool active=true,s_home_force_full_once;', 'static bool active=true;').replace('static EpdRect s_area;', '')
 unit=unit.replace("static bool app_font_activate_system(void){step('F',11);return true;}", "")
@@ -14,6 +15,8 @@ unit+=r'''
 #define UI_PAGE_Y(y) ((y)-24)
 #define UI_LOCK_HEIGHT 1216
 #define UI_GRAY_SECTION_LINE 0x58
+#define UI_SUBPAGE_RULE_Y UI_PAGE_Y(151)
+#define UI_SECTION_LINE_HEIGHT 2
 #define UI_INK_BLACK 0
 #define UI_INK_WHITE 15
 #define EPD_DRAW_ALIGN_CENTER 0
@@ -28,13 +31,15 @@ static bool ttf_font_has_text(const char *text){return (unsigned char)text[0]<12
 static bool app_font_activate_system(void){assert(use_reader_face);use_reader_face=false;return true;}
 static void app_font_restore_reading(const char *path){assert(path==s_font_path&&!use_reader_face);use_reader_face=true;}
 static void copy_text(char *out,size_t cap,const char *text){snprintf(out,cap,"%s",text);}
-static EpdRect ui_nav_close_rect(void){return(EpdRect){24,49,68,68};}
 static void ui_nav_close_in(uint8_t *f,EpdRect r){(void)f;assert(r.x==(landscape?12:24)&&r.width==(landscape?60:68)&&r.y+r.height/2==(landscape?36:90));}
-static void ui_hairline(uint8_t *f,int y,int x,int w,int gray){(void)f;assert(y==(landscape?69:127)&&x==0&&w==(landscape?1216:684)&&gray==UI_GRAY_SECTION_LINE);}
+static void epd_fill_rect(EpdRect r,int gray,uint8_t *f){(void)f;assert(!landscape&&r.x==0&&r.y==127&&r.width==684&&r.height==2&&gray==UI_GRAY_SECTION_LINE);}
+static void ui_hairline(uint8_t *f,int y,int x,int w,int gray){(void)f;assert(landscape&&y==69&&x==0&&w==1216&&gray==UI_GRAY_SECTION_LINE);}
 static int ttf_text_width_px(int px,const char *text){return px*(int)strlen(text)/2;}
 static void ttf_measure_line_px(int px,const char *s,int *above,int *below){assert(px==32&&ttf_text_width_px(px,s)<=450);*above=22;*below=6;}
 static void ttf_draw_text_px(uint8_t *f,int x,int y,int px,const char *s,int align,int fg,int bg){(void)f;(void)s;assert(x==(landscape?608:342)&&y==(landscape?44:98)&&align==EPD_DRAW_ALIGN_CENTER&&fg==0&&bg==15);header_px=px;header_uses_reader_face=use_reader_face;}
 '''
+unit+=function(nav,'EpdRect ui_nav_subpage_close_rect(void) {')
+unit+=function(nav,'void ui_nav_subpage_frame(uint8_t *fb) {')
 unit+=function(book,'static void fit_ttf_text(char* text, int px, int width) {')
 unit+=function(book,'static EpdRect reader_portrait_close_rect(void) {')
 unit+=function(book,'static EpdRect reader_close_rect(void) {')

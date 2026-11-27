@@ -7,7 +7,11 @@ static int preview_settimeofday(const struct timeval *t,const void *zone){(void)
 #define settimeofday preview_settimeofday
 #define app_device_settings simulator_descriptor_settings
 #include "../../main/apps/app_device_settings.c"
-static void preview_wallpaper_tick(app_ctx_t *ctx){if(wallpaper_picker_page()||ui_nav_notice_text()[0])(void)on_tick(ctx);}
+extern void simulator_standard_font_wifi_roundtrip(app_ctx_t *ctx);
+static void preview_wallpaper_tick(app_ctx_t *ctx){
+ if(ui_standard_font_visible(STANDARD_FONT_SETTINGS))simulator_standard_font_wifi_roundtrip(ctx);
+ if(wallpaper_picker_page()||ui_nav_notice_text()[0]||ui_standard_font_visible(STANDARD_FONT_SETTINGS))(void)on_tick(ctx);
+}
 #define SIM_REPLAY_RAW(ctx,type,x,y) do {if((type)=='n')(ctx)->now_ms+=(x);} while(0)
 #define SIM_REPLAY_TICK(ctx) preview_wallpaper_tick(ctx)
 #include "replay.h"
@@ -31,7 +35,7 @@ int simulator_settings(uint8_t *fb,int page,int scroll,const char *events){
  bool quote=page==23;if(quote)app_device_settings_request_home_quote();
  app_ctx_t ctx={.fb=fb,.now_ms=1000};on_enter(&ctx);if(quote)home_quote_editor_open();
  if(page==SETTINGS_BANNER_IMAGE||page==SETTINGS_BANNER_BROWSER)banner_picker_open();
- if(page==SETTINGS_SYSTEM_FONT)ttf_font_picker_begin(book_store_revision(),book_index_cache_epoch());
+ if(page==SETTINGS_SYSTEM_FONT)system_font_picker_open();
  if(page==SETTINGS_QUOTE_FONT)quote_font_picker_open();
  if(page==SETTINGS_WALLPAPER_PREVIEW)page=SETTINGS_WALLPAPER_FIXED;
  if(page==SETTINGS_WALLPAPER_FIXED||page==SETTINGS_WALLPAPER_FOLDER)wallpaper_picker_open(&ctx,page==SETTINGS_WALLPAPER_FOLDER);
@@ -43,7 +47,7 @@ int simulator_settings(uint8_t *fb,int page,int scroll,const char *events){
  if(s_page==SETTINGS_ONLINE_UPDATE)(void)if_update_check_all();
  if(s_page==SETTINGS_WALLPAPER_PREVIEW)render(&ctx,fb);
  simulator_replay(&ctx,preview_settings_gesture,on_key,events);render(&ctx,fb);
- if(font_picker_page()&&!ctx.request_app&&!getenv("PICO_SIM_DEFER_FONT_NAMES")){
+ if(font_picker_page()&&!ui_standard_font_visible(STANDARD_FONT_SETTINGS)&&!ctx.request_app&&!getenv("PICO_SIM_DEFER_FONT_NAMES")){
      ctx.consumed=ctx.pressed=ctx.released=false;
      for(int i=0;i<=font_list_rows()+1&&!s_font_names_settled;++i){
          ctx.now_ms+=400;

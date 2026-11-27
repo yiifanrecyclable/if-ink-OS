@@ -41,10 +41,19 @@ int app_count(void){return 5;}
 const app_desc_t *app_at(int i){return i>=0&&i<5?preview_apps[i]:NULL;}
 const app_desc_t *app_home_page(void){return &app_dashboard;}
 int app_index_of(const app_desc_t *a){if(a==&app_pindou)return 7;if(a==&app_cloud)return 6;if(a==&app_transfer)return 5;for(int i=0;i<5;++i)if(a==preview_apps[i])return i;return -1;}
-esp_err_t read_pico_sd_get_info(read_pico_sd_info_t *out){*out=(read_pico_sd_info_t){.present=true,.mounted=true,.space_valid=true,.filesystem_bytes=8ULL<<30,.capacity_bytes=8ULL<<30,.total_bytes=8ULL<<30,.free_bytes=7ULL<<30};return ESP_OK;}
+esp_err_t read_pico_sd_get_info(read_pico_sd_info_t *out){
+    if(getenv("PICO_SIM_CARD_ABSENT")){*out=(read_pico_sd_info_t){0};return ESP_ERR_NOT_FOUND;}
+    *out=(read_pico_sd_info_t){.present=true,.mounted=true,.space_valid=true,.filesystem_bytes=8ULL<<30,.capacity_bytes=8ULL<<30,.total_bytes=8ULL<<30,.free_bytes=7ULL<<30};return ESP_OK;
+}
 esp_err_t read_pico_sd_mount(void){return ESP_OK;}
 const pmu_snapshot_t *read_pico_pmu_get(void){static const pmu_snapshot_t p={.present=true,.status_ok=true,.flags=PMU_STATUS_BATTERY_VALID,.battery_mv=3950,.soc_permille=850};return &p;}
-void read_pico_transfer_get_status(read_pico_transfer_status_t *s){*s=preview_network;}
+void read_pico_transfer_get_status(read_pico_transfer_status_t *s){
+    *s=preview_network;
+    if(getenv("PICO_SIM_STANDARD_FONT_WIFI")){
+        s->network_ready=true;
+        s->mode=READ_PICO_TRANSFER_MODE_STA;
+    }
+}
 esp_err_t read_pico_transfer_get_saved_wifi(char *s,bool *configured){snprintf(s,33,"%s",preview_network.wifi_ssid);*configured=preview_network.wifi_configured;return ESP_OK;}
 #include "book_store.h"
 #include "book_progress.h"

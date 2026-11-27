@@ -4,6 +4,13 @@
  */
 #define app_dashboard simulator_descriptor_dashboard
 #include "../../main/apps/app_dashboard.c"
+extern void simulator_standard_font_wifi_roundtrip(app_ctx_t *ctx);
+static void replay_font_setup(app_ctx_t *ctx) {
+ if (!ui_standard_font_visible(STANDARD_FONT_HOME)) return;
+ simulator_standard_font_wifi_roundtrip(ctx);
+ if (!ctx->request_app) on_tick(ctx);
+}
+#define SIM_REPLAY_TICK replay_font_setup
 #include "replay.h"
 #include "app_registry.h"
 extern int simulator_route;

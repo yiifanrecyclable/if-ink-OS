@@ -11,21 +11,41 @@
 #include <string.h>
 #include "book_source.h"
 #include "book_markdown.h"
+#include "settings.h"
 #include "ui_kit.h"
 
-enum { TOC_LEFT = 36, TOC_RIGHT = 648, TOC_ROW_TOP = UI_PAGE_Y(252),
-       TOC_ROW_STEP = 108, TOC_ROW_HEIGHT = 94 };
+enum { TOC_LEFT = 36, TOC_RIGHT = 648, TOC_ROW_TOP = UI_PAGE_Y(202),
+       TOC_ROW_BOTTOM = 1000, TOC_MIN_ROW_STEP = 72 };
 
-static int toc_step(void){int height=ui_list_row_height(true);return height<108?108:height;}
-int book_toc_visible_rows(void){int rows=(1000-TOC_ROW_TOP)/toc_step();return rows>0?rows:1;}
+static int toc_step(void) {
+    // 翻页和绘制都以设置字号为准，不依赖上一帧的字体上下文。
+    // Use the configured size for both pagination and drawing, regardless of the previous frame.
+    int body_px = (UI_TEXT_BODY * app_settings_system_font_size() + 50) / 100;
+    int step = body_px + 36;
+    return step < TOC_MIN_ROW_STEP ? TOC_MIN_ROW_STEP : step;
+}
+
+int book_toc_visible_rows(void) {
+    int rows = (TOC_ROW_BOTTOM - TOC_ROW_TOP) / toc_step();
+    return rows > 0 ? rows : 1;
+}
+
+size_t book_toc_entry_count(void) {
+    return book_navigation_count() + (book_kind() == BOOK_KIND_EPUB);
+}
+
+int book_toc_entry_target(size_t index) {
+    if (book_kind() != BOOK_KIND_EPUB) return (int)index;
+    return index ? (int)(index - 1) : BOOK_TOC_START;
+}
 
 int book_toc_pages(size_t chapters) {
     return chapters ? (int)(1 + (chapters - 1) / BOOK_TOC_ROWS) : 1;
 }
 
 EpdRect book_toc_row_rect(int row) {
-    return (EpdRect){TOC_LEFT, TOC_ROW_TOP + row * toc_step(),
-                     TOC_RIGHT - TOC_LEFT, toc_step()-1};
+    int step = toc_step();
+    return (EpdRect){TOC_LEFT, TOC_ROW_TOP + row * step, TOC_RIGHT - TOC_LEFT, step - 1};
 }
 
 // 把 EPUB/TXT 中的换行、制表符和控制符收敛为一个空格，防止绘制越过本行。
@@ -74,10 +94,11 @@ int book_toc_hit(uint16_t x, uint16_t y, int page, size_t chapters) {
         if (x >= 548 && x < 648) return BOOK_TOC_SKIP_NEXT;
     }
     if (x >= 268 && x < 416 && y >= 1018 && y < 1086) return BOOK_TOC_JUMP;
-    for (int row = 0; row < BOOK_TOC_ROWS; ++row) {
-        size_t index = (size_t)page * BOOK_TOC_ROWS + row;
+    int rows = BOOK_TOC_ROWS;
+    for (int row = 0; row < rows; ++row) {
+        size_t index = (size_t)page * rows + row;
         if (index >= chapters) break;
-        if (ui_rect_hit(book_toc_row_rect(row), x, y)) return (int)index;
+        if (ui_rect_hit(book_toc_row_rect(row), x, y)) return book_toc_entry_target(index);
     }
     return -1;
 }
@@ -127,29 +148,34 @@ void book_toc_render(uint8_t *fb, size_t chapters, size_t current, int page, con
     } else if (!chapters) {
         ui_text_fixed(fb, 342, 408, 25, UI_MSG("这本书没有可用目录"), EPD_DRAW_ALIGN_CENTER, false);
     } else {
-        for (int row = 0; row < BOOK_TOC_ROWS; ++row) {
-            size_t index = (size_t)page * BOOK_TOC_ROWS + row;
+        int rows = BOOK_TOC_ROWS;
+        for (int row = 0; row < rows; ++row) {
+            size_t index = (size_t)page * rows + row;
             if (index >= chapters) break;
-            size_t source_index = book_navigation_chapter(index);
+            int target = book_toc_entry_target(index);
+            bool beginning = target == BOOK_TOC_START;
+            size_t source_index = beginning ? 0 : book_navigation_chapter((size_t)target);
             if (source_index == SIZE_MAX) break;
             EpdRect r = book_toc_row_rect(row);
             bool selected = index == current;
             epd_fill_rect(r,selected?0xee:UI_GRAY_WHITE,fb);
             toc_border(fb, r, 20, selected);
-            char number[16]; ui_snprintf(number, sizeof(number), "%02u", (unsigned)index + 1);
+            char number[16]; ui_snprintf(number, sizeof(number), "%02u", beginning ? 0 : (unsigned)target + 1);
             int indent=book_kind()==BOOK_KIND_MARKDOWN?(int)book_markdown_navigation_depth(index)*24:0;
             if(book_kind()==BOOK_KIND_MARKDOWN){
                 if(book_markdown_navigation_children(index))ui_text_fixed(fb,r.x+22+indent,r.y+(r.height-ui_text_effective_px(UI_TEXT_BODY))/2,ui_text_effective_px(UI_TEXT_BODY),book_markdown_navigation_expanded(index)?"−":"+",EPD_DRAW_ALIGN_LEFT,false);
             }else ui_text_fixed(fb, r.x + 22, r.y+(r.height-ui_text_effective_px(UI_TEXT_CAPTION))/2, ui_text_effective_px(UI_TEXT_CAPTION), number, EPD_DRAW_ALIGN_LEFT, false);
             char raw[160] = "", label[160];
-            if (book_navigation_title(index, raw, sizeof(raw)) != ESP_OK || !raw[0])
-                ui_snprintf(raw, sizeof(raw), UI_MSG("第 %u 节"), (unsigned)index + 1);
+            if (beginning)
+                ui_snprintf(raw, sizeof(raw), "%s", UI_MSG("封面/首页"));
+            else if (book_navigation_title((size_t)target, raw, sizeof(raw)) != ESP_OK || !raw[0])
+                ui_snprintf(raw, sizeof(raw), UI_MSG("第 %u 节"), (unsigned)target + 1);
             char spine_default[32];
             ui_snprintf(spine_default, sizeof(spine_default), UI_MSG("第 %u 节"), (unsigned)source_index + 1);
             if (strcmp(raw, spine_default) == 0)
-                ui_snprintf(raw, sizeof(raw), UI_MSG("第 %u 节"), (unsigned)index + 1);
+                ui_snprintf(raw, sizeof(raw), UI_MSG("第 %u 节"), (unsigned)target + 1);
             one_line(label, sizeof(label), raw);
-            if (!label[0]) ui_snprintf(label, sizeof(label), UI_MSG("第 %u 节"), (unsigned)index + 1);
+            if (!label[0]) ui_snprintf(label, sizeof(label), UI_MSG("第 %u 节"), (unsigned)target + 1);
             ui_text_title_line(fb,(EpdRect){r.x+79+indent,r.y,(selected?410:495)-indent,r.height},ui_text_effective_px(UI_TEXT_BODY),label,selected?0xee:UI_GRAY_WHITE);
             if (selected)
                 ui_text_fixed(fb, r.x + r.width - 22, r.y+(r.height-ui_text_effective_px(UI_TEXT_CAPTION))/2, ui_text_effective_px(UI_TEXT_CAPTION), UI_MSG("当前"),
@@ -189,11 +215,16 @@ void book_toc_render_jump_preview(uint8_t *fb,size_t chapters,int percent){
     ui_text_fixed(fb, 99, 751, 23, UI_MSG("目标位置"), EPD_DRAW_ALIGN_LEFT, false);
     int pages = book_toc_pages(chapters);
     int target = book_toc_page_from_percent(percent, pages);
-    size_t first = (size_t)target * BOOK_TOC_ROWS + 1;
+    bool has_start = book_kind() == BOOK_KIND_EPUB;
+    size_t first = (size_t)target * BOOK_TOC_ROWS + !has_start;
     size_t last = first + BOOK_TOC_ROWS - 1;
-    if (last > chapters) last = chapters;
+    size_t last_number = chapters - (chapters && has_start);
+    if (last > last_number) last = last_number;
+    if (first == 0) first = 1;
     char summary[160];
-    if (chapters)
+    if (has_start && !last_number)
+        ui_snprintf(summary, sizeof(summary), "%s", UI_MSG("封面/首页"));
+    else if (chapters)
         ui_snprintf(summary, sizeof(summary), UI_MSG("约第 %d / %d 页 · 第 %u～%u 节"),
                  target + 1, pages, (unsigned)first, (unsigned)last);
     else ui_snprintf(summary, sizeof(summary), UI_MSG("这本书没有可用目录"));

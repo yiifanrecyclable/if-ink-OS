@@ -57,6 +57,18 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='system-text-') as tmp:
     assert render('settings-5',f't,300,{y},300,{y}')[0]['system_font_path']==''
     assert render('settings-5',f't,300,{y+step},300,{y+step}')[0]['system_font_path']=='/sdcard/fonts/PicoSans-Medium.ttf'
     assert render('settings-5')[0]['system_font_path']=='/sdcard/fonts/PicoSans-Medium.ttf'
+    for i in range(20):
+        shutil.copyfile(ROOT/'main/assets/builtin.ttf',card/f'fonts/Pager-{i:02}.ttf')
+    prev='t,64,1092,64,1092'
+    next_page='t,620,1092,620,1092'
+    _, first=render('settings-5')
+    _, second=render('settings-5',next_page)
+    body=slice(top*342,1136*342)
+    assert first[body]!=second[body]
+    assert render('settings-5',prev)[1][body]==first[body]
+    assert render('settings-5',next_page+';'+prev)[1][body]==first[body]
+    assert render('settings-5','t,620,1092,342,1092')[1][body]==first[body]
+    assert render('settings-5','k,2,0,0,0')[1][body]==second[body]
     assert render('settings-24','t,510,380,510,380')[0]['settings_page']==24
     assert render('settings-9')[0]['lock_style']==1
-print('PASS: four presets/persistence, bigger document titles, unchanged reading pixels, fixed-font-folder selection, three settings groups, firmware info/local update navigation, retired-page migration')
+print('PASS: four presets/persistence, bigger document titles, unchanged reading pixels, font selection and pagination, three settings groups, firmware info/local update navigation, retired-page migration')

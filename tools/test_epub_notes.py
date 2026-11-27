@@ -105,14 +105,14 @@ def pixel(frame, x, y, wide=False, reverse=False):
     return (frame[py * 342 + px // 2] >> (4 * (px % 2))) & 15
 
 
-def find_marker(frame, wide, reverse, vertical, exclude=None):
+def find_marker(frame, wide, reverse, vertical, exclude=None, top=80):
     width, height = (1216, 684) if wide else (684, 1216)
 
     def marked(x, y):
         return pixel(frame, x, y, wide, reverse) == 6
 
     # Follow the actual pixels from the simulator rather than assuming font metrics.
-    start_range = range(36, width - 36) if vertical else range(80, height - 54)
+    start_range = range(36, width - 36) if vertical else range(top, height - 54)
     for start in start_range:
         consecutive = 0
         for step in range(36, (height if vertical else width) - 36):
@@ -472,7 +472,8 @@ def main():
         (nvs / 'rd_fullscreen').write_bytes(b'\x01')
         (nvs / 'rd_immersive').write_bytes(b'\x01')
         _, frame = render('Cross')
-        marker = find_marker(frame, False, False, False)
+        marker = find_marker(frame, False, False, False, top=12)
+        assert marker is not None
         note, frame = render('Cross', marker)
         assert note['reader_note_open']
         assert all(pixel(frame, x, y) == 14 for x in (8, 100, 540, 675) for y in range(1159, 1216))
@@ -480,7 +481,8 @@ def main():
         shutil.copyfile(ROOT / 'assets/fonts/PicoSans-Medium.ttf', card / 'fonts/PicoSans-Medium.ttf')
         (nvs / 'font').write_bytes(b'/sdcard/fonts/PicoSans-Medium.ttf\0')
         _, frame = render(Path(SHORT_NOTE_SAMPLE).stem, px=64)
-        mark = find_marker(frame, False, False, False)
+        mark = find_marker(frame, False, False, False, top=12)
+        assert mark is not None
         sized, _ = render(Path(SHORT_NOTE_SAMPLE).stem, mark, px=64)
         assert sized['reader_note_card_title'] == '注释1' and sized['reader_note_card_px'] == 57, sized
         print('PASS: contents jumps persist progress; footnote cards, returns and reading progress remain correct')

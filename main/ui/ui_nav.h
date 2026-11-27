@@ -35,6 +35,8 @@ const char *ui_nav_notice_text(void);
 /// 内容和文件共用底部分页。/ Shared content/file pagination above the navigation.
 EpdRect ui_nav_pager_rect(int direction);
 void ui_nav_draw_pager(uint8_t *fb,int count,const char *unit,int page,int pages);
+EpdRect ui_nav_page_arrow_rect(int direction, int center_y);
+void ui_nav_draw_page_arrows(uint8_t *fb, int center_y, int page, int pages, int label_px);
 /// 共用导航上沿的操作卡几何和绘制。/ Shared action card anchored above the navigation bar.
 typedef struct {
     int top, header_height, path_height;

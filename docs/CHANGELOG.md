@@ -4,6 +4,12 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.6 / 2026-11-27
+
+- 优先保留 EPUB 自带目录条目，目录首页增加「00 封面/首页」，竖屏目录采用更紧凑的行距。修复书内目录跳转误入注释模式、阅读进度不随章节更新。/ Preserve authored EPUB navigation, add Cover / First page as the first entry, and fit more entries in portrait. In-book chapter links update reading progress normally.
+- 首次设置支持联网下载并校验标准思源黑体，保存到 TF 卡。系统文字页提供手动安装和字体列表翻页。/ Download and verify the standard font during initial setup or from the paged System text settings.
+- 包含本系列 Beta 的英文阅读排版、EPUB 插图与统一子页面标题栏改进。/ Includes this series' English reader typography, EPUB illustration support and unified subpage headers.
+
 ## 0.2.6 Beta 3 / 2026-11-26
 
 - 统一子页面标题栏，收窄关闭按钮的触控范围；存储卡管理页将路径和文件数移到分割线下方；忘记 Wi-Fi 改为页面底部二次确认。/ Unify subpage headers, narrow the close-button hit area, move storage-card path and file count below the divider, and place Forget Wi-Fi confirmation at the bottom of the page.

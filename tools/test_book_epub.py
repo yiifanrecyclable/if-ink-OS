@@ -160,6 +160,35 @@ def main():
                 '<li><a href="../text/combined.xhtml#two">第二章 继续</a></li>'
                 '</ol></nav></body></html>')
         case('good_dual_samefile_partial_ncx', dual_samefile_partial_ncx)
+        def authored_preface(files):
+            multianchor(files)
+            files['OPS/text/combined.xhtml'] = (
+                '<html><body><h1 id="preface">序言原文</h1><p>这是序言。</p>'
+                '<h1 id="one">第一章 正文题头</h1><p>第一段。</p>'
+                '<h2>第一节 一</h2><p>第二段。</p>'
+                '<h1 id="two">第二章 正文题头</h1><p>第三段。</p></body></html>')
+            files['OPS/toc/book.ncx'] = (
+                '<ncx><navMap><navPoint><navLabel><text>译者序</text></navLabel>'
+                '<content src="../text/combined.xhtml#preface"/></navPoint>'
+                '<navPoint><navLabel><text>第二章 原书标题</text></navLabel>'
+                '<content src="../text/combined.xhtml#two"/></navPoint>'
+                '<navPoint><navLabel><text>第一章 原书标题</text></navLabel>'
+                '<content src="../text/combined.xhtml#one"/></navPoint></navMap></ncx>')
+        case('good_authored_preface', authored_preface)
+        def nav_has_more_precise_target(files):
+            dual_samefile_partial_ncx(files)
+            files['OPS/toc/book.ncx'] = files['OPS/toc/book.ncx'].replace(
+                '第一章 起点', '全书').replace('.xhtml#one', '.xhtml')
+            files['OPS/toc/nav.xhtml'] = files['OPS/toc/nav.xhtml'].replace(
+                '<li><a href="../text/combined.xhtml#two">第二章 继续</a></li>', '')
+        case('good_nav_precise_target', nav_has_more_precise_target)
+        def front_only(files):
+            frontmatter(files)
+            files.pop('OPS/toc/nav.xhtml')
+            files['OPS/toc/book.ncx'] = (
+                '<ncx><navMap><navPoint><navLabel><text>作者信息</text></navLabel>'
+                '<content src="../text/front.xhtml"/></navPoint></navMap></ncx>')
+        case('good_frontmatter_only', front_only)
         def body_priority(files, authored=True):
             frontmatter(files, not authored)
             files['OPS/text/part 1&x.xhtml'] = '<html><body><h1>第一章 起点</h1><p>正文一</p></body></html>'
@@ -168,7 +197,7 @@ def main():
             files['OPS/text/part 4&x.xhtml'] = '<html><body><h1>第四章 终点</h1><p>正文四</p></body></html>'
         case('good_body_priority', body_priority)
         case('good_body_without_nav', lambda f: body_priority(f, False))
-        case('good_body_ideographic', lambda f: (body_priority(f), f.__setitem__(
+        case('good_body_ideographic', lambda f: (body_priority(f, False), f.__setitem__(
             'OPS/text/part 2&x.xhtml', f['OPS/text/part 2&x.xhtml'].replace('第2章 第二站', '第2章　第二站'))))
         def body_samefile(files):
             multianchor(files)

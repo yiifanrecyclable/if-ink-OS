@@ -163,7 +163,7 @@ static void draw_wide_font_sample(uint8_t *fb) {
     ttf_draw_text_px(fb,x,552+(above-below)/2,px,"Aa 0123",EPD_DRAW_ALIGN_LEFT,UI_INK_BLACK,UI_INK_WHITE);
 }
 static void draw_wide_toc(app_ctx_t *ctx,uint8_t *fb,int x) {
-    size_t count=book_navigation_count(),current=current_toc_position();
+    size_t count=book_toc_entry_count(),current=current_toc_position();
     if(s_toc_jump_open){
         reader_control_text(fb,x+WIDE_PANE_WIDTH/2,140,UI_TEXT_TITLE,UI_MSG("跳到目录位置"),EPD_DRAW_ALIGN_CENTER,false);
         char value[40];ui_snprintf(value,sizeof(value),"%d%%",s_toc_jump_percent);
@@ -177,12 +177,15 @@ static void draw_wide_toc(app_ctx_t *ctx,uint8_t *fb,int x) {
     for(int row=0;!s_message[0]&&row<WIDE_TOC_ROWS;++row){
         size_t at=(size_t)ctx->leaf*WIDE_TOC_ROWS+row;
         if(at>=count)break;
-        EpdRect r={x+24,24+row*WIDE_LIST_STEP,WIDE_PANE_WIDTH-48,WIDE_LIST_STEP};
+        EpdRect r={x+24,WIDE_TOC_TOP+row*WIDE_LIST_STEP,WIDE_PANE_WIDTH-48,WIDE_LIST_STEP};
         if(at==current)epd_fill_rect(r,0xee,fb);
         char number[16],title[160];
-        ui_snprintf(number,sizeof(number),"%02u",(unsigned)at+1);
-        if(book_navigation_title(at,title,sizeof(title))!=ESP_OK||!title[0])
-            ui_snprintf(title,sizeof(title),UI_MSG("第 %u 节"),(unsigned)at+1);
+        int target=book_toc_entry_target(at);
+        bool beginning=target==BOOK_TOC_START;
+        ui_snprintf(number,sizeof(number),"%02u",beginning?0:(unsigned)target+1);
+        if(beginning) ui_snprintf(title,sizeof(title),"%s",UI_MSG("封面/首页"));
+        else if(book_navigation_title((size_t)target,title,sizeof(title))!=ESP_OK||!title[0])
+            ui_snprintf(title,sizeof(title),UI_MSG("第 %u 节"),(unsigned)target+1);
         for(char *p=title;*p;++p)if((unsigned char)*p<32)*p=' ';
         reader_control_text(fb,r.x+14,r.y+r.height/2,UI_TEXT_CAPTION,number,EPD_DRAW_ALIGN_LEFT,false);
         int reserve=at==current?98:0;

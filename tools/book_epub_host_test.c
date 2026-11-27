@@ -19,6 +19,40 @@ int main(int argc, char **argv) {
             printf("epub rejection passed: %s\n", argv[a]); continue;
         }
         assert(book_epub_open(argv[a], &book) == ESP_OK && book);
+        if (strstr(argv[a], "good_authored_preface")) {
+            const char *labels[] = {"译者序", "第二章 原书标题", "第一章 原书标题"};
+            const char *anchors[] = {"preface", "two", "one"};
+            const char *headings[] = {"序言原文", "第二章 正文题头", "第一章 正文题头"};
+            assert(book_epub_navigation_count(book) == 3);
+            for (size_t i = 0; i < 3; ++i) {
+                char title[160];
+                assert(book_epub_navigation_title(book, i, title, sizeof(title)) == ESP_OK);
+                assert(!strcmp(title, labels[i]));
+                assert(book_epub_navigation_chapter(book, i) == 0);
+                assert(book_epub_navigation_source_offset(book, i) == SIZE_MAX);
+                const char *anchor = book_epub_navigation_anchor(book, i);
+                assert(anchor && !strcmp(anchor, anchors[i]));
+                html_text_t text = {0};
+                size_t offset;
+                assert(book_epub_load_anchor(book, 0, anchor, &offset, &text) == ESP_OK);
+                assert(offset < text.len && !strncmp(text.utf8 + offset, headings[i], strlen(headings[i])));
+                html_text_free(&text);
+            }
+            book_epub_close(book);
+            puts("epub authored preface, order and anchors preserved");
+            continue;
+        }
+        if (strstr(argv[a], "good_nav_precise_target")) {
+            char title[160];
+            assert(book_epub_navigation_count(book) == 1);
+            assert(book_epub_navigation_title(book, 0, title, sizeof(title)) == ESP_OK);
+            assert(!strcmp(title, "第一章 起点"));
+            const char *anchor = book_epub_navigation_anchor(book, 0);
+            assert(anchor && !strcmp(anchor, "one"));
+            book_epub_close(book);
+            puts("epub dual TOC retains the explicit NAV target");
+            continue;
+        }
         if (strstr(argv[a], "good_dual_samefile_partial_ncx")) {
             assert(book_epub_chapter_count(book) == 1);
             assert(book_epub_navigation_count(book) == 2);
@@ -68,9 +102,17 @@ int main(int argc, char **argv) {
             assert(book_epub_navigation_count(book) == (samefile ? 2 : 4));
             char title[160];
             assert(book_epub_navigation_title(book, 0, title, sizeof(title)) == ESP_OK);
-            if (false_positive) assert(!strcmp(title, "Parent & One"));
+            bool authored = partial || false_positive || strstr(argv[a], "good_body_priority") != NULL;
+            if (authored) {
+                assert(!strcmp(title, "Parent & One"));
+                assert(book_epub_navigation_source_offset(book, 0) == SIZE_MAX);
+                const char *anchor = book_epub_navigation_anchor(book, 0);
+                assert(anchor && !strcmp(anchor, "title"));
+                assert(book_epub_navigation_title(book, 1, title, sizeof(title)) == ESP_OK);
+                assert(!strcmp(title, "Child Two"));
+            }
             else assert(!strcmp(title, "第一章 起点"));
-            if (!partial && !false_positive) {
+            if (!authored) {
                 assert(book_epub_navigation_title(book, 1, title, sizeof(title)) == ESP_OK);
                 assert(!strcmp(title, strstr(argv[a], "ideographic") ? "第2章　第二站" : "第2章 第二站"));
                 for (size_t i = 0; i < (samefile ? 2 : 4); ++i) {
@@ -84,9 +126,6 @@ int main(int argc, char **argv) {
                     assert(text.utf8[offset] == (char)0xe7);
                     html_text_free(&text);
                 }
-            } else if (partial) {
-                assert(book_epub_navigation_title(book, 1, title, sizeof(title)) == ESP_OK);
-                assert(!strcmp(title, "Child Two"));
             }
             book_epub_close(book); printf("epub fixture passed: %s\n", argv[a]); continue;
         }
@@ -123,7 +162,8 @@ int main(int argc, char **argv) {
             assert(book_epub_chapter_title(book, i, title, sizeof(title)) == ESP_OK);
             assert(title[0]);
             if (frontmatter && i == 0) assert(!strcmp(title, "作者信息"));
-            else if (strstr(argv[a], "good_defaults") || (frontmatter && i > 0 && strstr(argv[a], "fallback")))
+            else if (strstr(argv[a], "good_defaults") ||
+                     (frontmatter && i > 0 && (strstr(argv[a], "fallback") || strstr(argv[a], "only"))))
                 assert(!strncmp(title, "Chapter ", strlen("Chapter ")));
             else assert(strncmp(title, "第 ", strlen("第 ")));
             if (strstr(argv[a], "good_paths") && i < 2) assert(!strcmp(title, i ? "Child Two" : "Parent & One"));

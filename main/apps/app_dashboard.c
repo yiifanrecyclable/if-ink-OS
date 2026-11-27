@@ -53,6 +53,8 @@
 #include "ui_kit.h"
 #include "ui_nav.h"
 #include "ui_menu.h"
+#include "standard_font_install.h"
+#include "ui_standard_font.h"
 
 typedef struct {
     char path[BOOK_STORE_PATH_MAX];
@@ -673,6 +675,7 @@ static void prepare_quote_bitmap(void){
     }
 }
 static void home_exit(app_ctx_t *ctx) {
+    ui_standard_font_leave(STANDARD_FONT_HOME);
     (void)ctx;
     if (!s_home_prepared_once) s_home_load = HOME_RECENTS;
 }
@@ -786,6 +789,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     }
     shelf_perf_end(&history_paint);
     ui_nav_draw(fb, 0);
+    if (ui_standard_font_visible(STANDARD_FONT_HOME)) ui_standard_font_draw(fb);
 }
 
 static bool present(app_ctx_t *ctx, app_redraw_t redraw) {
@@ -899,6 +903,7 @@ static app_redraw_t finish_home_entry(app_ctx_t *ctx) {
 }
 
 static void on_media_lost(app_ctx_t *ctx) {
+    ui_standard_font_media_changed(STANDARD_FONT_HOME,false);
     (void)ctx;clear_quote_bitmap();
     clear_cover_cache();
     memset(&s_current, 0, sizeof(s_current));
@@ -911,6 +916,7 @@ static void on_media_lost(app_ctx_t *ctx) {
     memset(s_recent_documents, 0, sizeof(s_recent_documents));
 }
 static void on_media_ready(app_ctx_t *ctx) {
+    ui_standard_font_media_changed(STANDARD_FONT_HOME,true);
     (void)ctx;
     clear_quote_bitmap();
     if (!s_home_prepared_once) s_home_load = HOME_RECENTS;
@@ -920,9 +926,22 @@ static void on_media_ready(app_ctx_t *ctx) {
 }
 
 static app_redraw_t on_tick(app_ctx_t *ctx) {
+    if (ui_standard_font_visible(STANDARD_FONT_HOME)) return ui_standard_font_tick(ctx);
     if(s_history_open)return APP_REDRAW_NONE;
     if (ctx->touch && ctx->touch->touched) return APP_REDRAW_NONE;
     if (s_home_load != HOME_READY) return finish_home_entry(ctx);
+    if (app_settings_standard_font_prompt_pending() && !ctx->pressed && !ctx->released && !ctx->consumed) {
+        static int64_t next_font_check;
+        if (ctx->now_ms >= next_font_check) {
+            next_font_check = ctx->now_ms + 1500;
+            standard_font_file_t file = standard_font_file();
+            if (file == STANDARD_FONT_PRESENT) app_settings_dismiss_standard_font_prompt();
+            if (file == STANDARD_FONT_MISSING) {
+                ui_standard_font_open(STANDARD_FONT_HOME);
+                return APP_REDRAW_PAGE;
+            }
+        }
+    }
     if (s_scan_pending) {
         read_pico_sd_info_t info = {0};
         if (read_pico_sd_get_info(&info) == ESP_ERR_NOT_FINISHED) return APP_REDRAW_NONE;
@@ -960,6 +979,7 @@ static app_redraw_t on_tick(app_ctx_t *ctx) {
 }
 
 static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
+    if (ui_standard_font_visible(STANDARD_FONT_HOME)) return ui_standard_font_gesture(ctx,ev);
     if(s_history_open)return history_gesture(ctx,ev);
     if(ev->type==UI_GESTURE_LONG_PRESS&&ev->y0>=HOME_RECORD_TOP&&ev->y0<HOME_RECENT_TOP){history_show();return APP_REDRAW_PAGE;}
     if (ev->type == UI_GESTURE_LONG_PRESS && ev->x0 >= 36 && ev->x0 < 648 && ev->y0 >= UI_STATUS_HEIGHT && ev->y0 < HOME_RECORD_TOP) {
@@ -986,6 +1006,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     return APP_REDRAW_NONE;
 }
 static app_redraw_t on_key(app_ctx_t *ctx, int key) {
+    if (ui_standard_font_visible(STANDARD_FONT_HOME)) return key==UI_KEY_2?ui_standard_font_back():APP_REDRAW_NONE;
     if(s_history_open){
         if(s_history_target_open)return key==UI_KEY_2?history_back():APP_REDRAW_NONE;
         if(key==UI_KEY_1)return history_turn(-1);
@@ -998,17 +1019,21 @@ static app_redraw_t on_key(app_ctx_t *ctx, int key) {
     return APP_REDRAW_NONE;
 }
 static app_redraw_t on_key_long(app_ctx_t *ctx,int key) {
+    if (ui_standard_font_visible(STANDARD_FONT_HOME)) return key==UI_KEY_2?ui_standard_font_back():APP_REDRAW_NONE;
     (void)ctx;
     if (key != UI_KEY_2 || !s_history_open) return APP_REDRAW_NONE;
     s_history_target_open = s_history_open = false;
     return APP_REDRAW_PAGE;
 }
 static bool no_menu_handle(app_ctx_t *ctx) { (void)ctx; return false; }
+static bool home_prevent_idle_sleep(app_ctx_t *ctx) { (void)ctx; return standard_font_status().busy; }
+static void home_before_lock(app_ctx_t *ctx) { (void)ctx; ui_standard_font_interrupt(STANDARD_FONT_HOME); }
 static EpdRect area_hint(app_ctx_t *ctx) { (void)ctx; return s_area; }
 
 const app_desc_t app_dashboard = {
     .title = UI_MSG("首页 Home"), .detail = UI_MSG("最近阅读与四周阅读记录"), .enter_full = false,
     .owns_keys = true, .menu_handle_enabled = no_menu_handle,
+    .prevent_idle_sleep = home_prevent_idle_sleep, .on_before_lock = home_before_lock,
     .on_enter = on_enter, .on_exit=home_exit, .on_media_lost = on_media_lost, .on_media_ready = on_media_ready,
     .render = render, .present = present, .on_tick = on_tick,
     .on_gesture = on_gesture, .on_key = on_key, .on_key_long=on_key_long, .defer_middle_short=true, .area_hint = area_hint,

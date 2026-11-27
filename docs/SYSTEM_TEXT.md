@@ -21,6 +21,10 @@ All status text uses fixed 28px type. The home date/quote banner, content capsul
 中英文共用一个系统字体，建议使用覆盖中文与拉丁字符的完整字体，不增加两套语言选择。读取已配置的 fonts 目录并兼容 TF 卡 font 目录及 assets/fonts。默认内建界面字库从 TF 标准字库补充动态标题，用户选择优先；重新插卡遵循已有字体恢复机制。
 Use one complete CJK/Latin system face. Scan configured fonts, the TF font alias and assets/fonts. The default built-in UI face falls back to the TF standard face for dynamic titles; explicit choices take priority and retain existing remount/reload behavior.
 
+全新安装后，TF 卡就绪且缺少标准思源黑体时，首页会提示安装。可跳过，再从「设置 → 系统文字」选择「安装标准字库」。下载约 10.5 MB，校验通过后保存到 TF 卡的 `fonts/PicoSans-Medium.ttf`，保留已选字体。也可从资源包离线安装，OFL 许可随字体提供。
+
+After a fresh installation, Home offers to install the standard font once a card is ready and the font is missing. You can skip the prompt and install it later under **Settings → System text**. The 10.5 MB download is verified and saved to `fonts/PicoSans-Medium.ttf` without changing your font choice. The resources package supplies the font and its OFL license for offline installation.
+
 日期与时间 → 状态栏显示：可隐藏日期但始终显示时间，数字日期提供年-月-日、年/月/日、年.月.日、月-日、月/日五种格式；立即应用，备份可保存，旧备份保留当前日期显示偏好。首页日期 Banner 独立。
 Date & time → Status display: hide the date independently of time; choose YYYY-MM-DD, YYYY/MM/DD, YYYY.MM.DD, MM-DD or MM/DD. Apply immediately and include preferences in backups; legacy backups retain current status-date preferences. The home date banner remains independent.
 

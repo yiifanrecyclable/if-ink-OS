@@ -229,7 +229,7 @@ static app_redraw_t reader_style_preview(app_ctx_t *ctx,int x){
 static app_redraw_t reader_toc_preview(app_ctx_t *ctx,int x,bool force){
     int next=book_toc_jump_percent((uint16_t)x);if(!force&&next==s_toc_jump_percent)return APP_REDRAW_NONE;
     s_toc_jump_percent=next;if(reader_landscape())return reader_wide_preview(ctx);
-    lock_draw();book_toc_render_jump_preview(ctx->fb,book_navigation_count(),next);unlock_draw();s_area=book_toc_jump_preview_area();s_mode=MODE_GL16;return APP_REDRAW_AREA;
+    lock_draw();book_toc_render_jump_preview(ctx->fb,book_toc_entry_count(),next);unlock_draw();s_area=book_toc_jump_preview_area();s_mode=MODE_GL16;return APP_REDRAW_AREA;
 }
 static bool reader_progress_event(const ui_gesture_event_t *ev) {
     int y = reader_progress_y();

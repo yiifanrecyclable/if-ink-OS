@@ -214,10 +214,7 @@ static void reader_control_header(uint8_t *fb,const char *title){
 static void reader_control_pager(uint8_t *fb,int count,int page){
     int pages=count?1+(count-1)/reader_control_rows():1;
     if(pages<=1)return;
-    char text[32];ui_snprintf(text,sizeof(text),"%d / %d",page+1,pages);
-    ui_draw_icon(fb,64,1050,30,UI_ICON_CHEVRON_LEFT,page?0:0x99);
-    ui_draw_icon(fb,620,1050,30,UI_ICON_CHEVRON_RIGHT,page+1<pages?0:0x99);
-    reader_control_text(fb,342,1050,UI_TEXT_CAPTION,text,EPD_DRAW_ALIGN_CENTER,false);
+    ui_nav_draw_page_arrows(fb,1050,page,pages,reader_px(UI_TEXT_CAPTION));
 }
 static int reader_control_count(void){
     switch(s_reader_panel){

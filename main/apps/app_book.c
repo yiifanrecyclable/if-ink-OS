@@ -609,7 +609,7 @@ static int64_t s_reader_sensor_next_ms;
 static unsigned s_reader_opposite_samples;
 #endif
 enum { WIDE_SPLIT_GAP = 12, WIDE_PANE_WIDTH = (UI_LOCK_HEIGHT - WIDE_SPLIT_GAP) / 2,
-       WIDE_PAGER_Y = 616, WIDE_TOC_ROWS = 9, WIDE_LIST_STEP = 64,
+       WIDE_PAGER_Y = 616, WIDE_TOC_ROWS = 9, WIDE_TOC_TOP = 24, WIDE_LIST_STEP = 64,
        WIDE_PROGRESS_Y = 222, WIDE_ACTIONS_Y = 340, WIDE_TABS_Y = 530 };
 static int wide_panel_x(bool tools) {
     return tools == s_reader_landscape_reverse ? 0 : WIDE_PANE_WIDTH + WIDE_SPLIT_GAP;
@@ -629,6 +629,7 @@ static void reader_set_landscape_rotation(void) {
 static bool s_reader_fullscreen;
 static bool s_reader_immersive;
 static char s_message[128], s_path[BOOK_STORE_PATH_MAX], s_title[128];
+static bool s_epub_section_has_text;
 static char s_book_title[128];
 static char s_chapter_heading_title[128], s_chapter_heading_label[32];
 static size_t s_chapter_lead_skip;
@@ -1043,7 +1044,7 @@ static int leaves(void) {
         return count ? 1+(int)(count-1)/document_rows() : 1;
     }
     if (s_view == TOC) {
-        size_t count = book_navigation_count();
+        size_t count = book_toc_entry_count();
         return reader_landscape() && count ? 1 + (int)((count - 1) / WIDE_TOC_ROWS) : book_toc_pages(count);
     }
     int count = s_visible_count;
@@ -1112,12 +1113,17 @@ static void reader_footer_strip_number(char *dst, size_t cap, const char *source
             if (*after == ' ' || *after == '\t' || *after == ':' || *after == '-') ++after;
             else after += strlen("：");
         }
-        name = after;
+        if (*after || book_kind() != BOOK_KIND_EPUB) name = after;
     }
     if (!*name || !strcmp(name, UI_MSG("本章")) || !strcmp(name, UI_MSG("章节"))) name = UI_MSG("未命名章节");
     copy_text(dst, cap, name);
 }
 static void reader_footer_chapter_name(char *dst, size_t cap) {
+    if (book_kind() == BOOK_KIND_EPUB) {
+        if (s_title[0]) reader_footer_strip_number(dst, cap, s_title);
+        else if (cap) dst[0] = 0;
+        return;
+    }
     char source[128] = {0};
     bool selected = s_selected_toc < book_navigation_count() &&
         book_navigation_chapter(s_selected_toc) == s_chapter &&
@@ -2110,16 +2116,17 @@ static void reader_prefetch_idle(app_ctx_t *ctx) {
 static size_t current_toc_position(void) {
     size_t count = book_navigation_count();
     if(book_kind()==BOOK_KIND_MARKDOWN){size_t best=0,offset=book_layout_page_start_offset(s_page);for(size_t i=0;i<count;i++){if(book_navigation_source_offset(i)>offset)break;best=i;}return best;}
+    const bool has_start = book_kind() == BOOK_KIND_EPUB;
     if (s_selected_toc < count && book_navigation_chapter(s_selected_toc) == s_chapter)
-        return s_selected_toc;
+        return s_selected_toc + has_start;
     size_t selected = SIZE_MAX;
     size_t best_chapter = 0;
     for (size_t i = 0; i < count; ++i) {
         size_t chapter = book_navigation_chapter(i);
-        if (chapter > s_chapter) break;
+        if (chapter > s_chapter) continue;
         if (selected == SIZE_MAX || chapter > best_chapter) { selected = i; best_chapter = chapter; }
     }
-    return selected;
+    return selected == SIZE_MAX ? (has_start ? 0 : SIZE_MAX) : selected + has_start;
 }
 // 补封面只擦除本格图片区；标题、进度和其他区域保持原帧，输出范围仍沿用整格。
 // Replace only this cell's image band; retain titles, progress and all other pixels, with the existing cell output area.
@@ -2141,11 +2148,11 @@ static void render_view(app_ctx_t* ctx, uint8_t* fb) {
     if (s_view == SEARCH) { draw_search(fb); return; }
     if (s_view == TOC) {
         if (reader_landscape() && s_text) { draw_landscape_reader(ctx, fb, s_page, false); return; }
-        book_toc_render(fb, book_navigation_count(), current_toc_position(), ctx->leaf, s_message);
+        book_toc_render(fb, book_toc_entry_count(), current_toc_position(), ctx->leaf, s_message);
         reader_page_status(fb);
         reader_control_header(fb, UI_MSG("目录"));
         if (s_toc_jump_open)
-            book_toc_render_jump(fb, book_navigation_count(), s_toc_jump_percent);
+            book_toc_render_jump(fb, book_toc_entry_count(), s_toc_jump_percent);
         else reader_control_footer(fb);
         return;
     }
@@ -2426,6 +2433,7 @@ static void free_book(void) {
     book_layout_set_chapter_lead(0, 0);
     s_chapter_lead_skip = s_chapter_lead_height = 0;
     s_chapter_heading_title[0] = s_chapter_heading_label[0] = 0;
+    s_epub_section_has_text = false;
     free(s_text);
     free(s_blocks);
     free(s_text_styles);
@@ -2565,7 +2573,7 @@ static void prepare_inline_image(void) {
     free(encoded);
 }
 typedef enum { CHAPTER_KEEP_NOTE, CHAPTER_FOLLOW_LINK, CHAPTER_FOLLOW_NOTE,
-               CHAPTER_LEAVE_NOTE, CHAPTER_STORED_POSITION } chapter_note_action_t;
+               CHAPTER_LEAVE_NOTE, CHAPTER_STORED_POSITION, CHAPTER_BOOK_START } chapter_note_action_t;
 
 static bool note_returns_to_source(const html_text_t *text, size_t anchor) {
     while (anchor < text->len && (text->utf8[anchor] == ' ' || text->utf8[anchor] == '\n')) ++anchor;
@@ -2847,17 +2855,29 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
     bool from_note = false;
     size_t anchor_offset = 0;
     trim_reader_covers(READER_COVERS_CHECK);
-    esp_err_t err = book_chapter_load_blocks_target(chapter, anchor, source_offset,
-                                                    &anchor_offset, &loaded);
-    if (err == ESP_ERR_NO_MEM && trim_reader_covers(READER_COVERS_RETRY)) {
-        html_text_free(&loaded);
+    const bool book_start = note_action == CHAPTER_BOOK_START;
+    esp_err_t err;
+    for (;;) {
         err = book_chapter_load_blocks_target(chapter, anchor, source_offset, &anchor_offset, &loaded);
+        if (err == ESP_ERR_NO_MEM && trim_reader_covers(READER_COVERS_RETRY)) {
+            html_text_free(&loaded);
+            err = book_chapter_load_blocks_target(chapter, anchor, source_offset, &anchor_offset, &loaded);
+        }
+        // 书首可跳过空白或损坏条目，遇到存储和内存错误则直接报告。/ Skip blank or malformed leading sections, but surface I/O and memory failures.
+        if (!book_start || !((err == ESP_OK && !loaded.count) || err == ESP_ERR_INVALID_RESPONSE ||
+                             err == ESP_ERR_INVALID_CRC)) break;
+        html_text_free(&loaded);
+        if (++chapter >= book_chapter_count()) {
+            err = ESP_ERR_NOT_FOUND;
+            break;
+        }
     }
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "chapter load failed: %s", esp_err_to_name(err));
         copy_text(s_message, sizeof(s_message), UI_MSG("加载失败，请检查存储卡后重试"));
         return false;
     }
+    if (book_start) note_action = CHAPTER_LEAVE_NOTE;
     if (anchor_offset == SIZE_MAX) {
         if (following_link) { html_text_free(&loaded); return false; }
         anchor_offset = 0;
@@ -2901,11 +2921,17 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
     char heading[128] = {0}, label[32] = {0}, toc_title[128] = {0};
     size_t lead_skip = 0;
     unsigned lead_height = 0;
-    if (book_kind() == BOOK_KIND_EPUB && chapter < book_chapter_count() && loaded.len) {
-        // 已识别的正文编号题头优先；没有时沿用书内导航或备用标题。
-        // Prefer a recognized numbered body heading, then authored navigation or a fallback title.
-        if (book_chapter_title(chapter, toc_title, sizeof(toc_title)) != ESP_OK)
-            ui_snprintf(toc_title, sizeof(toc_title), UI_MSG("第 %u 节"), (unsigned)chapter + 1);
+    const bool epub = book_kind() == BOOK_KIND_EPUB;
+    bool section_has_text = false;
+    if (epub && chapter < book_chapter_count()) {
+        for (size_t i = 0; i < loaded.count; ++i) {
+            if (loaded.blocks[i].image < 0 && loaded.blocks[i].len) {
+                section_has_text = true;
+                break;
+            }
+        }
+    }
+    if (section_has_text && book_epub_reading_title(chapter, SIZE_MAX, toc_title, sizeof(toc_title)) == ESP_OK) {
         copy_text(heading, sizeof(heading), toc_title);
         char *chapter_mark = strstr(heading, UI_MSG("章"));
         if (chapter_mark && chapter_mark - heading < 24) {
@@ -2935,10 +2961,12 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
                 (!label[0] || strcmp(trimmed, label))) break;
             ++skip_blocks;
         }
-        if (skip_blocks) lead_skip = skip_blocks < loaded.count ? loaded.blocks[skip_blocks].offset : loaded.len;
-        if (skip_blocks < loaded.count && loaded.blocks[skip_blocks].image >= 0) lead_skip = 0;
-        else
-            lead_height = new_body.height > 214 ? 214 : 0;
+        // 只重新排版书中已有的起始标题。/ Restyle only a heading already present at the start.
+        if (skip_blocks && skip_blocks < loaded.count &&
+            loaded.blocks[skip_blocks].image < 0 && new_body.height > 214) {
+            lead_skip = loaded.blocks[skip_blocks].offset;
+            lead_height = 214;
+        }
     }
     size_t old_lead_skip = s_chapter_lead_skip;
     unsigned old_lead_height = s_chapter_lead_height;
@@ -3028,7 +3056,9 @@ static bool load_chapter_at(app_ctx_t* ctx, size_t chapter, size_t offset,
     s_jump_offset = anchor || source_offset != SIZE_MAX ? anchor_offset :
         (book_kind() != BOOK_KIND_MARKDOWN && !last_page && offset < loaded.len ? offset : SIZE_MAX);
     s_jump_page = s_page;
+    s_epub_section_has_text = section_has_text;
     if (chapter >= book_chapter_count()) copy_text(s_title, sizeof(s_title), UI_MSG("注释"));
+    else if (epub) copy_text(s_title, sizeof(s_title), toc_title);
     else if (book_chapter_title(chapter, s_title, sizeof(s_title)) != ESP_OK)
         ui_snprintf(s_title, sizeof(s_title), UI_MSG("第 %u 节"), (unsigned)chapter + 1);
     copy_text(s_font_path, sizeof(s_font_path), ttf_font_path());
@@ -3888,7 +3918,12 @@ static app_redraw_t turn_page(app_ctx_t* ctx, int dir) {
     else if (dir > 0 && s_chapter + 1 < book_chapter_count()) { save_progress(); changed = load_chapter(ctx, s_chapter + 1, 0, false); }
     else if (dir < 0 && s_chapter) { save_progress(); changed = load_chapter(ctx, s_chapter - 1, 0, true); }
     else return APP_REDRAW_NONE;
-    if (!changed) { set_reader_view(s_text ? TOC : SHELF); ctx->leaf = s_text ? s_chapter / (reader_landscape()?WIDE_TOC_ROWS:BOOK_TOC_ROWS) : 0; return APP_REDRAW_PAGE; }
+    if (!changed) {
+        set_reader_view(s_text ? TOC : SHELF);
+        size_t at = s_text ? current_toc_position() : SIZE_MAX;
+        ctx->leaf = at == SIZE_MAX ? 0 : (int)(at / (reader_landscape() ? WIDE_TOC_ROWS : BOOK_TOC_ROWS));
+        return APP_REDRAW_PAGE;
+    }
     skip_hidden_image_pages(ctx, dir);
     if (!s_text) { s_view = SHELF; return APP_REDRAW_PAGE; }
     s_jump_offset = SIZE_MAX;
@@ -4805,18 +4840,35 @@ static app_redraw_t reader_toc_target(app_ctx_t *ctx, int target, uint16_t x) {
     if(target>=0&&book_kind()==BOOK_KIND_MARKDOWN&&x<106+book_markdown_navigation_depth((size_t)target)*24){
         if(book_markdown_navigation_toggle((size_t)target)){s_selected_toc=SIZE_MAX;if(ctx->leaf>=leaves())ctx->leaf=leaves()-1;return APP_REDRAW_PAGE;}
     }
-    if (target >= 0 && !s_message[0]) {
-        size_t chapter = book_navigation_chapter((size_t)target);
+    bool book_start = target == BOOK_TOC_START && book_kind() == BOOK_KIND_EPUB;
+    if (book_start || (target >= 0 && !s_message[0])) {
+        size_t chapter = book_start ? 0 : book_navigation_chapter((size_t)target);
         if (chapter >= book_chapter_count()) return APP_REDRAW_NONE;
         save_progress();
-        reader_remember_jump();
+        bool leaving_note = book_start && s_note_open;
+        size_t previous_chapter = leaving_note ? s_note_origin.chapter : s_chapter;
+        size_t previous_offset = leaving_note ? s_note_origin.byte_off : reader_page_offset(s_page);
+        const char *anchor = book_start ? NULL : book_navigation_anchor((size_t)target);
+        size_t source_offset = book_start ? SIZE_MAX : book_navigation_source_offset((size_t)target);
         set_reader_view(READING);
-        if (load_chapter_at(ctx, chapter, 0, false, book_navigation_anchor((size_t)target),
-                            book_navigation_source_offset((size_t)target), CHAPTER_KEEP_NOTE, NULL)) {
-            s_selected_toc = (size_t)target;
-            char entry_title[sizeof(s_title)];
-            if (book_navigation_title((size_t)target, entry_title, sizeof(entry_title)) == ESP_OK)
-                copy_text(s_title, sizeof(s_title), entry_title);
+        if (load_chapter_at(ctx, chapter, 0, false, anchor, source_offset,
+                            book_start ? CHAPTER_BOOK_START : CHAPTER_KEEP_NOTE, NULL)) {
+            s_jump_back_valid = true;
+            s_jump_back_chapter = previous_chapter;
+            s_jump_back_offset = previous_offset;
+            if (!book_start) {
+                s_selected_toc = (size_t)target;
+                char entry_title[sizeof(s_title)];
+                esp_err_t title_result = book_kind() == BOOK_KIND_EPUB
+                    ? (s_epub_section_has_text
+                        ? book_epub_reading_title(chapter, (size_t)target, entry_title, sizeof(entry_title))
+                        : ESP_ERR_NOT_FOUND)
+                    : book_navigation_title((size_t)target, entry_title, sizeof(entry_title));
+                if (title_result == ESP_OK)
+                    copy_text(s_title, sizeof(s_title), entry_title);
+                else if (book_kind() == BOOK_KIND_EPUB && title_result == ESP_ERR_NOT_FOUND)
+                    s_title[0] = 0;
+            }
             s_view = READING;
             s_reader_panel = READER_PANEL_NONE;
             save_progress();
@@ -4845,7 +4897,7 @@ static app_redraw_t action_at(app_ctx_t* ctx, uint16_t x, uint16_t y) {
             s_toc_jump_open = s_toc_jump_drag = false;
             return APP_REDRAW_PAGE;
         }
-        int target = book_toc_hit(x, y, ctx->leaf, book_navigation_count());
+        int target = book_toc_hit(x, y, ctx->leaf, book_toc_entry_count());
         if (target == BOOK_TOC_PREV || target == BOOK_TOC_NEXT ||
             target == BOOK_TOC_SKIP_PREV || target == BOOK_TOC_SKIP_NEXT) {
             int step = target == BOOK_TOC_SKIP_PREV || target == BOOK_TOC_SKIP_NEXT ? 10 : 1;
@@ -4855,7 +4907,7 @@ static app_redraw_t action_at(app_ctx_t* ctx, uint16_t x, uint16_t y) {
             if (next != ctx->leaf) { ctx->leaf = next; return APP_REDRAW_PAGE; }
             return APP_REDRAW_NONE;
         }
-        if (target == BOOK_TOC_JUMP && book_navigation_count()) {
+        if (target == BOOK_TOC_JUMP && book_toc_entry_count()) {
             s_toc_jump_open = true;
             s_toc_jump_percent = (ctx->leaf + 1) * 100 / leaves();
             return APP_REDRAW_PAGE;
@@ -5179,8 +5231,8 @@ static app_redraw_t gesture_event_local(app_ctx_t* ctx, const ui_gesture_event_t
         if (ev->type == UI_GESTURE_TAP) {
             EpdRect close = reader_portrait_close_rect();
             if (content_tapped(close, ev)) return action_at(ctx, ev->x0, ev->y0);
-            int start = book_toc_hit(ev->x0, ev->y0, ctx->leaf, book_navigation_count());
-            int end = book_toc_hit(ev->x, ev->y, ctx->leaf, book_navigation_count());
+            int start = book_toc_hit(ev->x0, ev->y0, ctx->leaf, book_toc_entry_count());
+            int end = book_toc_hit(ev->x, ev->y, ctx->leaf, book_toc_entry_count());
             if (start != -1 && start == end) return action_at(ctx, ev->x0, ev->y0);
         }
         if (ev->type == UI_GESTURE_SWIPE_U || ev->type == UI_GESTURE_SWIPE_D) {

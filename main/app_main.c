@@ -140,6 +140,7 @@ void app_main(void) {
     {
         WAKE_SCOPE(settings, SP_WAKE_SETTINGS, 0, 0);
         app_settings_init();
+        app_settings_begin_standard_font_setup();
         sleep_resume_init(esp_app_get_description()->app_elf_sha256,
                           reset_reason == ESP_RST_POWERON || reset_reason == ESP_RST_DEEPSLEEP);
     }

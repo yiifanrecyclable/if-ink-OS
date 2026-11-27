@@ -25,6 +25,9 @@ typedef enum {
 } app_sleep_mode_t;
 
 void app_settings_init(void);
+void app_settings_begin_standard_font_setup(void);
+bool app_settings_standard_font_prompt_pending(void);
+void app_settings_dismiss_standard_font_prompt(void);
 /// 只读设置证据：回读结果/字号/路径摘要/NVS统计，写本地诊断CSV，不记录明文路径或凭据。
 /// Read-only evidence: readback codes, size, path hashes and NVS stats; local CSV without plaintext paths/credentials.
 void app_settings_trace_storage(const char *stage);

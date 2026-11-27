@@ -107,6 +107,13 @@ unsigned simulator_reader_binding(unsigned slot){return reader_input_action(slot
 int simulator_reader_margin(void){return body_rect().x;}
 size_t simulator_reader_offset(void){return reader_page_offset(s_page);}
 size_t simulator_reader_chapter(void){return s_chapter;}
+const char *simulator_reader_section_caption(void){
+    static char caption[128];
+    caption[0]=0;
+    if(s_view==READING)reader_footer_chapter_name(caption,sizeof(caption));
+    return caption;
+}
+unsigned simulator_reader_chapter_lead_height(void){return s_chapter_lead_height;}
 bool simulator_reader_note_open(void){return s_note_open;}
 const char *simulator_reader_note_return_label(void){return s_note_open ? ui_message(reader_note_return_label()) : "";}
 int simulator_reader_note_card_top(void){return s_note_card ? reader_note_card_rect(s_note_card).y : 0;}

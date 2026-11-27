@@ -53,6 +53,8 @@
 #include "ui_menu.h"
 #include "ui_nav.h"
 #include "ui_wifi_qr.h"
+#include "ui_standard_font.h"
+#include "standard_font_install.h"
 #include "usb_storage.h"
 #include "transfer_appearance.h"
 
@@ -72,6 +74,7 @@ static EpdRect s_area;
 static bool s_qr_url, s_qr_ready;
 static char s_usb_message[96];
 static bool s_usb_requested, s_wifi_setup_requested, s_wifi_settings_only;
+static bool s_font_wifi_requested, s_font_wifi, s_font_wifi_returned;
 static bool s_wifi_upload_requested, s_hotspot_requested, s_direct_entry, s_usb_entry;
 static bool s_usb_start_pending;
 static int64_t s_usb_retry_ms;
@@ -128,6 +131,7 @@ static esp_err_t transfer_file_moved(const char *old_path,const char *new_path,u
 
 void app_transfer_request_method_picker(void) {
     s_usb_requested = s_hotspot_requested = s_wifi_upload_requested = s_wifi_setup_requested = false;
+    s_font_wifi_requested = false;
     s_wifi_settings_only = false;
 }
 
@@ -138,6 +142,12 @@ void app_transfer_request_usb_start(void) {
 void app_transfer_request_wifi_setup(void) {
     s_wifi_setup_requested = true;
     s_wifi_settings_only = true;
+    s_font_wifi_requested = false;
+}
+
+void app_transfer_request_standard_font_wifi(void) {
+    app_transfer_request_wifi_setup();
+    s_font_wifi_requested = true;
 }
 
 void app_transfer_request_wifi_upload(void) {
@@ -747,6 +757,8 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
 }
 
 static void on_enter(app_ctx_t* ctx) {
+    s_font_wifi = s_wifi_setup_requested && s_font_wifi_requested;
+    s_font_wifi_requested = s_font_wifi_returned = false;
     shelf_perf_finish();shelf_perf_poll(!usb_storage_active());
     (void)ctx;
     if(!usb_storage_active())transfer_appearance_cleanup();
@@ -878,6 +890,8 @@ static void transfer_on_exit(app_ctx_t* ctx) {
         clear_qr();
         s_session_started = false; // 全局循环接管保活；再次进页会从组件状态恢复。
     } else stop_session();
+    if (s_font_wifi) ui_standard_font_wifi_finished(s_font_wifi_returned);
+    s_font_wifi = s_font_wifi_returned = false;
     s_wifi_settings_only = false;
     s_usb_entry = false;
     s_direct_entry = false;
@@ -911,7 +925,15 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
     }
     if (usb_storage_active()) return APP_REDRAW_NONE;
     if (s_view == TRANSFER_METHODS) return APP_REDRAW_NONE;
-    if (s_view != TRANSFER_HOME) return network_ui_tick(ctx);
+    if (s_view != TRANSFER_HOME) {
+        app_redraw_t redraw = network_ui_tick(ctx);
+        if (s_font_wifi && s_view == TRANSFER_NETWORKS && !s_forget_confirm && standard_font_wifi_ready()) {
+            s_font_wifi_returned = true;
+            ctx->request_return = true;
+            return APP_REDRAW_NONE;
+        }
+        return redraw;
+    }
     if (s_start_pending) {
         s_start_pending = false;
         // 传书模式也应在启动无线电前释放可重建字形，避免内部内存不足。
@@ -1039,6 +1061,11 @@ static app_redraw_t method_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev)
 static app_redraw_t transfer_back(app_ctx_t *ctx) {
     if (s_usb_entry || usb_storage_active()) return stop_usb_for_navigation(ctx, false);
     if (s_view == TRANSFER_PASSWORD) return cancel_password();
+    if (s_font_wifi && !s_forget_confirm) {
+        s_font_wifi_returned = true;
+        ctx->request_return = true;
+        return APP_REDRAW_NONE;
+    }
     if (s_view == TRANSFER_NETWORKS) {
         if (s_forget_confirm) return provisioning_action(12);
         if (s_wifi_settings_only) { ui_nav_request(ctx,3); return APP_REDRAW_NONE; }

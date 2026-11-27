@@ -39,6 +39,8 @@
 
 #define TAG "settings"
 #define NVS_NS "read_pico"
+#define NVS_KEY_FONT_SETUP "font_setup"
+static bool s_standard_font_prompt, s_settings_namespace_missing;
 #define NVS_KEY_SLEEP "sleep"
 #define NVS_KEY_SHUTDOWN_MODE "shutdown"
 #define NVS_KEY_HOME_FULL "home_full"
@@ -214,6 +216,7 @@ static uint8_t valid_book_px(uint8_t px) {
 }
 
 void app_settings_init(void) {
+    s_standard_font_prompt = s_settings_namespace_missing = false;
     esp_err_t err = nvs_flash_init();s_nvs_init_error=err;
     // 设置分区异常时保留原数据供恢复，绝不因空间不足自动擦除用户资料。
     // Preserve settings on NVS errors; a full partition must never silently erase profile data.
@@ -227,7 +230,14 @@ void app_settings_init(void) {
 
     nvs_handle_t h;
     err=nvs_open(NVS_NS,NVS_READONLY,&h);
-    if(err!=ESP_OK){if(err!=ESP_ERR_NVS_NOT_FOUND)s_load_error=err;settings_trace_record("boot_nvs_open",err,false);return;}
+    if (err != ESP_OK) {
+        s_settings_namespace_missing = err == ESP_ERR_NVS_NOT_FOUND;
+        if (!s_settings_namespace_missing) s_load_error=err;
+        settings_trace_record("boot_nvs_open",err,false);
+        return;
+    }
+    uint8_t font_setup = 0;
+    s_standard_font_prompt = nvs_get_u8(h,NVS_KEY_FONT_SETUP,&font_setup) == ESP_OK && font_setup == 1;
     uint8_t language=APP_LANGUAGE_ZH;
     s_language=APP_LANGUAGE_ZH;
     if(settings_read_u8(h,NVS_KEY_LANGUAGE,&language)==ESP_OK && language<=APP_LANGUAGE_EN)s_language=(app_language_t)language;
@@ -769,6 +779,24 @@ esp_err_t app_settings_set_book_paragraph_spacing(uint8_t percent) {
 
 const char* app_settings_books_dir(void) { return s_books_dir; }
 const char* app_settings_fonts_dir(void) { return s_fonts_dir; }
+
+bool app_settings_standard_font_prompt_pending(void) { return s_standard_font_prompt; }
+
+void app_settings_begin_standard_font_setup(void) {
+    if (!s_settings_namespace_missing) return;
+    s_settings_namespace_missing = false;
+    s_standard_font_prompt = true;
+    // Persist Pending before the user can make other settings changes, even with no card.
+    if (settings_storage_put_u8(NVS_NS,NVS_KEY_FONT_SETUP,1) != ESP_OK)
+        ESP_LOGW(TAG,"Could not persist the first-boot font offer");
+}
+
+void app_settings_dismiss_standard_font_prompt(void) {
+    if (!s_standard_font_prompt) return;
+    s_standard_font_prompt = false;
+    if (settings_storage_put_u8(NVS_NS,NVS_KEY_FONT_SETUP,0) != ESP_OK)
+        ESP_LOGW(TAG,"Could not persist the standard-font offer dismissal");
+}
 bool app_settings_set_books_dir(const char* path) {
     return path && !strcmp(path,"/sdcard/books");
 }

@@ -73,6 +73,13 @@ static void exited(app_ctx_t *c){(void)c;step('X',7);}
 static bool app_font_activate_system(void){step('F',11);return true;}
 static void entered(app_ctx_t *c){(void)c;step('N',13);++request;}
 '''
+# Home-only harness
+unit+=r'''
+enum {HOME_READY};
+static int s_home_load = HOME_READY;
+static int64_t s_home_next_ms;
+static int64_t esp_timer_get_time(void){return clock_us;}
+'''
 unit+=function(home,'static bool present(app_ctx_t *ctx, app_redraw_t redraw) {')
 unit+=function(src,'void app_present(app_ctx_t* ctx, const app_desc_t* app, app_redraw_t redraw) {')
 unit+=function(src,'static void switch_to(')

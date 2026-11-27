@@ -690,6 +690,8 @@ void ttf_font_picker_begin(unsigned revision, uint32_t media_epoch) {
 #endif
 }
 
+void ttf_font_picker_invalidate(void) { s_picker_catalog = false; }
+
 bool ttf_font_picker_pending(void) {
     return s_picker_catalog && s_picker_checked < s_catalog_n;
 }

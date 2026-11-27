@@ -81,6 +81,7 @@ const ttf_font_item_t* ttf_font_item(int index);
 /// 只读字体字符映射，不打开字形轮廓或切换当前字库。/ Inspect the cmap without opening outlines or changing the active face.
 uint8_t ttf_font_path_coverage(const char *path);
 void ttf_font_picker_begin(unsigned revision, uint32_t media_epoch);
+void ttf_font_picker_invalidate(void);
 bool ttf_font_picker_pending(void);
 bool ttf_font_picker_step(void);
 int ttf_font_picker_count(uint8_t coverage);

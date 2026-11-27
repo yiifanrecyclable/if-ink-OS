@@ -10,7 +10,7 @@ option(IFINK_LANDSCAPE_READER_TEST "Build the local 0.2.3-beta3t reader test fir
 option(IFINK_DOCUMENT_TIMING "Build the local document timing test firmware" OFF)
 option(IFINK_VERTICAL_LAYOUT_TEST "Build the local 0.2.3-beta.1t1 test firmware" OFF)
 option(IFINK_SHELF_TIMING_TEST "Build the local 0.2.4-beta9t performance test firmware" OFF)
-set(PROJECT_VER "0.2.6-beta.3")
+set(PROJECT_VER "0.2.6")
 if(IFINK_SHELF_TIMING_TEST AND (NOT IFINK_INKBUDDY OR IFINK_DOCUMENT_TIMING OR IFINK_VERTICAL_LAYOUT_TEST OR IFINK_LANDSCAPE_READER_TEST))
     message(FATAL_ERROR "0.2.4-beta9t requires inkbuddy and excludes other test profiles")
 endif()

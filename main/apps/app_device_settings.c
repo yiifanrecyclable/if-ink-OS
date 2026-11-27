@@ -38,6 +38,8 @@
 #include "soc/rtc_cntl_reg.h"
 #include "ttf_font.h"
 #include "app_font_context.h"
+#include "standard_font_install.h"
+#include "ui_standard_font.h"
 #include "ui_gesture.h"
 #include "ui_kit.h"
 #include "ui_text_input.h"
@@ -83,6 +85,7 @@ typedef enum { SETTINGS_MAIN, SETTINGS_WIFI, SETTINGS_TIME,
                SETTINGS_RETIRED_17, SETTINGS_RETIRED_18, SETTINGS_TEXT_EDIT, SETTINGS_CLOUD, SETTINGS_HOME_QUOTE, SETTINGS_QUOTE_FONT, SETTINGS_BATTERY = 24, SETTINGS_STATUS_DATE_FORMAT, SETTINGS_IDLE_SLEEP, SETTINGS_FIRMWARE_INFO, SETTINGS_ONLINE_UPDATE, SETTINGS_WALLPAPER_FOLDER, SETTINGS_WALLPAPER_FIXED, SETTINGS_BANNER_IMAGE, SETTINGS_BANNER_BROWSER } settings_page_t;
 static settings_page_t s_page;
 static int s_main_scroll, s_font_page, s_cloud_scroll;
+static bool s_standard_font_entry;
 static bool s_battery_week;
 static int s_battery_percent = -2;
 static bool s_battery_charging;
@@ -107,8 +110,27 @@ static EpdRect system_size_rect(int i) { return (EpdRect){58 + 156 * i,UI_PAGE_Y
 static bool font_picker_page(void){return s_page==SETTINGS_SYSTEM_FONT||s_page==SETTINGS_QUOTE_FONT;}
 static int font_list_top(void) { return font_picker_page() ? UI_PAGE_Y(446) : UI_PAGE_Y(292); }
 static int font_list_step(void) { return ui_list_row_height(false)+12; }
-static int font_list_rows(void) { return ui_list_visible_rows(font_list_top(),1028,font_list_step()); }
+enum { SYSTEM_FONT_PAGER_Y = UI_NAV_TOP - 44 };
+static EpdRect standard_font_entry_rect(void) {
+    const int width = 470, height = 74;
+    EpdRect pager = ui_nav_page_arrow_rect(-1,SYSTEM_FONT_PAGER_Y);
+    return (EpdRect){(UI_LOCK_WIDTH-width)/2,pager.y-height-14,width,height};
+}
+static int font_list_rows(void) {
+    int bottom = 1028;
+    if (s_page == SETTINGS_SYSTEM_FONT)
+        bottom = s_standard_font_entry ? standard_font_entry_rect().y-12 :
+                                         ui_nav_page_arrow_rect(-1,SYSTEM_FONT_PAGER_Y).y;
+    return ui_list_visible_rows(font_list_top(),bottom,font_list_step());
+}
 static EpdRect font_list_rect(int slot) { return (EpdRect){36,font_list_top()+slot*font_list_step(),612,font_list_step()-12}; }
+static void system_font_picker_open(void) {
+    ttf_font_picker_begin(book_store_revision(),book_index_cache_epoch());
+    ttf_name_preview_revision(book_store_revision());
+    s_font_page = 0;
+    s_page = SETTINGS_SYSTEM_FONT;
+    s_standard_font_entry = standard_font_file() != STANDARD_FONT_PRESENT;
+}
 static unsigned s_font_names_shown;
 static bool s_font_names_settled;
 static EpdRect s_font_names_dirty;
@@ -932,7 +954,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
             settings_option(fb,box,active);
             char label[TTF_FONT_NAME_MAX];
             ui_snprintf(label, sizeof(label), "%s", item ? system_font_label(item->path) :
-                s_page==SETTINGS_QUOTE_FONT?quote_font_label(""):UI_MSG("默认字体（完整字库补字）"));
+                s_page==SETTINGS_QUOTE_FONT?quote_font_label(""):UI_MSG("思源黑体（内建）"));
             if (item && ttf_name_preview_draw(fb,item,ui_message(label),ui_text_effective_px(26),system_font_name_rect(box),
                                       active?0xe0:UI_GRAY_WHITE,false)) {
                 s_font_names_shown |= 1u << slot;
@@ -951,10 +973,12 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         }
         if(s_page==SETTINGS_QUOTE_FONT)ui_nav_draw_pager(fb,count,UI_MSG("项"),s_font_page,font_list_pages());
         else{
-            char pages[32];ui_snprintf(pages,sizeof(pages),"%d / %d",s_font_page+1,font_list_pages());
-            ui_text(fb,648,UI_PAGE_Y(1050),20,pages,EPD_DRAW_ALIGN_RIGHT,false);
+            ui_nav_draw_page_arrows(fb,SYSTEM_FONT_PAGER_Y,s_font_page,font_list_pages(),ui_text_effective_px(UI_TEXT_CAPTION));
+            if (s_standard_font_entry)
+                ui_draw_button(fb,standard_font_entry_rect(),UI_MSG("安装标准字库"),false);
         }
         ui_nav_draw(fb, s_page==SETTINGS_QUOTE_FONT?0:3);
+        if (ui_standard_font_visible(STANDARD_FONT_SETTINGS)) ui_standard_font_draw(fb);
         return;
     }
     if(s_page==SETTINGS_WALLPAPER){
@@ -1151,9 +1175,19 @@ static void on_enter(app_ctx_t *ctx) {
     s_home_quote_editor=false;
     s_banner_from_home=s_home_quote_requested;
     if(s_home_quote_requested){s_home_quote_requested=false;if(s_banner_draft_ready){s_page=SETTINGS_HOME_QUOTE;quote_preview_prepare(s_quote_px,false);}}
+    if (ui_standard_font_visible(STANDARD_FONT_SETTINGS)) system_font_picker_open();
 }
 
 static app_redraw_t on_tick(app_ctx_t *ctx) {
+    if (ui_standard_font_visible(STANDARD_FONT_SETTINGS)) {
+        app_redraw_t redraw = ui_standard_font_tick(ctx);
+        if (redraw == APP_REDRAW_PAGE) {
+            bool show_entry = standard_font_file() != STANDARD_FONT_PRESENT;
+            if (s_standard_font_entry != show_entry) s_font_page = 0;
+            s_standard_font_entry = show_entry;
+        }
+        return redraw;
+    }
     if(wallpaper_picker_page()){app_redraw_t r=app_files_wallpaper_tick(ctx);if(r==APP_REDRAW_AREA)s_status_notice_only=true;return r;}
     if(ui_nav_notice_tick(ctx->now_ms)){s_status_notice_only=true;return APP_REDRAW_AREA;}
     if(banner_picker_page())return banner_picker_tick(ctx);
@@ -1327,6 +1361,7 @@ static bool settings_exit_blocked(void) {
 }
 
 static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
+    if (ui_standard_font_visible(STANDARD_FONT_SETTINGS)) return ui_standard_font_gesture(ctx,ev);
     if(wallpaper_picker_page())return wallpaper_picker_result(app_files_wallpaper_gesture(ctx,ev));
     if(s_page==SETTINGS_ONLINE_UPDATE){
         if(ev->type!=UI_GESTURE_TAP)return APP_REDRAW_NONE;
@@ -1492,6 +1527,12 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     }
     if (font_picker_page()) {
         if (s_page == SETTINGS_SYSTEM_FONT) {
+            EpdRect install = standard_font_entry_rect();
+            if (s_standard_font_entry && ui_rect_hit(install,ev->x0,ev->y0) && ui_rect_hit(install,ev->x,ev->y)) {
+                ttf_name_preview_pause();
+                ui_standard_font_open(STANDARD_FONT_SETTINGS);
+                return APP_REDRAW_PAGE;
+            }
             for (int i = 0; i < 4; ++i) if ((ev->x0-(system_size_rect(i).x+50))*(ev->x0-(system_size_rect(i).x+50))+(y-UI_PAGE_Y(300))*(y-UI_PAGE_Y(300))<=2500) {
                 if(app_settings_set_system_font_size(size_values[i])!=ESP_OK){ui_nav_notice_show(UI_MSG("保存失败，请重试"),ctx->now_ms);return APP_REDRAW_PAGE;}
                 ttf_name_preview_pause();
@@ -1499,12 +1540,12 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
                 ui_text_set_system_scale(true);
                 return APP_REDRAW_PAGE;
             }
-        } else {
-            for(int direction=-1;direction<=1;direction+=2){
-                EpdRect target=ui_nav_pager_rect(direction);
-                if(ui_rect_hit(target,ev->x0,y)&&ui_rect_hit(target,ev->x,ev->y))
-                    return font_list_turn(direction)?APP_REDRAW_PAGE:APP_REDRAW_NONE;
-            }
+        }
+        for(int direction=-1;direction<=1;direction+=2){
+            EpdRect target = s_page==SETTINGS_SYSTEM_FONT ? ui_nav_page_arrow_rect(direction,SYSTEM_FONT_PAGER_Y) :
+                                                           ui_nav_pager_rect(direction);
+            if(ui_rect_hit(target,ev->x0,y)&&ui_rect_hit(target,ev->x,ev->y))
+                return font_list_turn(direction)?APP_REDRAW_PAGE:APP_REDRAW_NONE;
         }
         int top = font_list_top(), rows = font_list_rows();
         if (y < top || y >= top + rows*font_list_step() || (y-top)%font_list_step() >= font_list_step()-12 || ev->x0 < 36 || ev->x0 >= 648) return APP_REDRAW_NONE;
@@ -1622,10 +1663,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     }
 
     if (y >= SETTINGS_DISPLAY_Y && y < SETTINGS_DISPLAY_Y + SETTINGS_ROW_H) {
-        ttf_font_picker_begin(book_store_revision(),book_index_cache_epoch());
-        ttf_name_preview_revision(book_store_revision());
-        s_font_page = 0;
-        s_page = SETTINGS_SYSTEM_FONT;
+        system_font_picker_open();
         return APP_REDRAW_PAGE;
     }
     if(y>=SETTINGS_DISPLAY_Y+SETTINGS_ROW_H&&y<SETTINGS_DISPLAY_Y+2*SETTINGS_ROW_H){profile_editor_open(true);return APP_REDRAW_PAGE;}
@@ -1661,6 +1699,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     return APP_REDRAW_NONE;
 }
 static app_redraw_t on_key(app_ctx_t *ctx, int key) {
+    if (ui_standard_font_visible(STANDARD_FONT_SETTINGS)) return key==UI_KEY_2?ui_standard_font_back():APP_REDRAW_NONE;
     if (settings_exit_blocked()) return APP_REDRAW_NONE;
     if (wallpaper_picker_page()) return wallpaper_picker_result(app_files_wallpaper_key(ctx,key));
     if (key != UI_KEY_2) {
@@ -1697,14 +1736,17 @@ static app_redraw_t on_key(app_ctx_t *ctx, int key) {
 }
 
 static app_redraw_t on_key_long(app_ctx_t *ctx, int key) {
+    if (key == UI_KEY_2 && ui_standard_font_visible(STANDARD_FONT_SETTINGS)) return ui_standard_font_back();
     if (key == UI_KEY_2 && !settings_exit_blocked()) ui_nav_request(ctx,0);
     return APP_REDRAW_NONE;
 }
 static void settings_exit(app_ctx_t *ctx) {
+    ui_standard_font_leave(STANDARD_FONT_SETTINGS);
     ttf_name_preview_pause();
     (void)ctx;app_files_wallpaper_close();banner_picker_clear();online_close();quote_preview_clear();s_quote_dragging=false;s_banner_height_drag=0;ui_text_input_clear(&s_text_input);memset(s_editor,0,sizeof(s_editor));
 }
 static void on_before_lock(app_ctx_t *ctx) {
+    ui_standard_font_interrupt(STANDARD_FONT_SETTINGS);
     (void)ctx; online_close();s_quote_dragging=false;s_banner_height_drag=0;
     // 锁屏保留普通草稿；密码清除内容、光标及显示状态，唤醒后可重新输入。
     // Keep ordinary drafts across lock; wipe secret text, cursor and reveal state together.
@@ -1785,18 +1827,22 @@ static bool settings_present(app_ctx_t *ctx, app_redraw_t redraw) {
 }
 
 static void settings_media_lost(app_ctx_t *ctx){
+    ui_standard_font_media_changed(STANDARD_FONT_SETTINGS,false);
+    if (s_page==SETTINGS_SYSTEM_FONT) { s_standard_font_entry=true; s_font_page=0; }
     if(wallpaper_picker_page())app_files_wallpaper_media_changed(ctx,false);
     if(banner_picker_page()){banner_picker_clear();s_banner_image_total=0;}
     if(s_page==SETTINGS_QUOTE_FONT){s_quote_font_catalog_count=0;quote_font_select_page("");}
 }
 static void settings_media_ready(app_ctx_t *ctx){
+    ui_standard_font_media_changed(STANDARD_FONT_SETTINGS,true);
+    if (s_page==SETTINGS_SYSTEM_FONT) system_font_picker_open();
     if(wallpaper_picker_page())app_files_wallpaper_media_changed(ctx,true);
     if(banner_picker_page())banner_picker_open();
     if(s_page==SETTINGS_QUOTE_FONT)quote_font_picker_open();
 }
 static bool settings_prevent_idle_sleep(app_ctx_t *ctx){
     (void)ctx;if_update_status_t status;if_update_get_status(&status);
-    return status.busy||s_local_pending||s_upgrade_restart;
+    return status.busy||s_local_pending||s_upgrade_restart||standard_font_status().busy;
 }
 const app_desc_t app_device_settings = {
     .title = UI_MSG("设置 Settings"), .detail = UI_MSG("显示、连接与设备"), .enter_full = false,

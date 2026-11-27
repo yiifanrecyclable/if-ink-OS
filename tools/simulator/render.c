@@ -21,6 +21,8 @@
 #include "book_ticket.h"
 #include "ui_wallpaper.h"
 #include "app_font_context.h"
+#include "ui_standard_font.h"
+#include "standard_font_install.h"
 extern const uint8_t simulator_lock[] asm("_binary_lock_4bpp_bin_start");
 extern const uint8_t simulator_loading[] asm("_binary_loading_4bpp_bin_start");
 #include "settings.h"
@@ -269,6 +271,7 @@ int main(int argc, char **argv) {
     memset(fb, 0xff, sizeof(fb));
     struct stat card_state;record_store_media(!stat("/sdcard",&card_state)&&S_ISDIR(card_state.st_mode));
     app_settings_init();app_settings_wallpaper_media_ready();
+    if (getenv("PICO_SIM_FRESH_FONT_SETUP")) app_settings_begin_standard_font_setup();
     if (ttf_font_open(argv[9]) != ESP_OK) return 3;
     app_font_activate_system();
     if(!strcmp(argv[1],"web-document")){
@@ -334,6 +337,10 @@ int main(int argc, char **argv) {
     const char *probe=getenv("PICO_SIM_SETTINGS_TRACE_PHASE");if(probe)app_settings_trace_storage(probe);
     printf("{\"pages\":%zu,\"width\":684,\"height\":1216,\"settings_page\":%d,\"transfer_view\":%d,\"route\":%d,\"book_view\":%d,\"reader_panel\":%d,\"reader_fullscreen\":%s,\"reader_page\":%d,\"reader_px\":%d,\"files_view\":%d,\"files_folder\":%d,\"image_view\":%d,\"book_path\":", pages,settings_page,transfer_view,simulator_route,simulator_book_view,simulator_reader_panel,simulator_reader_fullscreen?"true":"false",simulator_reader_page,simulator_reader_px,simulator_files_view,simulator_files_folder,simulator_image_view);
     json_string(simulator_book_path());
+    printf(",\"standard_font_setup\":[%d,%d,%d]",
+           ui_standard_font_visible(STANDARD_FONT_HOME),ui_standard_font_visible(STANDARD_FONT_SETTINGS),
+           standard_font_status().state);
+    printf(",\"wifi_station_ready\":%s",standard_font_wifi_ready()?"true":"false");
     extern bool simulator_transfer_forget_open(void),simulator_transfer_saved_wifi(void);
     extern int simulator_transfer_forget_card_top(void);
     printf(",\"transfer_forget_open\":%s,\"transfer_saved_wifi\":%s,\"transfer_forget_card_top\":%d",
@@ -374,9 +381,13 @@ int main(int argc, char **argv) {
     extern int simulator_reader_margin(void),simulator_reader_control_geometry(unsigned);
     extern size_t simulator_reader_offset(void);
     extern size_t simulator_reader_chapter(void);
+    extern const char *simulator_reader_section_caption(void);
+    extern unsigned simulator_reader_chapter_lead_height(void);
     extern bool simulator_reader_note_open(void);
     extern const char *simulator_reader_note_return_label(void);
     printf(",\"reader_chapter\":%zu,\"reader_note_open\":%s",simulator_reader_chapter(),simulator_reader_note_open()?"true":"false");
+    printf(",\"reader_chapter_lead_height\":%u,\"reader_section_caption\":",simulator_reader_chapter_lead_height());
+    json_string(simulator_reader_section_caption());
     printf(",\"reader_note_return_label\":");json_string(simulator_reader_note_return_label());
     extern int simulator_reader_note_card_top(void);
     extern const char *simulator_reader_note_card_text(void);

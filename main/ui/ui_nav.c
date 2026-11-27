@@ -190,6 +190,23 @@ void ui_nav_draw_pager(uint8_t *fb,int count,const char *unit,int page,int pages
     ui_draw_icon(fb,626,y,28,UI_ICON_CHEVRON_RIGHT,page+1<pages?0:0x90);
 }
 
+EpdRect ui_nav_page_arrow_rect(int direction, int center_y) {
+    return (EpdRect){direction<0?16:UI_LOCK_WIDTH-112,center_y-32,96,64};
+}
+
+void ui_nav_draw_page_arrows(uint8_t *fb, int center_y, int page, int pages, int label_px) {
+    for (int direction=-1; direction<=1; direction+=2) {
+        EpdRect arrow = ui_nav_page_arrow_rect(direction,center_y);
+        bool enabled = direction<0 ? page>0 : page+1<pages;
+        ui_draw_icon(fb,arrow.x+arrow.width/2,center_y,30,
+                     direction<0?UI_ICON_CHEVRON_LEFT:UI_ICON_CHEVRON_RIGHT,
+                     enabled?UI_GRAY_BLACK:0x99);
+    }
+    char label[32];
+    ui_snprintf(label,sizeof(label),"%d / %d",page+1,pages);
+    ui_text_fixed_vc(fb,UI_LOCK_WIDTH/2,center_y,label_px,label,EPD_DRAW_ALIGN_CENTER,false);
+}
+
 // 空心电池内使用固定黑色实心闪电，低电量时仍清楚可见。
 // A fixed solid black bolt remains visible inside the empty battery even at low charge.
 static void ui_nav_battery_bolt(uint8_t *fb,int cx,int cy){

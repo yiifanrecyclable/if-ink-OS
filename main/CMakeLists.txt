@@ -56,6 +56,7 @@ idf_component_register(
         "ui/ui_kit.c"
         "ui/ui_i18n.c"
         "ui/ui_text_input.c"
+        "ui/ui_standard_font.c"
         "ui/ui_pinyin.c"
         "ui/ui_gesture.c"
         "ui/ui_power_dialog.c"
@@ -119,6 +120,7 @@ idf_component_register(
         "book/gbk.c"
         "font/ttf_font.c"
         "font/app_font_context.c"
+        "font/standard_font_install.c"
         "font/ui_font.c"
         "factory/pmu_selftest.c"
         "factory/vcom_setup.c"
@@ -137,6 +139,7 @@ idf_component_register(
 set_source_files_properties(
     "cloud/cloud_protocol.c" "cloud/cloud_dav.c" "cloud/cloud_sync.c"
     "book/document_store.c" "book/markdown_text.c" "book/book_markdown.c"
+    "font/standard_font_install.c" "ui/ui_standard_font.c"
     PROPERTIES COMPILE_OPTIONS "-Os"
 )
 
