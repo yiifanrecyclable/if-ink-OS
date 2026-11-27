@@ -521,12 +521,6 @@ class Preview:
             if y<190: go('files-home')
             elif screen=='files-actions': go('files-rename' if x<342 else 'files-move')
             elif 210<y<850: go('files-actions')
-        elif screen=='settings-0':
-            row_y=y+self.state['scroll']
-            if 160<row_y<270: go('settings-14')
-            elif 315<=row_y<383: go('settings-1')
-            elif 505<=row_y<845: go(('settings-5','settings-6','settings-7','settings-19','settings-0')[(row_y-505)//68])
-            elif 876<=row_y<1216: go(('settings-8','settings-13','settings-11','settings-2','settings-12')[min(4,(row_y-876)//68)])
         elif screen.startswith('settings-'):
             if y<190: go('settings-0')
             elif screen=='settings-1' and 408<=y<478: go('transfer-networks')

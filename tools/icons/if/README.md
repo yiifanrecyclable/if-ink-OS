@@ -7,6 +7,8 @@
 `usb.svg` is a plug-shaped monochrome redraw of the user's reference, using the same 24-unit canvas and 2-unit strokes. It replaces the USB branching symbol for the “USB连接” entry. The reference's striped background is omitted.
 `usb.svg` 按用户提供的 USB 插头范例重绘，采用同样的24单位画布和2单位描边，用于“USB连接”，省略范例背景斜纹。
 
+The Apps grid uses the nut-and-cloud emblem from the official Nutstore logo, cropped before the wordmark and converted to 16-level grayscale. Regenerate it with `python3 tools/prepare_nutstore_app_icon.py build/brand-reference/nutstore-logo.png`. / 应用九宫格截取坚果云官方 Logo 的坚果与云朵部分并转为 16 阶灰度。生成命令见上。
+
 `tools/gen_ui_icons.py` generates the same 4bpp masks as for Lucide. It supports filled eye dots only for the custom service icons. WiFi remains unchanged Lucide ISC artwork. Source raster references are kept in ignored `build/brand-reference/` for local design review only.
 
 `folder-image.svg` uses the existing Lucide folder contour as the sole outer frame, with the image's sun and mountain strokes inside, without a nested photo frame. It is an ISC-derived composite, with the Lucide attribution retained in tools/icons/lucide/LICENSE. / 图片文件夹图标仅保留文件夹外框，内部融入太阳和山形，不再嵌套照片方框，保留ISC署名。

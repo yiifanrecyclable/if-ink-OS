@@ -11,7 +11,6 @@
 #include <dirent.h>
 #include <stdarg.h>
 #include <errno.h>
-#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,6 +34,7 @@
 #include "file_references.h"
 #include "file_thumbnail.h"
 #include "file_thumbnail_ui.h"
+#include "../assets/nutstore_app_icon.h"
 #include "book_cover.h"
 #include "read_pico_sd.h"
 #include "read_pico_search.h"
@@ -72,7 +72,7 @@ static bool files_alloc(void) {
         s_files = heap_caps_calloc(FILE_MAX, sizeof(file_item_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     return s_files != NULL;
 }
-static int s_count, s_folder, s_page;
+static int s_count, s_folder, s_page, s_apps_page;
 static int s_requested_folder = -1;
 static bool s_scan_pending;
 static char s_message[192];
@@ -224,32 +224,128 @@ static const char *root_note(const char *path){
     if(!strcasecmp(path,"/sdcard/banner pic"))return UI_MSG("Banner目录");
     return NULL;
 }
+/* ---- 应用九宫格 / App grid ---- */
+
 #ifdef IFINK_INKBUDDY
 #include "app_inkbuddy.h"
-#define APP_ROW_COUNT 6
-#else
-#define APP_ROW_COUNT 5
 #endif
-static int apps_row_height(void) {
-    int height = ui_list_row_height(true) + 30;
-    return height < 140 ? 140 : height;
-}
-static EpdRect apps_row(int index) {
-    return (EpdRect){36, UI_PAGE_Y(108) + index * apps_row_height(), 612, apps_row_height()};
+
+typedef enum { APP_TILE_STORAGE, APP_TILE_TRANSFER, APP_TILE_CLOUD, APP_TILE_BEADS,
+#ifdef IFINK_INKBUDDY
+               APP_TILE_TERMINAL,
+#endif
+} app_tile_t;
+
+static const struct {
+    app_tile_t app;
+    const char *label;
+} app_tiles[] = {
+    {APP_TILE_STORAGE, UI_MSG("存储卡管理")},
+    {APP_TILE_TRANSFER, UI_MSG("文件传输")},
+    {APP_TILE_CLOUD, UI_MSG("坚果云同步")},
+    {APP_TILE_BEADS, UI_MSG("数字拼豆")},
+#ifdef IFINK_INKBUDDY
+    {APP_TILE_TERMINAL, "终端模式"},
+#endif
+};
+
+enum {
+    APPS_COLUMNS = 3, APPS_ROWS = 3, APPS_PER_PAGE = APPS_COLUMNS * APPS_ROWS,
+    APPS_COUNT = sizeof(app_tiles) / sizeof(app_tiles[0]),
+    APPS_GRID_TOP = UI_STATUS_HEIGHT + 24, APPS_PAGER_Y = UI_NAV_TOP - 44,
+    APPS_GRID_HEIGHT = APPS_PAGER_Y - 72 - APPS_GRID_TOP,
+    APPS_ICON_SIZE = 112, APPS_ICON_BACKGROUND = 0xee,
+};
+
+static int apps_page_count(void) {
+    return (APPS_COUNT + APPS_PER_PAGE - 1) / APPS_PER_PAGE;
 }
 
-// 容量无效时只显示浅环，不把读取失败画成零占用。/ An unavailable capacity keeps a pale ring, never a false zero-used reading.
-static void storage_ring(uint8_t *fb, int cx, int cy) {
-    bool valid = s_sd.mounted && s_sd.space_valid && s_sd.capacity_bytes;
-    uint64_t used = valid && s_sd.capacity_bytes > s_sd.free_bytes ? s_sd.capacity_bytes - s_sd.free_bytes : 0;
-    double fraction = valid ? (double)used / s_sd.capacity_bytes : 0;
-    for (int y = -22; y <= 22; ++y) for (int x = -22; x <= 22; ++x) {
-        int rr = x*x + y*y;
-        if (rr < 16*16 || rr > 22*22) continue;
-        double angle = atan2((double)x, (double)-y);
-        if (angle < 0) angle += 6.283185307179586;
-        epd_draw_pixel(cx+x, cy+y, valid && angle < fraction*6.283185307179586 ? UI_GRAY_BLACK : 0xdd, fb);
+static EpdRect apps_cell(int slot) {
+    int col = slot % APPS_COLUMNS, row = slot / APPS_COLUMNS;
+    int left = col * UI_LOCK_WIDTH / APPS_COLUMNS;
+    int right = (col + 1) * UI_LOCK_WIDTH / APPS_COLUMNS;
+    int top = row * APPS_GRID_HEIGHT / APPS_ROWS;
+    int bottom = (row + 1) * APPS_GRID_HEIGHT / APPS_ROWS;
+    return (EpdRect){left, APPS_GRID_TOP + top, right - left, bottom - top};
+}
+
+static void apps_draw_icon(uint8_t *fb, app_tile_t app, int x, int y) {
+    const uint8_t bg = app == APP_TILE_CLOUD ? NUTSTORE_APP_ICON_BACKGROUND : APPS_ICON_BACKGROUND;
+    int half = APPS_ICON_SIZE / 2;
+    ui_fill_round_rect(fb, (EpdRect){x - half, y - half, APPS_ICON_SIZE, APPS_ICON_SIZE}, 24, bg);
+    switch (app) {
+    case APP_TILE_STORAGE:
+        epd_fill_rect((EpdRect){x - 29,y - 36,58,72}, UI_GRAY_BLACK, fb);
+        epd_fill_triangle(x - 29,y - 36,x - 12,y - 36,x - 29,y - 19,bg,fb);
+        for (int i = 0; i < 4; ++i)
+            epd_fill_rect((EpdRect){x - 9 + i * 7,y - 29,4,15},bg,fb);
+        ui_fill_round_rect(fb,(EpdRect){x - 20,y - 2,40,24},4,bg);
+        epd_fill_rect((EpdRect){x - 13,y + 7,26,4},UI_GRAY_BLACK,fb);
+        break;
+    case APP_TILE_TRANSFER:
+        // 文件夹与双向箭头。/ Folder with arrows for transfers in both directions.
+        ui_fill_round_rect(fb,(EpdRect){x - 40,y - 29,38,22},6,UI_GRAY_BLACK);
+        ui_fill_round_rect(fb,(EpdRect){x - 40,y - 19,80,52},8,UI_GRAY_BLACK);
+        epd_fill_rect((EpdRect){x - 24,y - 6,42,5},bg,fb);
+        epd_fill_triangle(x + 16,y - 13,x + 27,y - 4,x + 16,y + 5,bg,fb);
+        epd_fill_rect((EpdRect){x - 18,y + 13,42,5},bg,fb);
+        epd_fill_triangle(x - 16,y + 6,x - 27,y + 15,x - 16,y + 24,bg,fb);
+        break;
+    case APP_TILE_CLOUD:
+        ui_bitmap_draw(fb, (EpdRect){x - NUTSTORE_APP_ICON_WIDTH / 2, y - NUTSTORE_APP_ICON_HEIGHT / 2,
+                                   NUTSTORE_APP_ICON_WIDTH, NUTSTORE_APP_ICON_HEIGHT}, nutstore_app_icon);
+        break;
+    case APP_TILE_BEADS:
+        for (int i = 0; i < 9; ++i) {
+            static const uint8_t inks[] = {0x99,0x55,0x99,0x55,0x11,0x55,0x99,0x55,0x99};
+            int bx = x + (i % 3 - 1) * 25, by = y + (i / 3 - 1) * 25;
+            epd_fill_circle(bx,by,10,inks[i],fb);
+            epd_fill_circle(bx,by,3,bg,fb);
+        }
+        break;
+#ifdef IFINK_INKBUDDY
+    case APP_TILE_TERMINAL:
+        ui_fill_round_rect(fb,(EpdRect){x - 40,y - 31,80,62},8,UI_GRAY_BLACK);
+        ui_draw_icon(fb,x - 13,y,27,UI_ICON_CHEVRON_RIGHT,UI_GRAY_WHITE);
+        epd_fill_rect((EpdRect){x + 3,y + 9,20,4},bg,fb);
+        break;
+#endif
     }
+}
+
+static void apps_draw(uint8_t *fb) {
+    for (int col = 1; col < APPS_COLUMNS; ++col)
+        epd_fill_rect((EpdRect){apps_cell(col).x,APPS_GRID_TOP,1,APPS_GRID_HEIGHT},UI_GRAY_ITEM_LINE,fb);
+    for (int row = 0; row < APPS_ROWS; ++row)
+        ui_hairline(fb,apps_cell(row * APPS_COLUMNS).y,0,UI_LOCK_WIDTH,UI_GRAY_ITEM_LINE);
+    ui_hairline(fb,APPS_GRID_TOP + APPS_GRID_HEIGHT - 1,0,UI_LOCK_WIDTH,UI_GRAY_ITEM_LINE);
+
+    int first = s_apps_page * APPS_PER_PAGE;
+    for (int slot = 0; slot < APPS_PER_PAGE && first + slot < APPS_COUNT; ++slot) {
+        EpdRect cell = apps_cell(slot);
+        int x = cell.x + cell.width / 2, y = cell.y + cell.height / 2;
+        app_tile_t app = app_tiles[first + slot].app;
+        const char *label = app_tiles[first + slot].label;
+#ifdef IFINK_INKBUDDY
+        if (app == APP_TILE_TERMINAL && ui_i18n_english()) label = "Terminal";
+#endif
+        apps_draw_icon(fb,app,x,y - 32);
+        int px = ui_text_fit_px(UI_TEXT_BODY,label,cell.width - 24,44);
+        ui_text_fixed_vc(fb,x,y + 66,px,label,EPD_DRAW_ALIGN_CENTER,false);
+        if (app == APP_TILE_STORAGE) {
+            char usage[80];
+            if (!s_sd.mounted) ui_snprintf(usage,sizeof(usage),UI_MSG("未挂载"));
+            else if (!s_sd.space_valid || !s_sd.capacity_bytes) ui_snprintf(usage,sizeof(usage),UI_MSG("容量未知"));
+            else {
+                uint64_t used = s_sd.capacity_bytes > s_sd.free_bytes ? s_sd.capacity_bytes - s_sd.free_bytes : 0;
+                ui_snprintf(usage,sizeof(usage),UI_MSG("已用 %.1f/%.1f GB"),used/1073741824.0,s_sd.capacity_bytes/1073741824.0);
+            }
+            int caption = ui_text_fit_px(UI_TEXT_CAPTION,usage,cell.width - 24,30);
+            ui_text_fixed_vc_gray(fb,x,y + 106,caption,usage,EPD_DRAW_ALIGN_CENTER,4,15);
+        }
+    }
+    ui_nav_draw_page_arrows(fb,APPS_PAGER_Y,s_apps_page,apps_page_count(),ui_text_effective_px(UI_TEXT_CAPTION));
 }
 
 static void copy_utf8(char *dst, size_t cap, const char *src) {
@@ -944,55 +1040,7 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         }
         if(s_picker)picker_button(fb,s_picker_rotation?UI_MSG("使用此文件夹"):UI_MSG("使用默认壁纸"),!s_picker_rotation||wallpaper_rotation_directory_valid(s_dir));
     } else {
-        static const ui_icon_t icons[] = {UI_ICON_HARD_DRIVE, UI_ICON_WIFI, UI_ICON_CABLE, UI_ICON_NUTSTORE, UI_ICON_LAYOUT_GRID_CIRCLES
-#ifdef IFINK_INKBUDDY
-            , UI_ICON_LAYOUT_GRID
-#endif
-        };
-        const char *const labels[] = {UI_MSG("存储卡管理"), UI_MSG("WiFi/热点"), UI_MSG("USB连接"), UI_MSG("坚果云同步"), UI_MSG("数字拼豆")
-#ifdef IFINK_INKBUDDY
-            , ui_i18n_english() ? "Terminal" : "终端模式"
-#endif
-        };
-        const char *const descriptions[] = {"",UI_MSG("通过浏览器管理文件"),UI_MSG("通过有线连接管理文件"),UI_MSG("拉取在线文件"),UI_MSG("创作6阶拼豆壁纸")
-#ifdef IFINK_INKBUDDY
-            , ui_i18n_english() ? "Display a PC dashboard" : "显示电脑看板"
-#endif
-        };
-        int title_width=0, title_px=ui_text_effective_px(UI_TEXT_BODY);
-        for(int i=0;i<APP_ROW_COUNT;++i){int width=ui_text_fixed_width_px(title_px,labels[i]);if(width>title_width)title_width=width;}
-        for (int i = 0; i < APP_ROW_COUNT; ++i) {
-            EpdRect row = apps_row(i);
-            int cy = row.y + row.height/2;
-            if (i) epd_fill_rect((EpdRect){36,row.y,612,2},UI_GRAY_ITEM_LINE,fb);
-            ui_draw_icon(fb,64,cy,44,icons[i],UI_GRAY_BLACK);
-            if(!ui_i18n_english()) {
-                int above=0,below=0;ui_text_fixed_measure_px(title_px,labels[i],&above,&below);
-                ui_text_justify_ink_top(fb,104,cy-(above+below)/2,title_px,labels[i],title_width,false);
-            } else ui_text_vc(fb,104,cy,UI_TEXT_BODY,labels[i],EPD_DRAW_ALIGN_LEFT,false);
-            if (i == 0) {
-                char usage[80];
-                if (!s_sd.mounted) ui_snprintf(usage,sizeof(usage),UI_MSG("未挂载"));
-                else if (!s_sd.space_valid || !s_sd.capacity_bytes) ui_snprintf(usage,sizeof(usage),UI_MSG("容量未知"));
-                else {
-                    uint64_t used = s_sd.capacity_bytes > s_sd.free_bytes ? s_sd.capacity_bytes-s_sd.free_bytes : 0;
-                    ui_snprintf(usage,sizeof(usage),UI_MSG("已用 %.1f/%.1f GB"),used/1073741824.0,s_sd.capacity_bytes/1073741824.0);
-                }
-                ui_text_fixed_vc_gray(fb,590,cy,ui_text_effective_px(UI_TEXT_CAPTION),usage,EPD_DRAW_ALIGN_RIGHT,4,15);
-                storage_ring(fb,626,cy);
-            } else {
-                int available=648-104-title_width-24;
-                int px=ui_text_fit_px(UI_TEXT_CAPTION,descriptions[i],available,row.height-24);
-                if(i==1) {
-                    const char *second=UI_MSG("设置首页banner及壁纸");
-                    int second_px=ui_text_fit_px(UI_TEXT_CAPTION,second,available,row.height-24);
-                    if(second_px<px)px=second_px;
-                    int gap=px+8;
-                    ui_text_fixed_vc_gray(fb,648,cy-gap/2,px,descriptions[i],EPD_DRAW_ALIGN_RIGHT,4,15);
-                    ui_text_fixed_vc_gray(fb,648,cy+(gap+1)/2,px,second,EPD_DRAW_ALIGN_RIGHT,4,15);
-                } else ui_text_fixed_vc_gray(fb,648,cy,px,descriptions[i],EPD_DRAW_ALIGN_RIGHT,4,15);
-            }
-        }
+        apps_draw(fb);
     }
     ui_nav_draw(fb, s_picker?3:2);
 }
@@ -1007,7 +1055,7 @@ static void on_enter(app_ctx_t *ctx) {
     s_confirm = FILE_CONFIRM_NONE;
     ui_snprintf(s_dir,sizeof(s_dir),"%s",restore?s_image_origin.dir:"/sdcard");
     s_image_restore_page=restore?s_image_origin.page:-1;
-    s_page = 0; s_scan_pending = true;
+    s_page = s_apps_page = 0; s_scan_pending = true;
     read_pico_sd_start_probe();
     read_pico_sd_get_info(&s_sd);
     if (s_folder >= 0) scan_folder(s_folder);
@@ -1390,12 +1438,67 @@ static app_redraw_t open_file_actions(const file_item_t *item){
     return APP_REDRAW_PAGE;
 }
 
+static app_redraw_t apps_turn(int direction) {
+    int next = s_apps_page + direction;
+    if (next < 0 || next >= apps_page_count()) return APP_REDRAW_NONE;
+    s_apps_page = next;
+    return APP_REDRAW_PAGE;
+}
+
+static app_redraw_t apps_open(app_ctx_t *ctx, app_tile_t app) {
+    extern const app_desc_t app_transfer, app_cloud, app_pindou;
+    switch (app) {
+    case APP_TILE_STORAGE:
+        s_folder = 3;
+        copy_utf8(s_dir,sizeof(s_dir),"/sdcard");
+        scan_folder(s_folder);
+        return APP_REDRAW_PAGE;
+    case APP_TILE_TRANSFER:
+        app_transfer_request_method_picker();
+        ctx->request_app = &app_transfer;
+        break;
+    case APP_TILE_CLOUD:
+        ctx->request_app = &app_cloud;
+        break;
+    case APP_TILE_BEADS:
+        ctx->request_app = &app_pindou;
+        break;
+#ifdef IFINK_INKBUDDY
+    case APP_TILE_TERMINAL:
+        ctx->request_app = &app_inkbuddy;
+        break;
+#endif
+    }
+    return APP_REDRAW_NONE;
+}
+
+static app_redraw_t apps_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
+    if (ev->type == UI_GESTURE_SWIPE_L || ev->type == UI_GESTURE_SWIPE_R) {
+        EpdRect grid = {0,APPS_GRID_TOP,UI_LOCK_WIDTH,APPS_GRID_HEIGHT};
+        return ui_rect_hit(grid,ev->x0,ev->y0) ? apps_turn(ev->type == UI_GESTURE_SWIPE_L ? 1 : -1) : APP_REDRAW_NONE;
+    }
+    if (ev->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
+    int tab = ui_nav_hit(ev->x0,ev->y0);
+    if (tab >= 0) {
+        if (ui_nav_hit(ev->x,ev->y) == tab) ui_nav_request(ctx,tab);
+        return APP_REDRAW_NONE;
+    }
+    for (int direction = -1; direction <= 1; direction += 2)
+        if (file_tapped(ui_nav_page_arrow_rect(direction,APPS_PAGER_Y),ev))
+            return apps_turn(direction);
+    int first = s_apps_page * APPS_PER_PAGE;
+    for (int slot = 0; slot < APPS_PER_PAGE && first + slot < APPS_COUNT; ++slot)
+        if (file_tapped(apps_cell(slot),ev)) return apps_open(ctx,app_tiles[first + slot].app);
+    return APP_REDRAW_NONE;
+}
+
 static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     s_now_ms=ctx->now_ms;
     if (s_view == FILE_VIEW_ACTIONS) return action_gesture(ctx, ev);
     if (s_view == FILE_VIEW_BATCH) return batch_gesture(ev);
     if (s_view == FILE_VIEW_RENAME) return rename_gesture(ctx,ev);
     if (s_view == FILE_VIEW_FONT_PREVIEW) return font_preview_gesture(ctx,ev);
+    if (s_folder < 0 && s_view == FILE_VIEW_LIST) return apps_gesture(ctx,ev);
     if(ev->type==UI_GESTURE_TAP&&grid_available()&&ui_rect_hit(grid_toggle_rect(),ev->x0,ev->y0)){
         int first=s_page*visible_rows(),tree=image_tree(folder_root(s_folder));s_grid_modes[tree]=!s_grid_modes[tree];s_page=first/visible_rows();clear_thumbnails();return APP_REDRAW_PAGE;
     }
@@ -1482,31 +1585,16 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         }
         return APP_REDRAW_NONE;
     }
-    for (int i = 0; !long_press && i < APP_ROW_COUNT; ++i) if (ui_rect_hit(apps_row(i),ev->x0,ev->y0)) {
-        extern const app_desc_t app_transfer, app_cloud, app_pindou;
-        if (i == 0) {
-            s_folder = 3; copy_utf8(s_dir,sizeof(s_dir),"/sdcard"); scan_folder(3);
-            return APP_REDRAW_PAGE;
-        }
-        if (i == 3) ctx->request_app = &app_cloud;
-        else if (i == 4) ctx->request_app = &app_pindou;
-#ifdef IFINK_INKBUDDY
-        else if (i == 5) ctx->request_app = &app_inkbuddy;
-#endif
-        else {
-            if (i == 1) app_transfer_request_method_picker();
-            else app_transfer_request_usb_start();
-            ctx->request_app = &app_transfer;
-        }
-        return APP_REDRAW_NONE;
-    }
     return APP_REDRAW_NONE;
 }
 
 static app_redraw_t on_key(app_ctx_t *ctx, int key) {
-    if (key != UI_KEY_2)
-        return (s_view == FILE_VIEW_LIST || s_view == FILE_VIEW_MOVE)
-            ? file_turn(key == UI_KEY_1 ? -1 : 1) : APP_REDRAW_NONE;
+    if (key != UI_KEY_2) {
+        int direction = key == UI_KEY_1 ? -1 : 1;
+        if (s_view == FILE_VIEW_LIST && s_folder < 0) return apps_turn(direction);
+        if (s_view == FILE_VIEW_LIST || s_view == FILE_VIEW_MOVE) return file_turn(direction);
+        return APP_REDRAW_NONE;
+    }
     if (s_view == FILE_VIEW_LIST && s_folder < 0) {
         ui_nav_request(ctx, 0);
         return APP_REDRAW_NONE;

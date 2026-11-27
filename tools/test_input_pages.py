@@ -5,11 +5,15 @@ import json, os, shutil, subprocess, tempfile
 ROOT=Path(__file__).resolve().parents[1]
 def tap(x,y): return f't,{x},{y},{x},{y}'
 def events(*steps): return ';'.join(steps)
-clear=tap(573,400);banner_clear=tap(464,462);language=tap(89,1152);done=tap(595,1152);cancel=tap(60,110)
+clear=tap(573,400);banner_clear=tap(464,462);language=tap(65,1152);done=tap(619,1152);cancel=tap(60,110)
 # Explicit row/column calculation avoids ambiguous precedence.
 def letters(text):
     keys="1234567890qwertyuiopasdfghjkl'zxcvbnm,./"
-    return events(*(tap(67+61*(keys.index(c)%10),803+84*(keys.index(c)//10)) for c in text))
+    def position(c):
+        row, col = divmod(keys.index(c), 10)
+        x = 12 + 6 * col + (col * 606 // 10 + (col + 1) * 606 // 10) // 2
+        return tap(x, 807 + 84 * row)
+    return events(*(position(c) for c in text))
 with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='input-pages-') as tmp:
     work=Path(tmp);card=work/'card';build=work/'build/simulator';build.mkdir(parents=True)
     for folder in ('books','markdown/attachments','fonts','system/ime'):(card/folder).mkdir(parents=True)
@@ -24,13 +28,13 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='input-pages-') as tmp:
         assert result.returncode==0,(native,result.stderr)
         return json.loads(result.stdout),(build/'frame.bin').read_bytes()
     # Every page uses byte-identical key rows; captions/candidates and commit labels may vary.
-    layout=render('settings-0')[0]['settings_geometry'];signature_y=layout[1]+layout[4]+layout[4]//2
+    layout=render('settings-0')[0]['settings_geometry'];signature_y=layout[0]+2*layout[4]+layout[4]//2
     cloud=render('settings-20')[0]['settings_geometry'];folder_y,account_y,password_y=[y+cloud[4]//2 for y in cloud[11:14]]
     entries=[('settings-19','',0),('settings-23','',0),('settings-0',tap(340,signature_y),0),('settings-20',tap(340,folder_y),0),('settings-20',tap(340,account_y),0),('settings-20',tap(340,password_y),0),('files-2','',0),('book-7','',0),('book-6','',0),('transfer-3','',0)]
     crop=None
     for native,steps,aux in entries:
         info,frame=render(native,steps,aux)
-        keys=frame[766*342:1092*342]
+        keys=frame[768*342:1098*342]
         if crop is None:crop=keys
         assert keys==crop,('keyboard rows moved or changed',native)
         # Old app navigation is replaced by five keyboard controls, extending to y1200.

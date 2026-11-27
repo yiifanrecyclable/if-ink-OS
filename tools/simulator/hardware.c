@@ -4,6 +4,7 @@
  */
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <strings.h>
 #include "nvs.h"
@@ -20,9 +21,18 @@
 
 esp_err_t read_pico_pmu_cmd(uint16_t code,const uint8_t *p,uint8_t n){(void)code;(void)p;(void)n;return ESP_OK;}
 static bool preview_usb;
+static unsigned preview_usb_remount_polls;
+static bool preview_usb_remount_failed;
 static read_pico_transfer_status_t preview_network;
 bool usb_storage_active(void){return preview_usb;}
-esp_err_t usb_storage_stop(void){preview_usb=false;return ESP_OK;}
+esp_err_t usb_storage_stop(void){
+    const char *fault = getenv("PICO_SIM_USB_EXIT");
+    if (fault && !strcmp(fault,"busy")) return ESP_ERR_INVALID_STATE;
+    preview_usb=false;
+    preview_usb_remount_polls = fault && !strcmp(fault,"slow") ? 2 : 0;
+    preview_usb_remount_failed = fault && !strcmp(fault,"missing");
+    return ESP_OK;
+}
 bool read_pico_transfer_try_stop_if_idle(void){return true;}
 void read_pico_transfer_stop(void){preview_network.state=READ_PICO_TRANSFER_STOPPED;preview_network.network_ready=false;}
 esp_err_t read_pico_transfer_forget_wifi(void){preview_network.wifi_configured=false;preview_network.wifi_ssid[0]=0;return ESP_OK;}
@@ -42,7 +52,8 @@ const app_desc_t *app_at(int i){return i>=0&&i<5?preview_apps[i]:NULL;}
 const app_desc_t *app_home_page(void){return &app_dashboard;}
 int app_index_of(const app_desc_t *a){if(a==&app_pindou)return 7;if(a==&app_cloud)return 6;if(a==&app_transfer)return 5;for(int i=0;i<5;++i)if(a==preview_apps[i])return i;return -1;}
 esp_err_t read_pico_sd_get_info(read_pico_sd_info_t *out){
-    if(getenv("PICO_SIM_CARD_ABSENT")){*out=(read_pico_sd_info_t){0};return ESP_ERR_NOT_FOUND;}
+    if(preview_usb_remount_polls){--preview_usb_remount_polls;*out=(read_pico_sd_info_t){0};return ESP_ERR_NOT_FINISHED;}
+    if(preview_usb_remount_failed||getenv("PICO_SIM_CARD_ABSENT")){*out=(read_pico_sd_info_t){0};return ESP_ERR_NOT_FOUND;}
     *out=(read_pico_sd_info_t){.present=true,.mounted=true,.space_valid=true,.filesystem_bytes=8ULL<<30,.capacity_bytes=8ULL<<30,.total_bytes=8ULL<<30,.free_bytes=7ULL<<30};return ESP_OK;
 }
 esp_err_t read_pico_sd_mount(void){return ESP_OK;}

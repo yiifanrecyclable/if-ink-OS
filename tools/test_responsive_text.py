@@ -33,18 +33,18 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='responsive-ui-') as tm
             # Square corners of a circle must not select an adjacent preset.
             assert render('settings-5',tap(58,250))[0]['system_size']==size
             info,frame=render('settings-0');g=info['settings_geometry'];heights.append(g[4]);body_sizes.append(info['ui_body_px'])
-            assert render('settings-0',tap(300,g[1]+g[4]//2))[0]['settings_page']==5
-            for row,page in enumerate((2,0,14,24,11,27,13)):
-                target=g[2]+row*g[4]+g[4]//2;scroll=min(g[5],max(0,target-970))
-                touch=tap(300,target-scroll)
-                state,_=render('settings-0',touch,scroll)
+            assert render('settings-0',tap(300,g[0]+g[4]//2))[0]['settings_page']==5
+            tab=tap(505,g[1])
+            for row,page in ((0,2),(2,14),(3,24),(4,27),(5,11),(6,13)):
+                y=g[0]+row*g[4]+g[4]//2
+                state,_=render('settings-0',tab+';'+tap(300,y))
                 assert state['settings_page']==page
-                if row==1:
-                    # 语言原地切换，再切回以隔离后续像素比较。/ Toggle in place and restore before pixel comparisons.
-                    language=info['system_language']
-                    assert state['system_language']==1-language
-                    restored,_=render('settings-0',touch,scroll)
-                    assert restored['settings_page']==0 and restored['system_language']==language
+            language=info['system_language']
+            touch=tap(300,g[0]+3*g[4]//2)
+            state,_=render('settings-0',touch)
+            assert state['settings_page']==0 and state['system_language']==1-language
+            restored,_=render('settings-0',touch)
+            assert restored['settings_page']==0 and restored['system_language']==language
             info,frame=render('book-8');rows=info['document_rows'];step=info['document_row_step']
             first_row=info['document_row_top']+(step-10)//2
             assert info['pages']==(24+rows-1)//rows

@@ -23,9 +23,9 @@ typedef struct {
 
 // 所有页面使用同一几何，最后一排到屏幕底部仅留16px。/ Same geometry everywhere; 16px below the last row.
 #define UI_INPUT_KEYBOARD_TOP 686
-#define UI_INPUT_KEYS_TOP 766
 #define UI_INPUT_KEYS_STEP 84
 #define UI_INPUT_FOOTER_TOP 1104
+#define UI_INPUT_KEYS_TOP (UI_INPUT_FOOTER_TOP - 4 * UI_INPUT_KEYS_STEP)
 void ui_text_input_open(ui_text_input_t *input, char *text, size_t capacity,
                         bool chinese_allowed, bool secret, ui_input_mode_t initial);
 void ui_text_input_clear(ui_text_input_t *input);

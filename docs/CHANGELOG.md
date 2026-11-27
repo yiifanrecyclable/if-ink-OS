@@ -4,6 +4,13 @@
 按日期和作者简述对用户可见的功能变化；详细实现历史见 Git。使用方法见 [README](../README.zh-CN.md)。
 User-visible changes by date and author; Git retains implementation history. See [README](../README.md) for usage.
 
+## 0.2.7 Beta 1 / 2026-11-27
+
+- 设置首页采用「个性化与连接」「系统与设备」两组，默认显示前者。标准标题栏右端显示版本号，列表可分页。/ Organize Settings into two paged groups and show the firmware version at the right of the header.
+- 全局键盘加宽至左右各留 12 像素，横纵键缝统一为 6 像素。/ Widen the shared keyboard to 12 px side margins with 6 px gaps in both directions.
+- 应用页改为铺满屏宽的分页九宫格，使用大图标和居中名称。坚果云应用图标采用官方图形的 16 阶灰度版本。/ Use a full-width paged app grid, with larger icons and the official Nutstore emblem converted to 16-level grayscale.
+- 「文件传输」集中提供 WiFi、热点、USB 读卡。结束 USB 读卡会等待 TF 卡重新挂载，再回到方式列表。/ Offer WiFi, hotspot and USB storage under File Transfer. Ending USB storage waits for the card remount before returning to the picker.
+
 ## 0.2.6 / 2026-11-27
 
 - 优先保留 EPUB 自带目录条目，目录首页增加「00 封面/首页」，竖屏目录采用更紧凑的行距。修复书内目录跳转误入注释模式、阅读进度不随章节更新。/ Preserve authored EPUB navigation, add Cover / First page as the first entry, and fit more entries in portrait. In-book chapter links update reading progress normally.

@@ -7,8 +7,8 @@
  *
  * 中文：分组设置页；网络短时对时后 PMU 持续走时，开机恢复系统时钟。
  * English: Grouped settings; temporary WiFi sync seeds the PMU, whose RTC restores time at boot.
- * 用户修订：设置列表滑动仅差分刷新内容，滑动过程中不周期插入黑白清屏。
- * User revision: settings lists scroll with content-only differentials and no periodic black/white wipe during swipes.
+ * 用户修订：设置首页按组翻页，坚果云说明可差分滚动。
+ * User revision: page through grouped root settings; Nutstore help retains differential scrolling.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -84,7 +84,7 @@ typedef enum { SETTINGS_MAIN, SETTINGS_WIFI, SETTINGS_TIME,
                SETTINGS_POWER_SLEEP, SETTINGS_RETIRED_15, SETTINGS_RETIRED_16,
                SETTINGS_RETIRED_17, SETTINGS_RETIRED_18, SETTINGS_TEXT_EDIT, SETTINGS_CLOUD, SETTINGS_HOME_QUOTE, SETTINGS_QUOTE_FONT, SETTINGS_BATTERY = 24, SETTINGS_STATUS_DATE_FORMAT, SETTINGS_IDLE_SLEEP, SETTINGS_FIRMWARE_INFO, SETTINGS_ONLINE_UPDATE, SETTINGS_WALLPAPER_FOLDER, SETTINGS_WALLPAPER_FIXED, SETTINGS_BANNER_IMAGE, SETTINGS_BANNER_BROWSER } settings_page_t;
 static settings_page_t s_page;
-static int s_main_scroll, s_font_page, s_cloud_scroll;
+static int s_font_page, s_cloud_scroll;
 static bool s_standard_font_entry;
 static bool s_battery_week;
 static int s_battery_percent = -2;
@@ -138,7 +138,7 @@ static ttf_font_item_t s_quote_system_font;
 static int s_quote_font_catalog_count;
 static bool s_quote_font_extra;
 
-static bool s_scroll_drag_consumed, s_scroll_present_pending;
+static bool s_scroll_drag_consumed, s_content_present_pending;
 static const char *const cloud_guide[]={
             UI_MSG("同步文件夹填写坚果云根目录下已存在的文件夹"),
             UI_MSG("账号为坚果云账号"),
@@ -169,18 +169,18 @@ static void upgrade_open(void) {
 }
 static const char *const TAG = "device_settings";
 #define SETTINGS_ROW_H (ui_list_row_height(false))
-#define SETTINGS_GROUP_GAP (ui_text_line_height(UI_TEXT_TITLE)+36)
-#define SETTINGS_WIRELESS_ROWS 2
-#define SETTINGS_DISPLAY_ROWS 5
-#define SETTINGS_DEVICE_ROWS 7
-#define SETTINGS_INFO_H 64
-#define SETTINGS_WIRELESS_Y (UI_STATUS_HEIGHT+4+SETTINGS_INFO_H+SETTINGS_GROUP_GAP)
-// 分组布局从上一组底边推导，绘制与命中共用坐标。/ Derive groups from the previous bottom; drawing and hits share coordinates.
-#define SETTINGS_DISPLAY_Y (SETTINGS_WIRELESS_Y + SETTINGS_WIRELESS_ROWS * SETTINGS_ROW_H + SETTINGS_GROUP_GAP)
-#define SETTINGS_DEVICE_Y (SETTINGS_DISPLAY_Y + SETTINGS_DISPLAY_ROWS * SETTINGS_ROW_H + SETTINGS_GROUP_GAP)
+#define SETTINGS_LIST_ROW_H (SETTINGS_ROW_H + 12)
 #define SETTINGS_ICON_PX 32
 #define SETTINGS_ICON_INK 0x58
-#define SETTINGS_SCROLL_MAX (SETTINGS_DEVICE_Y + SETTINGS_DEVICE_ROWS * SETTINGS_ROW_H - UI_NAV_TOP + 12)
+enum {
+    SETTINGS_GROUP_TOP = UI_SUBPAGE_RULE_Y + UI_SECTION_LINE_HEIGHT + 16,
+    SETTINGS_GROUP_HEIGHT = 88,
+    SETTINGS_LIST_TOP = SETTINGS_GROUP_TOP + SETTINGS_GROUP_HEIGHT + 30,
+    SETTINGS_LIST_PAGER_Y = UI_NAV_TOP - 44,
+};
+typedef enum { SETTINGS_PERSONAL, SETTINGS_DEVICE, SETTINGS_GROUP_COUNT } settings_group_t;
+static settings_group_t s_main_group;
+static int s_main_page;
 static char s_editor[257], s_editor_notice[80];
 static ui_text_input_t s_text_input;
 static bool s_home_quote_editor, s_home_quote_requested, s_banner_from_home;
@@ -488,31 +488,70 @@ static void back_header(uint8_t *fb, const char *title) {
     ui_nav_subpage_header(fb, title, ui_text_effective_px(34));
 }
 
-static void setting_icon(uint8_t *fb, int index, int cx, int cy) {
-    // 每个设置项对应一个 Lucide 图标；索引顺序由各分组传入的 icons[] 数组决定。
-    // One Lucide icon per setting row; the index order comes from each group's icons[] array.
-    static const ui_icon_t icons[] = {
-        UI_ICON_WIFI,              // 0 无线连接
-        UI_ICON_WIFI,              // 1 保留图标索引 / Reserved icon index
-        UI_ICON_CASE_SENSITIVE,    // 2 系统文字 Aa / System text Aa
-        UI_ICON_A_LARGE_SMALL,     // 3 系统字号
-        UI_ICON_LIBRARY_BIG,       // 4 保留图标索引 / Reserved icon index
-        UI_ICON_IMAGE,             // 5 锁屏壁纸 / Lock-screen wallpaper
-        UI_ICON_CLOCK,             // 6 日期与时间
-        UI_ICON_CONTRAST,          // 7 系统对比度
-        UI_ICON_COPY,              // 8 保存与恢复
-        UI_ICON_POWER,             // 9 关机睡眠
-        UI_ICON_SIGNATURE,         // 10 状态栏签名 / Status signature
-        UI_ICON_REFRESH_CW,        // 11 首页强刷
-        UI_ICON_NUTSTORE,          // 12 坚果云同步 / Nutstore sync
-        UI_ICON_BATTERY_MEDIUM,    // 13 电池管理 / Battery management
-        UI_ICON_SETTINGS,          // 14 固件信息 / Firmware information
-        UI_ICON_PANEL_TOP,         // 15 首页Banner / Home banner
-        UI_ICON_CPU,               // 16 BOOT刷机 / BOOT flashing
-        UI_ICON_LANGUAGES,         // 17 系统语言 / System language
-    };
-    if (index < 0 || index >= (int)(sizeof(icons) / sizeof(icons[0]))) return;
-    ui_draw_icon(fb, cx, cy, SETTINGS_ICON_PX, icons[index], SETTINGS_ICON_INK);
+typedef enum {
+    SETTING_TEXT, SETTING_LANGUAGE, SETTING_SIGNATURE, SETTING_WALLPAPER,
+    SETTING_BANNER, SETTING_WIFI, SETTING_CLOUD, SETTING_TIME, SETTING_HOME_REFRESH,
+    SETTING_SLEEP, SETTING_BATTERY, SETTING_FIRMWARE, SETTING_BACKUP, SETTING_BOOT,
+} setting_id_t;
+
+typedef struct {
+    setting_id_t id;
+    ui_icon_t icon;
+    const char *label, *value;
+} setting_item_t;
+
+static const setting_item_t personal_settings[] = {
+    {SETTING_TEXT, UI_ICON_CASE_SENSITIVE, UI_MSG("系统文字"), NULL},
+    {SETTING_LANGUAGE, UI_ICON_LANGUAGES, UI_MSG("系统语言"), NULL},
+    {SETTING_SIGNATURE, UI_ICON_SIGNATURE, UI_MSG("状态栏签名"), NULL},
+    {SETTING_WALLPAPER, UI_ICON_IMAGE, UI_MSG("锁屏壁纸"), UI_MSG("选择  ›")},
+    {SETTING_BANNER, UI_ICON_PANEL_TOP, UI_MSG("首页横幅"), UI_MSG("编辑  ›")},
+    {SETTING_WIFI, UI_ICON_WIFI, "WiFi", NULL},
+    {SETTING_CLOUD, UI_ICON_NUTSTORE, UI_MSG("坚果云同步"), NULL},
+};
+
+static const setting_item_t device_settings[] = {
+    {SETTING_TIME, UI_ICON_CLOCK, UI_MSG("日期与时间"), UI_MSG("设置  ›")},
+    {SETTING_HOME_REFRESH, UI_ICON_REFRESH_CW, UI_MSG("首页强刷"), NULL},
+    {SETTING_SLEEP, UI_ICON_POWER, UI_MSG("关机与休眠"), NULL},
+    {SETTING_BATTERY, UI_ICON_BATTERY_MEDIUM, UI_MSG("电池管理"), UI_MSG("查看  ›")},
+    {SETTING_FIRMWARE, UI_ICON_SETTINGS, UI_MSG("固件信息"), NULL},
+    {SETTING_BACKUP, UI_ICON_COPY, UI_MSG("保存与恢复"), UI_MSG("配置  ›")},
+    {SETTING_BOOT, UI_ICON_CPU, UI_MSG("BOOT 刷机"), UI_MSG("电脑刷机  ›")},
+};
+
+static const struct {
+    const setting_item_t *items;
+    int count;
+    const char *label;
+} settings_groups[SETTINGS_GROUP_COUNT] = {
+    [SETTINGS_PERSONAL] = {personal_settings, sizeof(personal_settings) / sizeof(personal_settings[0]),
+                           UI_MSG("个性化与连接")},
+    [SETTINGS_DEVICE] = {device_settings, sizeof(device_settings) / sizeof(device_settings[0]),
+                         UI_MSG("系统与设备")},
+};
+
+static int settings_list_rows(void) {
+    int footer_top = ui_nav_page_arrow_rect(-1, SETTINGS_LIST_PAGER_Y).y;
+    return ui_list_visible_rows(SETTINGS_LIST_TOP, footer_top - 12, SETTINGS_LIST_ROW_H);
+}
+
+static int settings_list_pages(void) {
+    return 1 + (settings_groups[s_main_group].count - 1) / settings_list_rows();
+}
+
+static int settings_list_page(void) {
+    int pages = settings_list_pages();
+    return s_main_page < pages ? s_main_page : pages - 1;
+}
+
+static EpdRect settings_group_rect(settings_group_t group) {
+    int width = (UI_LOCK_WIDTH - 72) / 2;
+    return (EpdRect){36 + group * width, SETTINGS_GROUP_TOP, width, SETTINGS_GROUP_HEIGHT};
+}
+
+static EpdRect settings_list_row_rect(int row, int height) {
+    return (EpdRect){36, SETTINGS_LIST_TOP + row * height, UI_LOCK_WIDTH - 72, height};
 }
 
 static void fit_value(char *value, int width) {
@@ -523,26 +562,111 @@ static void fit_value(char *value, int width) {
     }
 }
 
-static void setting_group(uint8_t *fb, int title_y, const char *title,
-                          int card_y, const int icons[], const char *const labels[],
-                          const char *const values[], int count) {
-    const int row_height = SETTINGS_ROW_H;
-    title_y -= s_main_scroll;
-    card_y -= s_main_scroll;
-    (void)title_y;
-    int heading=ui_text_line_height(UI_TEXT_TITLE);
-    settings_divider(fb,card_y-heading-22,36,612);
-    ui_text_vc(fb,42,card_y-heading/2-8,UI_TEXT_TITLE,title,EPD_DRAW_ALIGN_LEFT,false);
-    for (int i = 0; i < count; ++i) {
-        int y = card_y + i * row_height;
-        if(i)epd_fill_rect((EpdRect){36,y,612,2},UI_GRAY_ITEM_LINE,fb);
-        setting_icon(fb, icons[i], 67, y + row_height / 2);
-        int body_px=ui_text_effective_px(UI_TEXT_BODY),caption_px=ui_text_effective_px(UI_TEXT_CAPTION);
-        int value_width=ui_text_fixed_width_px(caption_px,values[i]);
-        int label_width=619-value_width-24-100;
-        ui_text_title_line(fb,(EpdRect){100,y,label_width,row_height},body_px,labels[i],UI_GRAY_WHITE);
-        ui_text_vc(fb, 619, y + row_height/2, UI_TEXT_CAPTION, values[i], EPD_DRAW_ALIGN_RIGHT, false);
+static const char *settings_item_value(const setting_item_t *item, const char *version,
+                                       char *label, size_t capacity) {
+    switch (item->id) {
+    case SETTING_TEXT:
+        ui_snprintf(label, capacity, "%s · %s  ›", ui_message(size_names[system_size_index()]),
+                    ui_message(system_font_label(app_font_system_choice())));
+        break;
+    case SETTING_LANGUAGE:
+        return app_settings_language() == APP_LANGUAGE_EN ? "English" : "中文";
+    case SETTING_SIGNATURE: {
+        const char *signature = app_settings_status_signature();
+        ui_snprintf(label, capacity, "%s  ›", *signature ? signature : ui_message(UI_MSG("未设置")));
+        break;
     }
+    case SETTING_WIFI: {
+        char ssid[33] = {0};
+        bool saved = false;
+        (void)read_pico_transfer_get_saved_wifi(ssid, &saved);
+        ui_snprintf(label, capacity, "%s  ›", saved ? ssid : ui_message(UI_MSG("未配置")));
+        break;
+    }
+    case SETTING_CLOUD: {
+        cloud_config_t cloud;
+        cloud_config_load(&cloud);
+        bool ready = cloud_config_valid(&cloud, true);
+        memset(cloud.password, 0, sizeof(cloud.password));
+        return ready ? UI_MSG("已配置  ›") : UI_MSG("未配置  ›");
+    }
+    case SETTING_HOME_REFRESH:
+        return app_settings_home_full_refresh() ? UI_MSG("开启  ›") : UI_MSG("关闭  ›");
+    case SETTING_SLEEP:
+        return app_settings_staged_shutdown() ? UI_MSG("先浅后深  ›") : UI_MSG("彻底断电  ›");
+    case SETTING_FIRMWARE:
+        ui_snprintf(label, capacity, "%s  ›", version);
+        break;
+    default:
+        return item->value;
+    }
+    fit_value(label, 235);
+    return label;
+}
+
+static void settings_group_label_draw(uint8_t *fb, EpdRect tab, const char *label) {
+    int x = tab.x + tab.width / 2, y = tab.y + tab.height / 2;
+    int width = tab.width - 30;
+    const char *split = strchr(label, '\n');
+    if (!split) {
+        int px = ui_text_fit_px(UI_TEXT_TITLE, label, width, 42);
+        ui_text_fixed_vc(fb, x, y, px, label, EPD_DRAW_ALIGN_CENTER, false);
+        return;
+    }
+    char first[32];
+    snprintf(first, sizeof(first), "%.*s", (int)(split - label), label);
+    const char *second = split + 1;
+    int px = ui_text_fit_px(UI_TEXT_TITLE, first, width, 30);
+    int second_px = ui_text_fit_px(UI_TEXT_TITLE, second, width, 30);
+    if (second_px < px) px = second_px;
+    ui_text_fixed_vc(fb, x, y - 17, px, first, EPD_DRAW_ALIGN_CENTER, false);
+    ui_text_fixed_vc(fb, x, y + 17, px, second, EPD_DRAW_ALIGN_CENTER, false);
+}
+
+static void settings_main_draw(uint8_t *fb) {
+    char version[sizeof(esp_app_get_description()->version) + 2];
+    settings_firmware_label(version, sizeof(version));
+    EpdRect header = ui_nav_subpage_close_rect();
+    int center_y = header.y + header.height / 2;
+    int title_px = ui_text_fit_px(UI_TEXT_TITLE, "if-ink OS", 270, 44);
+    int version_px = ui_text_fit_px(UI_TEXT_CAPTION, version, 260, 36);
+    ui_text_fixed_vc(fb, 36, center_y, title_px, "if-ink OS", EPD_DRAW_ALIGN_LEFT, false);
+    ui_text_fixed_vc(fb, UI_LOCK_WIDTH - 36, center_y, version_px, version, EPD_DRAW_ALIGN_RIGHT, false);
+    settings_divider(fb, UI_SUBPAGE_RULE_Y, 0, UI_LOCK_WIDTH);
+
+    int tab_y = SETTINGS_GROUP_TOP + SETTINGS_GROUP_HEIGHT / 2;
+    int divider_height = ui_i18n_english() ? 52 : 34;
+    epd_fill_rect((EpdRect){UI_LOCK_WIDTH / 2 - 1, tab_y - divider_height / 2, 2, divider_height},
+                  UI_GRAY_SECTION_LINE, fb);
+    for (settings_group_t i = SETTINGS_PERSONAL; i < SETTINGS_GROUP_COUNT; ++i) {
+        EpdRect tab = settings_group_rect(i);
+        settings_group_label_draw(fb, tab, ui_message(settings_groups[i].label));
+        int center_x = tab.x + tab.width / 2;
+        if (i == s_main_group)
+            epd_fill_rect((EpdRect){center_x - 36, tab.y + tab.height - 8, 72, 5}, UI_GRAY_BLACK, fb);
+    }
+
+    int row_height = SETTINGS_LIST_ROW_H;
+    int rows = settings_list_rows();
+    int pages = settings_list_pages();
+    int page = settings_list_page();
+    int first = page * rows;
+    for (int i = 0; i < rows && first + i < settings_groups[s_main_group].count; ++i) {
+        const setting_item_t *item = &settings_groups[s_main_group].items[first + i];
+        EpdRect area = settings_list_row_rect(i, row_height);
+        int y = area.y + row_height / 2;
+        if (i) epd_fill_rect((EpdRect){area.x, area.y, area.width, 2}, UI_GRAY_ITEM_LINE, fb);
+        ui_draw_icon(fb, 67, y, SETTINGS_ICON_PX, item->icon, SETTINGS_ICON_INK);
+        char value_buf[96];
+        const char *value = ui_message(settings_item_value(item, version, value_buf, sizeof(value_buf)));
+        int caption_px = ui_text_fit_px(UI_TEXT_CAPTION, value, 265, row_height - 12);
+        int value_width = ui_text_fixed_width_px(caption_px, value);
+        ui_text_title_line(fb, (EpdRect){100, area.y, 495 - value_width, row_height},
+                           ui_text_effective_px(UI_TEXT_BODY), item->label, UI_GRAY_WHITE);
+        ui_text_fixed_vc(fb, 619, y, caption_px, value, EPD_DRAW_ALIGN_RIGHT, false);
+    }
+    ui_nav_draw_page_arrows(fb, SETTINGS_LIST_PAGER_Y, page, pages, ui_text_effective_px(UI_TEXT_CAPTION));
+    ui_nav_draw(fb, 3);
 }
 
 // 中文：说明按实际界面字形宽度折行，续行与正文对齐。/ English: wrap instructions to measured UI glyph width with hanging bullet indentation.
@@ -841,9 +965,8 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
     if(wallpaper_picker_page()){app_files_wallpaper_render(ctx,fb);return;}
     (void)ctx;
     ui_clear_page(fb);
-    if (s_page == SETTINGS_MAIN)
-        epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_NAV_TOP}, UI_GRAY_WHITE, fb);
     ui_nav_status(fb);
+    if (s_page == SETTINGS_MAIN) { settings_main_draw(fb); return; }
     if(s_page==SETTINGS_BATTERY){draw_battery(fb);return;}
     if(s_page==SETTINGS_FIRMWARE_INFO){firmware_info_draw(fb);return;}
     if(s_page==SETTINGS_ONLINE_UPDATE){online_draw(fb);return;}
@@ -1098,63 +1221,6 @@ static void render(app_ctx_t *ctx, uint8_t *fb) {
         ui_nav_draw(fb, 3);
         return;
     }
-
-    // 名称、版本与口号共用紧凑单行，按可用宽度适配，避免大字号互相覆盖。
-    // Fit the brand, version and slogan on one compact line without overlap at large presets.
-    char version_label[sizeof(esp_app_get_description()->version) + 2];
-    settings_firmware_label(version_label, sizeof(version_label));
-    const int info_y = UI_PAGE_Y(84) - s_main_scroll;
-    if (info_y + SETTINGS_INFO_H > UI_STATUS_HEIGHT) {
-        int center=info_y+SETTINGS_INFO_H/2;
-        int title_px=ui_text_fit_px(UI_TEXT_TITLE,"if-ink OS",196,48);
-        ui_text_fixed_vc(fb,36,center,title_px,"if-ink OS",EPD_DRAW_ALIGN_LEFT,false);
-        int version_x=36+ui_text_fixed_width_px(title_px,"if-ink OS")+12;
-        int version_px=ui_text_fit_px(UI_TEXT_CAPTION,version_label,156,48);
-        ui_text_fixed_vc(fb,version_x,center,version_px,version_label,EPD_DRAW_ALIGN_LEFT,false);
-        int width=648-version_x-ui_text_fixed_width_px(version_px,version_label)-24;
-        const char *slogan=UI_MSG("支持md文档的Pico固件");
-        int slogan_px=ui_text_fit_px(UI_TEXT_CAPTION,slogan,width,48);
-        ui_text_fixed_vc_gray(fb,648,center,slogan_px,slogan,EPD_DRAW_ALIGN_RIGHT,8,15);
-    }
-    char wifi_ssid[33] = {0}; bool wifi_saved = false;
-    (void)read_pico_transfer_get_saved_wifi(wifi_ssid, &wifi_saved);
-    const char *wireless_labels[] = {"WiFi", UI_MSG("坚果云同步")};
-    cloud_config_t cloud; cloud_config_load(&cloud);
-    const bool cloud_ready = cloud_config_valid(&cloud, true);
-    memset(cloud.password, 0, sizeof(cloud.password));
-    char wireless_value[56]; ui_snprintf(wireless_value, sizeof(wireless_value), "%s  ›", wifi_saved ? wifi_ssid : UI_MSG("未配置"));
-    fit_value(wireless_value, 235);
-    const char *wireless_values[] = {wireless_value, cloud_ready ? UI_MSG("已配置  ›") : UI_MSG("未配置  ›")};
-    static const int wireless_icons[] = {0, 12};
-    setting_group(fb, SETTINGS_WIRELESS_Y - 34, UI_MSG("账号与链接"), SETTINGS_WIRELESS_Y,
-                  wireless_icons, wireless_labels, wireless_values, SETTINGS_WIRELESS_ROWS);
-    const char *reading_labels[] = {UI_MSG("系统文字"), UI_MSG("状态栏签名"), UI_MSG("首页强刷"), UI_MSG("锁屏壁纸"), UI_MSG("首页Banner")};
-    char font[96];
-    const char *chosen_font = app_font_system_choice();
-    ui_snprintf(font, sizeof(font), "%s  ›", system_font_label(chosen_font));
-    fit_value(font, 235);
-    ui_snprintf(font, sizeof(font), "%s · %s  ›", size_names[system_size_index()], system_font_label(chosen_font));
-    fit_value(font, 235);
-    char signature_value[96];
-    ui_snprintf(signature_value, sizeof(signature_value), "%s  ›",
-             app_settings_status_signature()[0] ? app_settings_status_signature() : UI_MSG("未设置"));
-    fit_value(signature_value, 235);
-    const char *reading_values[] = {font,
-                                    signature_value, app_settings_home_full_refresh() ? UI_MSG("开启  ›") : UI_MSG("关闭  ›"), UI_MSG("选择  ›"), UI_MSG("编辑  ›")};
-    static const int reading_icons[] = {2, 10, 11, 5, 15};
-    setting_group(fb, SETTINGS_DISPLAY_Y - 34, UI_MSG("显示与个性化"), SETTINGS_DISPLAY_Y,
-                  reading_icons, reading_labels, reading_values, SETTINGS_DISPLAY_ROWS);
-    const char *device_labels[] = {UI_MSG("日期与时间"), UI_MSG("系统语言"), UI_MSG("关机与休眠"), UI_MSG("电池管理"), UI_MSG("保存与恢复"), UI_MSG("固件信息"), UI_MSG("BOOT 刷机")};
-    char version_value[sizeof(version_label) + sizeof("  ›")];
-    snprintf(version_value, sizeof(version_value), "%s  ›", version_label);
-    const char *device_values[] = {UI_MSG("设置  ›"), app_settings_language()==APP_LANGUAGE_EN?"English":"中文", app_settings_staged_shutdown() ? UI_MSG("先浅后深  ›") : UI_MSG("彻底断电  ›"),
-                                   UI_MSG("查看  ›"), UI_MSG("配置  ›"), version_value, UI_MSG("电脑刷机  ›")};
-    static const int device_icons[] = {6, 17, 9, 13, 8, 14, 16};
-    setting_group(fb, SETTINGS_DEVICE_Y - 34, UI_MSG("系统与设备"), SETTINGS_DEVICE_Y,
-                  device_icons, device_labels, device_values, SETTINGS_DEVICE_ROWS);
-    epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_STATUS_HEIGHT}, UI_GRAY_WHITE, fb);
-    ui_nav_status(fb);
-    ui_nav_draw(fb, 3);
 }
 
 static void on_enter(app_ctx_t *ctx) {
@@ -1164,8 +1230,9 @@ static void on_enter(app_ctx_t *ctx) {
     s_notice[0] = 0;
     if(!s_banner_draft_ready)strlcpy(s_notice,UI_MSG("设置读取失败，请重新进入后重试"),sizeof(s_notice));
     s_page = s_cloud_requested?SETTINGS_CLOUD:SETTINGS_MAIN;s_cloud_requested=false;s_cloud_editor=0;
-    s_main_scroll = s_font_page = s_cloud_scroll = 0;
-    s_scroll_drag_consumed = s_scroll_present_pending = false;
+    s_main_group = SETTINGS_PERSONAL;
+    s_main_page = s_font_page = s_cloud_scroll = 0;
+    s_scroll_drag_consumed = s_content_present_pending = false;
     app_files_wallpaper_close();banner_picker_clear();s_status_notice_only=false;
     s_sync_pending = s_boot_pending = false;
     s_config_confirm = false;
@@ -1328,7 +1395,7 @@ static app_redraw_t scroll_gesture(const ui_gesture_event_t *ev, int *offset, in
     }
     if (ev->type != UI_GESTURE_MOVE && ev->type != UI_GESTURE_SWIPE_U && ev->type != UI_GESTURE_SWIPE_D)
         return APP_REDRAW_NONE;
-    if (ev->y0 < (s_page == SETTINGS_MAIN ? UI_STATUS_HEIGHT : UI_PAGE_Y(190)) || ev->y0 >= UI_NAV_TOP)
+    if (ev->y0 < UI_PAGE_Y(190) || ev->y0 >= UI_NAV_TOP)
         return APP_REDRAW_NONE;
     if (s_scroll_drag_consumed) {
         if (ev->type != UI_GESTURE_MOVE) s_scroll_drag_consumed = false;
@@ -1346,7 +1413,7 @@ static app_redraw_t scroll_gesture(const ui_gesture_event_t *ev, int *offset, in
     if (ev->type == UI_GESTURE_MOVE) s_scroll_drag_consumed = true;
     if (next == *offset) return APP_REDRAW_NONE;
     *offset = next;
-    s_scroll_present_pending = true;
+    s_content_present_pending = true;
     return APP_REDRAW_AREA;
 }
 
@@ -1358,6 +1425,115 @@ static bool settings_exit_blocked(void) {
     if_update_get_status(&status);
     return status.state == IF_UPDATE_DOWNLOADING || status.state == IF_UPDATE_VERIFYING ||
            status.state == IF_UPDATE_READY;
+}
+
+static app_redraw_t settings_list_redraw(void) {
+    s_content_present_pending = true;
+    return APP_REDRAW_AREA;
+}
+
+static app_redraw_t settings_list_turn(int direction) {
+    int next = settings_list_page() + direction;
+    if (next < 0 || next >= settings_list_pages()) return APP_REDRAW_NONE;
+    s_main_page = next;
+    return settings_list_redraw();
+}
+
+static bool settings_tapped(EpdRect rect, const ui_gesture_event_t *ev) {
+    return ui_rect_hit(rect, ev->x0, ev->y0) && ui_rect_hit(rect, ev->x, ev->y);
+}
+
+static app_redraw_t settings_item_open(app_ctx_t *ctx, setting_id_t id) {
+    switch (id) {
+    case SETTING_TEXT:
+        system_font_picker_open();
+        break;
+    case SETTING_LANGUAGE: {
+        app_language_t language = app_settings_language() == APP_LANGUAGE_ZH ? APP_LANGUAGE_EN : APP_LANGUAGE_ZH;
+        if (app_settings_set_language(language) != ESP_OK)
+            ui_snprintf(s_notice, sizeof(s_notice), UI_MSG("保存失败，请重试"));
+        else app_font_activate_system();
+        break;
+    }
+    case SETTING_SIGNATURE:
+        profile_editor_open(true);
+        break;
+    case SETTING_WALLPAPER:
+        s_page = SETTINGS_WALLPAPER;
+        break;
+    case SETTING_BANNER:
+        quote_preview_clear();
+        s_banner_draft_ready = content_banner_load_checked(&s_banner_draft) == ESP_OK;
+        if (!s_banner_draft_ready) {
+            strlcpy(s_notice, UI_MSG("设置读取失败，请重试"), sizeof(s_notice));
+            break;
+        }
+        s_quote_px = s_banner_draft.quote_px;
+        s_quote_committed = s_banner_from_home = false;
+        s_notice[0] = 0;
+        s_page = SETTINGS_HOME_QUOTE;
+        quote_preview_prepare(s_quote_px, false);
+        break;
+    case SETTING_WIFI: {
+        extern const app_desc_t app_transfer;
+        app_transfer_request_wifi_setup();
+        ctx->request_app = &app_transfer;
+        return APP_REDRAW_NONE;
+    }
+    case SETTING_CLOUD:
+        s_page = SETTINGS_CLOUD;
+        s_cloud_scroll = 0;
+        s_notice[0] = 0;
+        break;
+    case SETTING_TIME:
+        s_page = SETTINGS_TIME;
+        break;
+    case SETTING_HOME_REFRESH:
+        app_settings_set_home_full_refresh(!app_settings_home_full_refresh());
+        return settings_list_redraw();
+    case SETTING_SLEEP:
+        s_page = SETTINGS_POWER_SLEEP;
+        break;
+    case SETTING_BATTERY:
+        s_battery_week = false;
+        s_page = SETTINGS_BATTERY;
+        break;
+    case SETTING_FIRMWARE:
+        s_page = SETTINGS_FIRMWARE_INFO;
+        s_notice[0] = 0;
+        break;
+    case SETTING_BACKUP:
+        s_page = SETTINGS_CONFIG;
+        s_config_confirm = false;
+        s_notice[0] = 0;
+        break;
+    case SETTING_BOOT:
+        s_boot_pending = false;
+        s_page = SETTINGS_BOOT;
+        break;
+    }
+    return APP_REDRAW_PAGE;
+}
+
+static app_redraw_t settings_main_tap(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
+    for (settings_group_t i = SETTINGS_PERSONAL; i < SETTINGS_GROUP_COUNT; ++i) {
+        if (!settings_tapped(settings_group_rect(i), ev)) continue;
+        if (i == s_main_group) return APP_REDRAW_NONE;
+        s_main_group = i;
+        s_main_page = 0;
+        return settings_list_redraw();
+    }
+    for (int direction = -1; direction <= 1; direction += 2)
+        if (settings_tapped(ui_nav_page_arrow_rect(direction, SETTINGS_LIST_PAGER_Y), ev))
+            return settings_list_turn(direction);
+
+    int rows = settings_list_rows();
+    int row_height = SETTINGS_LIST_ROW_H;
+    int first = settings_list_page() * rows;
+    for (int row = 0; row < rows && first + row < settings_groups[s_main_group].count; ++row)
+        if (settings_tapped(settings_list_row_rect(row, row_height), ev))
+            return settings_item_open(ctx, settings_groups[s_main_group].items[first + row].id);
+    return APP_REDRAW_NONE;
 }
 
 static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
@@ -1440,20 +1616,11 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         bool handled;app_redraw_t redraw=scroll_gesture(ev,&s_cloud_scroll,cloud_scroll_limit(),&handled);
         if(handled)return redraw;
     }
-    if (s_page == SETTINGS_MAIN) {
-        int limit = SETTINGS_SCROLL_MAX;
-        int *offset = &s_main_scroll;
-
-        bool handled;
-        app_redraw_t redraw = scroll_gesture(ev, offset, limit, &handled);
-        if (handled) return redraw;
-    }
-
     if (font_picker_page() &&
         (ev->type == UI_GESTURE_SWIPE_U || ev->type == UI_GESTURE_SWIPE_D)) {
         if(!font_list_turn(ev->type==UI_GESTURE_SWIPE_U?1:-1))return APP_REDRAW_NONE;
         if(s_page==SETTINGS_QUOTE_FONT)return APP_REDRAW_PAGE;
-        s_scroll_present_pending = true;
+        s_content_present_pending = true;
         return APP_REDRAW_AREA;
     }
     if (ev->type != UI_GESTURE_TAP) return APP_REDRAW_NONE;
@@ -1475,6 +1642,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
     }
     int tab = ui_nav_hit(ev->x0, ev->y0);
     if (tab >= 0) { ui_nav_request(ctx, tab); return APP_REDRAW_NONE; }
+    if (s_page == SETTINGS_MAIN) return settings_main_tap(ctx, ev);
     int y = ev->y0;
 
     if (s_page == SETTINGS_WALLPAPER && y < UI_PAGE_Y(190)) {
@@ -1536,7 +1704,7 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
             for (int i = 0; i < 4; ++i) if ((ev->x0-(system_size_rect(i).x+50))*(ev->x0-(system_size_rect(i).x+50))+(y-UI_PAGE_Y(300))*(y-UI_PAGE_Y(300))<=2500) {
                 if(app_settings_set_system_font_size(size_values[i])!=ESP_OK){ui_nav_notice_show(UI_MSG("保存失败，请重试"),ctx->now_ms);return APP_REDRAW_PAGE;}
                 ttf_name_preview_pause();
-                s_font_page=0; s_main_scroll=0;
+                s_font_page=0;
                 ui_text_set_system_scale(true);
                 return APP_REDRAW_PAGE;
             }
@@ -1564,7 +1732,6 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         if(app_font_save_choice(APP_FONT_SYSTEM,ui_i18n_english(),item?item->path:"")!=ESP_OK){ui_nav_notice_show(UI_MSG("保存失败，请重试"),ctx->now_ms);return APP_REDRAW_PAGE;}
         app_font_activate_system();
         s_font_page=index/font_list_rows();
-        if(s_main_scroll>SETTINGS_SCROLL_MAX)s_main_scroll=SETTINGS_SCROLL_MAX;
         return APP_REDRAW_PAGE;
     }
 
@@ -1650,52 +1817,6 @@ static app_redraw_t on_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
         return APP_REDRAW_NONE;
     }
 
-    if (y < UI_PAGE_Y(80) || y >= UI_NAV_TOP) return APP_REDRAW_NONE;
-    y += s_main_scroll;
-    if (y >= SETTINGS_WIRELESS_Y && y < SETTINGS_WIRELESS_Y + SETTINGS_ROW_H) {
-        extern const app_desc_t app_transfer;
-        app_transfer_request_wifi_setup();
-        ctx->request_app = &app_transfer;
-        return APP_REDRAW_NONE;
-    }
-    if (y >= SETTINGS_WIRELESS_Y + SETTINGS_ROW_H && y < SETTINGS_WIRELESS_Y + 2 * SETTINGS_ROW_H) {
-        s_page = SETTINGS_CLOUD; s_cloud_scroll=0; s_notice[0] = 0; return APP_REDRAW_PAGE;
-    }
-
-    if (y >= SETTINGS_DISPLAY_Y && y < SETTINGS_DISPLAY_Y + SETTINGS_ROW_H) {
-        system_font_picker_open();
-        return APP_REDRAW_PAGE;
-    }
-    if(y>=SETTINGS_DISPLAY_Y+SETTINGS_ROW_H&&y<SETTINGS_DISPLAY_Y+2*SETTINGS_ROW_H){profile_editor_open(true);return APP_REDRAW_PAGE;}
-    if(y>=SETTINGS_DISPLAY_Y+2*SETTINGS_ROW_H&&y<SETTINGS_DISPLAY_Y+3*SETTINGS_ROW_H){app_settings_set_home_full_refresh(!app_settings_home_full_refresh());return APP_REDRAW_PAGE;}
-    if (y >= SETTINGS_DISPLAY_Y + 3 * SETTINGS_ROW_H && y < SETTINGS_DISPLAY_Y + 4 * SETTINGS_ROW_H) {
-        s_page = SETTINGS_WALLPAPER; return APP_REDRAW_PAGE;
-    }
-    if(y>=SETTINGS_DISPLAY_Y+4*SETTINGS_ROW_H&&y<SETTINGS_DISPLAY_Y+SETTINGS_DISPLAY_ROWS*SETTINGS_ROW_H){
-        quote_preview_clear();s_banner_draft_ready=content_banner_load_checked(&s_banner_draft)==ESP_OK;
-        if(!s_banner_draft_ready){strlcpy(s_notice,UI_MSG("设置读取失败，请重试"),sizeof(s_notice));return APP_REDRAW_PAGE;}
-        s_quote_px=s_banner_draft.quote_px;s_quote_committed=false;s_notice[0]=0;
-        s_banner_from_home=false;
-        s_page=SETTINGS_HOME_QUOTE;quote_preview_prepare(s_quote_px,false);return APP_REDRAW_PAGE;
-    }
-    if (y >= SETTINGS_DEVICE_Y && y < SETTINGS_DEVICE_Y + SETTINGS_DEVICE_ROWS * SETTINGS_ROW_H) {
-        switch ((y - SETTINGS_DEVICE_Y) / SETTINGS_ROW_H) {
-        case 0: s_page = SETTINGS_TIME; break;
-        case 1: {
-            app_language_t language=app_settings_language()==APP_LANGUAGE_ZH?APP_LANGUAGE_EN:APP_LANGUAGE_ZH;
-            if(app_settings_set_language(language)!=ESP_OK)ui_snprintf(s_notice,sizeof(s_notice),UI_MSG("保存失败，请重试"));
-            else app_font_activate_system();
-            break;
-        }
-        case 2: s_page = SETTINGS_POWER_SLEEP; break;
-        case 3: s_battery_week = false; s_page = SETTINGS_BATTERY; break;
-        case 4: s_page = SETTINGS_CONFIG; s_config_confirm = false; s_notice[0] = 0; break;
-        case 5: s_page = SETTINGS_FIRMWARE_INFO; s_notice[0] = 0; break;
-        case 6: s_boot_pending = false; s_page = SETTINGS_BOOT; break;
-        }
-        return APP_REDRAW_PAGE;
-    }
-
     return APP_REDRAW_NONE;
 }
 static app_redraw_t on_key(app_ctx_t *ctx, int key) {
@@ -1704,16 +1825,15 @@ static app_redraw_t on_key(app_ctx_t *ctx, int key) {
     if (wallpaper_picker_page()) return wallpaper_picker_result(app_files_wallpaper_key(ctx,key));
     if (key != UI_KEY_2) {
         int direction = key == UI_KEY_1 ? -1 : 1;
-        if (s_page == SETTINGS_MAIN || s_page == SETTINGS_CLOUD) {
-            int *offset = s_page == SETTINGS_MAIN ? &s_main_scroll : &s_cloud_scroll;
-            int top = s_page == SETTINGS_MAIN ? UI_STATUS_HEIGHT : UI_PAGE_Y(190);
-            int limit = s_page == SETTINGS_MAIN ? SETTINGS_SCROLL_MAX : cloud_scroll_limit();
-            int next = *offset + direction * (UI_NAV_TOP - top - SETTINGS_ROW_H);
+        if (s_page == SETTINGS_MAIN) return settings_list_turn(direction);
+        if (s_page == SETTINGS_CLOUD) {
+            int limit = cloud_scroll_limit();
+            int next = s_cloud_scroll + direction * (UI_NAV_TOP - UI_PAGE_Y(190) - SETTINGS_ROW_H);
             if (next > limit) next = limit;
             if (next < 0) next = 0;
-            if (next == *offset) return APP_REDRAW_NONE;
-            *offset=next;
-            s_scroll_present_pending=true;
+            if (next == s_cloud_scroll) return APP_REDRAW_NONE;
+            s_cloud_scroll = next;
+            s_content_present_pending = true;
             return APP_REDRAW_AREA;
         }
         if(font_picker_page())return font_list_turn(direction)?APP_REDRAW_PAGE:APP_REDRAW_NONE;
@@ -1806,15 +1926,15 @@ static bool settings_present(app_ctx_t *ctx, app_redraw_t redraw) {
         guard_draw_result(ctx->hl,update_display_area_diff_with(ctx->hl,&E0470_WAVEFORM,MODE_GL16,ui_text_input_area()));
         return true;
     }
-    if (redraw == APP_REDRAW_AREA && s_scroll_present_pending &&
+    if (redraw == APP_REDRAW_AREA && s_content_present_pending &&
         (s_page == SETTINGS_MAIN ||
          s_page == SETTINGS_CLOUD || s_page == SETTINGS_SYSTEM_FONT)) {
-        s_scroll_present_pending = false;
+        s_content_present_pending = false;
         render(ctx, ctx->fb);
-        int top = s_page == SETTINGS_MAIN ? UI_STATUS_HEIGHT : UI_PAGE_Y(190);
+        int top = s_page == SETTINGS_MAIN ? UI_SUBPAGE_RULE_Y + UI_SECTION_LINE_HEIGHT : UI_PAGE_Y(190);
         EpdRect area = {0, top, UI_LOCK_WIDTH, UI_NAV_TOP - top};
-        // 只驱动变化像素，滚动次数不触发黑白清屏；题头与底栏保持稳定。
-        // Drive changed pixels only; scroll counts never trigger a wipe, and header/nav stay stable.
+        // 切换分组、翻页及滚动只驱动正文内变化的像素。
+        // Group switches, paging and scrolling drive only changed pixels in the content area.
         guard_draw_result(ctx->hl, update_display_natural_area(ctx->hl, area));
         return true;
     }

@@ -44,7 +44,48 @@ int main(int argc,char **argv){
  spell(&in,"");tap(&in,CLEAR);tap(&in,SYMBOLS);spell(&in,"abc");assert(!in.revealed);tap(&in,REVEAL);assert(in.revealed);ui_text_input_clear(&in);assert(!in.revealed);for(size_t i=0;i<sizeof(text);++i)assert(text[i]==0);
  // 非同一按钮释放不提交。/ Releasing outside the originating button never commits.
  EpdRect r=ui_text_input_key_rect(DONE);ui_gesture_event_t ev={.type=UI_GESTURE_TAP,.x0=r.x+2,.y0=r.y+2,.x=0,.y=0};assert(ui_text_input_gesture(&in,&ev)==UI_INPUT_NONE);
- for(int key=0;key<40;++key){r=ui_text_input_key_rect(key);assert(r.y>=UI_INPUT_KEYS_TOP&&r.y+r.height<UI_INPUT_FOOTER_TOP);}
+ // 键盘左右对称，候选行、字符行和功能行共用键缝。/ Candidate, character and command rows share equal gaps and symmetric margins.
+ const int first_keys[]={PREVIOUS,0,10,20,30,LANGUAGE};
+ const int last_keys[]={NEXT,9,19,29,39,DONE};
+ int previous_bottom=0;
+ for(unsigned row=0;row<sizeof(first_keys)/sizeof(first_keys[0]);++row){
+  EpdRect first=ui_text_input_key_rect(first_keys[row]);
+  EpdRect last=ui_text_input_key_rect(last_keys[row]);
+  assert(first.x==12&&last.x+last.width==UI_LOCK_WIDTH-12);
+  assert(first.y==last.y&&first.height==last.height);
+  if(row)assert(first.y-previous_bottom==6);
+  previous_bottom=first.y+first.height;
+ }
+ assert(previous_bottom==UI_LOCK_HEIGHT-16);
+ const int candidate_keys[]={PREVIOUS,CANDIDATE,CANDIDATE+1,CANDIDATE+2,CANDIDATE+3,CANDIDATE+4,NEXT};
+ for(unsigned i=1;i<sizeof(candidate_keys)/sizeof(candidate_keys[0]);++i){
+  EpdRect left=ui_text_input_key_rect(candidate_keys[i-1]),right=ui_text_input_key_rect(candidate_keys[i]);
+  assert(right.x-left.x-left.width==6);
+ }
+ for(int key=0;key<40;++key){
+  r=ui_text_input_key_rect(key);
+  assert(r.width>=60&&r.width<=61);
+  if(key%10){
+   EpdRect left=ui_text_input_key_rect(key-1);
+   assert(r.x-left.x-left.width==6);
+  }
+ }
+ for(int key=LANGUAGE+1;key<=DONE;++key){
+  EpdRect left=ui_text_input_key_rect(key-1),right=ui_text_input_key_rect(key);
+  assert(right.x-left.x-left.width==6);
+ }
+ ui_text_input_open(&in,text,sizeof(text),true,false,UI_INPUT_ENGLISH);
+ r=ui_text_input_key_rect(0);
+ ev=(ui_gesture_event_t){.type=UI_GESTURE_TAP,.x0=r.x,.x=r.x,.y0=r.y+10,.y=r.y+10};
+ assert(ui_text_input_gesture(&in,&ev)==UI_INPUT_CHANGED&&!strcmp(text,"1"));
+ ev.x0=ev.x=r.x+r.width;
+ assert(ui_text_input_gesture(&in,&ev)==UI_INPUT_NONE&&!strcmp(text,"1"));
+ ev.x0=ev.x=r.x;ev.y0=ev.y=r.y+r.height;
+ assert(ui_text_input_gesture(&in,&ev)==UI_INPUT_NONE&&!strcmp(text,"1"));
+ r=ui_text_input_key_rect(9);
+ ev.x0=ev.x=r.x+r.width-1;ev.y0=ev.y=r.y+10;
+ assert(ui_text_input_gesture(&in,&ev)==UI_INPUT_CHANGED&&!strcmp(text,"10"));
+ tap(&in,CLEAR);
  for(int i=0;i<4;++i){ui_text_input_open(&in,text,sizeof(text),i%2,i==3,i%2?UI_INPUT_CHINESE:UI_INPUT_ENGLISH);drawn_buttons=footer_bottom=0;ui_text_input_draw(NULL,&in,"测试","",NULL,"完成",NULL);assert(drawn_buttons>=56&&footer_bottom==1200);}
  if(argc>1){
   char words[6][UI_PINYIN_WORD_BYTES];assert(ui_pinyin_candidates("yuedu",words,6,0)==2);assert(!strcmp(words[0],"阅读"));

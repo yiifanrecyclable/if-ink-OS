@@ -27,7 +27,8 @@ static app_redraw_t preview_settings_gesture(app_ctx_t *ctx,const ui_gesture_eve
 int simulator_system_font_count(void){
  return s_page==SETTINGS_SYSTEM_FONT?font_list_count():0;
 }
-int simulator_settings(uint8_t *fb,int page,int scroll,const char *events){
+int simulator_settings(uint8_t *fb,int page,int unused,const char *events){
+ (void)unused;
  if(page==SETTINGS_BANNER_BROWSER)page=SETTINGS_BANNER_IMAGE;
  if(page==6)page=5;if(page==8)page=9;
  // 已退役的手动日志页面返回设置首页。/ Retired manual-log links return to Settings.
@@ -41,7 +42,7 @@ int simulator_settings(uint8_t *fb,int page,int scroll,const char *events){
  if(page==SETTINGS_WALLPAPER_FIXED||page==SETTINGS_WALLPAPER_FOLDER)wallpaper_picker_open(&ctx,page==SETTINGS_WALLPAPER_FOLDER);
 
  if(page==SETTINGS_TEXT_EDIT)profile_editor_open(true);
- s_page=quote?SETTINGS_TEXT_EDIT:(page==SETTINGS_RETIRED_4||page==SETTINGS_RETIRED_7||page==SETTINGS_RETIRED_15||page==SETTINGS_RETIRED_16||page==SETTINGS_RETIRED_17||page==SETTINGS_RETIRED_18)?SETTINGS_MAIN:(settings_page_t)page;s_main_scroll=scroll;
+ s_page=quote?SETTINGS_TEXT_EDIT:(page==SETTINGS_RETIRED_4||page==SETTINGS_RETIRED_7||page==SETTINGS_RETIRED_15||page==SETTINGS_RETIRED_16||page==SETTINGS_RETIRED_17||page==SETTINGS_RETIRED_18)?SETTINGS_MAIN:(settings_page_t)page;
  if(s_page==SETTINGS_HOME_QUOTE)quote_preview_prepare(s_quote_px,false);
  s_year=2026;s_month=10;s_day=5;s_hour=12;s_minute=0;
  if(s_page==SETTINGS_ONLINE_UPDATE)(void)if_update_check_all();
@@ -66,8 +67,11 @@ int simulator_settings(uint8_t *fb,int page,int scroll,const char *events){
 }
 
 int simulator_settings_geometry(int item) {
- // 第四项保留为0以稳定预览元数据索引。/ Reserve index 3 as zero to keep preview metadata positions stable.
- const int values[]={SETTINGS_WIRELESS_Y,SETTINGS_DISPLAY_Y,SETTINGS_DEVICE_Y,0,SETTINGS_ROW_H,SETTINGS_SCROLL_MAX,font_list_top(),font_list_step(),font_list_rows(),s_cloud_scroll,cloud_scroll_limit(),cloud_row_y(0),cloud_row_y(1),cloud_row_y(2)};
+ // 首页布局、字号页几何及坚果云滚动状态。/ Root layout, font-picker geometry, and Nutstore scrolling state.
+ const int values[]={SETTINGS_LIST_TOP,SETTINGS_GROUP_TOP+SETTINGS_GROUP_HEIGHT/2,SETTINGS_LIST_PAGER_Y,
+                     settings_list_rows(),SETTINGS_LIST_ROW_H,settings_list_pages(),
+                     font_list_top(),font_list_step(),font_list_rows(),s_cloud_scroll,cloud_scroll_limit(),
+                     cloud_row_y(0),cloud_row_y(1),cloud_row_y(2),s_main_group,settings_list_page()};
  return item>=0 && item<(int)(sizeof(values)/sizeof(values[0]))?values[item]:0;
 }
 

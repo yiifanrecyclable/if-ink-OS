@@ -22,7 +22,7 @@ remain in the source. This project is not an official MindReset release.
 | --- | --- | --- |
 | MindReset Read Pico firmware and board components | Apache-2.0 | [LICENSE](LICENSE); source file headers |
 | [Lucide](https://lucide.dev/icons/) — the whole UI icon set, vendored as SVG sources in `tools/icons/lucide/` and compiled into `main/assets/ui_icons.h` by `tools/gen_ui_icons.py` | ISC | [Lucide notice](flash/licenses/LUCIDE-ISC.txt) |
-| Nutstore nut and WeChat chat-bubble icons, redrawn in monochrome for IF service entries | Original brand graphics and trademarks remain with their respective owners; redrawing does not relicense them | [Sources and redraw provenance](tools/icons/if/README.md) |
+| Nutstore emblem (grayscale Apps icon and monochrome redraw) and WeChat chat-bubble redraw | The original brand graphics and trademarks remain with their respective owners | [Sources and conversion details](tools/icons/if/README.md) |
 | [JPEGDEC](https://github.com/bitbank2/JPEGDEC) — progressive JPEG decoding, vendored and patched in `components/jpegdec/` | Apache-2.0 | [Component license](components/jpegdec/LICENSE), [Fork notes](components/jpegdec/FORK.md) |
 | [epdiy](https://github.com/vroland/epdiy), including the locally modified driver | LGPL-3.0-or-later | [Modification notes](components/epdiy/LICENSE), [LGPLv3](licenses/LGPL-3.0.txt), [GPLv3](licenses/GPL-3.0.txt) |
 | [md4c](https://github.com/mity/md4c) 0.5.2 parser, including local fixes; Copyright © 2016–2024 Martin Mitáš | MIT | [Original license](components/md4c/LICENSE.md); [provenance and local changes](components/md4c/UPSTREAM.md); upstream `release-0.5.2` commit `729e6b8b320caa96328968ab27d7db2235e4fb47` |

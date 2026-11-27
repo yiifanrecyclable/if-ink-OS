@@ -74,6 +74,6 @@ ASAN_OPTIONS=detect_leaks=0 python3 tools/test_markdown_tables.py
 
 ## 固定存储目录
 
-图书根目录固定为TF卡的`books`，字体目录固定为`fonts`，Markdown文档目录固定为`markdown`（附件在`markdown/attachments`）。删除“设为书籍目录／字体目录”，旧自定义路径和旧备份不会改变标准根目录；原目录与原文件保留，需用户自行移入标准目录。标准根目录不可在设备上改名、移动或删除，其内部文件仍按既有规则管理。文件页只保留WiFi/热点、坚果云同步和USB连接三个入口。
+图书根目录固定为TF卡的`books`，字体目录固定为`fonts`，Markdown文档目录固定为`markdown`（附件在`markdown/attachments`）。删除“设为书籍目录／字体目录”，旧自定义路径和旧备份不会改变标准根目录；原目录与原文件保留，需用户自行移入标准目录。标准根目录不可在设备上改名、移动或删除，其内部文件仍按既有规则管理。电脑或手机传送文件时，从「应用 → 文件传输」选择 WiFi、热点或 USB 读卡。
 
-English: Fixed TF roots are books, fonts and markdown. Legacy root preferences/backups cannot reroute them or move files. Protect the root folders from rename/move/delete; retain existing management rules for their contents. Files exposes WiFi/hotspot, Nutstore and USB.
+English: Fixed TF roots are books, fonts and markdown. Legacy root preferences/backups cannot reroute them or move files. Protect the root folders from rename/move/delete; retain existing management rules for their contents. To transfer files from a computer or phone, choose WiFi, hotspot or USB storage under Apps → File Transfer.

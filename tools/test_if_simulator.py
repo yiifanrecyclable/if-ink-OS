@@ -27,39 +27,39 @@ with tempfile.TemporaryDirectory(dir=root/'build',prefix='if-ui-isolated-') as t
     assert render('book-1')['pages']>=1
     assert render('book-1',path='/sdcard/books/示例.txt')['pages']>1
     probe=render('font-probe',path='龘中文，。「」English!?');assert probe['font_text_covered']
-    geometry=render('settings-0')['settings_geometry'];wireless,display,device,maintenance,row_h=geometry[:5]
-    for y,page in ((wireless+row_h*3//2,20),(display+row_h//2,5),(display+row_h*3//2,19),(display+row_h*7//2,9),(device+row_h*7//2,11)):
-        scroll=max(0,y-1000)
-        assert render('settings-0',aux=scroll,events=f't,340,{y-scroll},340,{y-scroll}')['settings_page']==page,(y,page,scroll)
+    geometry=render('settings-0')['settings_geometry'];top,tab_y,_,_,row_h=geometry[:5]
+    for index,page in ((0,5),(2,19),(3,9),(6,20)):
+        y=top+row_h*index+row_h//2
+        assert render('settings-0',events=f't,340,{y},340,{y}')['settings_page']==page
+    y=top+row_h*5+row_h//2
+    assert render('settings-0',events=f't,500,{tab_y},500,{tab_y};t,340,{y},340,{y}')['settings_page']==11
     assert render('settings-4')['settings_page']==0
     assert not any(f'settings-{i}' in VIEWS for i in (15,16,17,18))
     for retired in (15,16,17,18):assert render(f'settings-{retired}')['settings_page']==0
     for x in (98,342,610):assert render('settings-0',events=f't,{x},135,{x},135')['settings_page']==0
     render('settings-0');settings_frame=(build/'frame.bin').read_bytes()
-    # 身份区域无外框和旧头像按钮；文字上下留白。 / Identity has no border or retired avatar actions.
-    assert all(((settings_frame[y*342+x//2]>>(4 if x%2 else 0))&15)==14 for y in range(84,93) for x in range(36,648))
-    assert any(settings_frame[y*342+x//2]!=238 for y in range(100,190) for x in range(42,600))
-    # 四个等宽全高矩形选中区域，深灰底白图标；角落也能导航。
-    # Four full-height rectangular quarters use dark-gray selection and white icons; corners remain tappable.
+    # The root title has a full-width divider and no close action in the brand area.
+    assert settings_frame[127*342:129*342]==bytes([0x55])*684
+    assert render('settings-0',events='t,58,90,58,90')['route']==-1
+    # 底栏选中的页面使用白底黑图标；四角仍可点击。 / The selected tab uses white with a black icon, and its corners remain tappable.
     def tone(frame,x,y):return (frame[y*342+x//2]>>(4 if x%2 else 0))&15
     for active,native in enumerate(('baseline-home','book-0','files-0','settings-0')):
         render(native,aux=-1 if active==2 else 0);frame=(build/'frame.bin').read_bytes()
         left=active*171;right=left+170
         for y in (1136,1137,1215):
-            assert all(tone(frame,x,y)==4 for x in range(left,right+1)),(active,y)
+            assert all(tone(frame,x,y)==15 for x in range(left,right+1)),(active,y)
         for x in (left,right):
-            assert all(tone(frame,x,y)==4 for y in range(1136,1216)),(active,x)
-        assert any(tone(frame,x,y)==15 for y in range(1154,1199) for x in range(left+60,left+111))
+            assert all(tone(frame,x,y)==15 for y in range(1136,1216)),(active,x)
+        assert any(tone(frame,x,y)==0 for y in range(1154,1199) for x in range(left+60,left+111))
         for x,y in ((left,1136),(right,1215)):
             assert render('baseline-home',events=f't,{x},{y},{x},{y}')['route']==active
     assert render('baseline-home',events='t,426,1176,426,1176')['route']==2
     assert render('baseline-home',events='t,255,1176,255,1176')['route']==1
-    assert render('files-0',aux=-1,events='t,108,316,108,316')['route']==5
-    assert render('files-0',aux=-1,events='t,264,316,264,316')['route']==6
-    assert render('files-0',aux=-1,events='t,420,316,420,316')['route']==7
-    assert render('files-0',aux=-1,events='t,576,316,576,316')['route']==5
+    assert render('files-0',aux=-1,events='t,130,236,130,236')['files_folder']==3
+    for x,y,route in ((342,236,5),(570,236,6),(114,549,7)):
+        assert render('files-0',aux=-1,events=f't,{x},{y},{x},{y}')['route']==route
     assert render('cloud-0',events='t,64,112,64,112')['route']==2
     assert render('baseline-home',events='t,342,930,342,930')['route']!=6
     shutil.rmtree(card/'fonts');(card/'fonts').mkdir()
     render('baseline-home');render('settings-0');render('settings-12')
-    print(f'PASS {count} native screens, MD/TXT readers, TF glyph coverage, cloud route, full-quarter dark-gray 80px navigation and no-font fallback')
+    print(f'PASS {count} native screens, MD/TXT readers, TF glyph coverage, cloud route, 80px navigation and no-font fallback')

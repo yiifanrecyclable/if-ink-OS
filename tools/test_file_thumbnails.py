@@ -105,7 +105,7 @@ with tempfile.TemporaryDirectory(prefix='file-thumbnails-',dir=R/'build') as tmp
     def gesture(x,y):return p.action({'action':'gesture','type':'t','x':x,'y':y,'xx':x,'yy':y})
     # Get geometry before capturing the replay origin: fixture writes must not masquerade as external edits.
     state=frame();index=next(i for i,item in enumerate(state['files_items']) if item['path']=='/sdcard/pictures')
-    p.render();gesture(180,154)
+    p.render();gesture(130,236)
     gesture(180,190+index*state['files_row_height']+state['files_row_height']//2)
     assert p.state['files_dir']=='/sdcard/pictures'
     gesture(612,83);assert p.state['files_grid']==1

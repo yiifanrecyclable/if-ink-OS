@@ -105,13 +105,38 @@ static void key_label(const ui_text_input_t *in, int index, char text[8]) {
         text[0] = c; text[1] = 0;
     }
 }
+enum { KEYBOARD_MARGIN = 12, KEYBOARD_GAP = 6, CANDIDATE_ARROW_WIDTH = 48 };
+
+static EpdRect keyboard_row_key(int column, int columns, int inset, int y, int height) {
+    int available = UI_LOCK_WIDTH - 2 * inset - (columns - 1) * KEYBOARD_GAP;
+    int left = column * available / columns;
+    int right = (column + 1) * available / columns;
+    return (EpdRect){inset + left + column * KEYBOARD_GAP, y, right - left, height};
+}
+
 EpdRect ui_text_input_key_rect(int id) {
-    if (id >= 0 && id < 40) return (EpdRect){40 + id % 10 * 61, UI_INPUT_KEYS_TOP + id / 10 * UI_INPUT_KEYS_STEP, 55, 74};
-    static const int x[] = {40, 144, 238, 442, 546}, widths[] = {98, 88, 198, 98, 98};
-    if (id >= LANGUAGE && id <= DONE) return (EpdRect){x[id-40], UI_INPUT_FOOTER_TOP, widths[id-40], 96};
-    if (id == PREVIOUS) return (EpdRect){40, UI_INPUT_KEYBOARD_TOP, 42, 64};
-    if (id == NEXT) return (EpdRect){602, UI_INPUT_KEYBOARD_TOP, 42, 64};
-    if (id >= CANDIDATE && id < CANDIDATE+5) return (EpdRect){88+(id-CANDIDATE)*102, UI_INPUT_KEYBOARD_TOP, 96, 64};
+    if (id >= 0 && id < 40)
+        return keyboard_row_key(id % 10, 10, KEYBOARD_MARGIN,
+                                UI_INPUT_KEYS_TOP + id / 10 * UI_INPUT_KEYS_STEP,
+                                UI_INPUT_KEYS_STEP - KEYBOARD_GAP);
+    if (id >= LANGUAGE && id <= DONE) {
+        // 空格占两份宽度，其余各占一份。/ Give Space two shares and the other keys one each.
+        int column = id - LANGUAGE;
+        int units = column + (id > SPACE);
+        int available = UI_LOCK_WIDTH - 2 * KEYBOARD_MARGIN - 4 * KEYBOARD_GAP;
+        int left = units * available / 6;
+        int right = (units + (id == SPACE ? 2 : 1)) * available / 6;
+        return (EpdRect){KEYBOARD_MARGIN + left + column * KEYBOARD_GAP,
+                         UI_INPUT_FOOTER_TOP, right - left, 96};
+    }
+    int candidate_height = UI_INPUT_KEYS_TOP - UI_INPUT_KEYBOARD_TOP - KEYBOARD_GAP;
+    if (id == PREVIOUS || id == NEXT) {
+        int x = id == PREVIOUS ? KEYBOARD_MARGIN : UI_LOCK_WIDTH - KEYBOARD_MARGIN - CANDIDATE_ARROW_WIDTH;
+        return (EpdRect){x, UI_INPUT_KEYBOARD_TOP, CANDIDATE_ARROW_WIDTH, candidate_height};
+    }
+    if (id >= CANDIDATE && id < CANDIDATE+5)
+        return keyboard_row_key(id - CANDIDATE, 5, KEYBOARD_MARGIN + CANDIDATE_ARROW_WIDTH + KEYBOARD_GAP,
+                                UI_INPUT_KEYBOARD_TOP, candidate_height);
     if (id >= LEFT && id <= CLEAR) return (EpdRect){40+(id-LEFT)*154, 368, 142, 64};
     if (id == REVEAL || id == RAW) return (EpdRect){40, 450, 220, 64};
     if (id == CANCEL) return ui_nav_subpage_close_rect();
@@ -200,7 +225,7 @@ void ui_text_input_draw(uint8_t *fb, const ui_text_input_t *in, const char *titl
     char label[80];
     ui_snprintf(label,sizeof(label),"%s%s%.32s",in->mode==UI_INPUT_CHINESE?UI_MSG("中文拼音"):in->mode==UI_INPUT_SYMBOLS?(in->symbol_page?UI_MSG("数字 / 符号  2/2"):UI_MSG("数字 / 符号  1/2")):in->uppercase?UI_MSG("英文大写"):UI_MSG("英文小写"),
         in->pinyin[0]?"  ·  ":"",in->pinyin);
-    ui_text_fixed(fb,40,644,ui_text_effective_px(UI_TEXT_BODY),label,EPD_DRAW_ALIGN_LEFT,false);
+    ui_text_fixed(fb,KEYBOARD_MARGIN,644,ui_text_effective_px(UI_TEXT_BODY),label,EPD_DRAW_ALIGN_LEFT,false);
     button(fb,in,PREVIOUS,"‹",false); button(fb,in,NEXT,"›",false);
     for (int i=0;i<5;++i) button(fb,in,CANDIDATE+i,
         (size_t)i<in->candidate_count?in->candidates[i]:"",i==0&&in->candidate_count);

@@ -101,8 +101,55 @@ with tempfile.TemporaryDirectory(prefix='settings-header-',dir=ROOT/'build') as 
     (nvs/'language').unlink()
     # The retired manual-log page is no longer exposed; the last device row still opens BOOT.
     assert frame('settings-33')['settings_page']==0
-    geometry=frame('settings-0')['settings_geometry'];device,step=geometry[2],geometry[4]
-    for index,page in ((0,2),(2,14),(3,24),(4,11),(5,27),(6,13)):
-        y=device+step*index+step//2;scroll=max(0,y-1000)
-        assert frame('settings-0',tap(340,y-scroll),scroll)['settings_page']==page,(index,page)
+    geometry=frame('settings-0')['settings_geometry']
+    top, tab_y, pager_y, _, step = geometry[:5]
+    choose_device= tap(505,tab_y)
+    choose_personal= tap(170,tab_y)
+    root=lambda events='': frame('settings-0',events)
+    assert root()['settings_geometry'][14:]==[0,0]
+    assert root(choose_device)['settings_geometry'][14:]==[1,0]
+    assert root(choose_device+';'+choose_personal)['settings_geometry'][14:]==[0,0]
+    for event in ('u,300,900,300,420','d,300,420,300,900',tap(64,pager_y),tap(620,pager_y),
+                  'k,0,0,0,0','k,2,0,0,0',f't,170,{tab_y},505,{tab_y}'):
+        assert root(choose_device+';'+event)['settings_geometry'][14:]==[1,0],event
+    for index,page in ((0,2),(2,14),(3,24),(4,27),(5,11),(6,13)):
+        y=top+step*index+step//2
+        interaction=choose_device+';'+tap(340,y)
+        assert root(interaction)['settings_page']==page,(index,page)
+        returned=root(interaction+';k,1,0,0,0')
+        assert returned['settings_page']==0 and returned['settings_geometry'][14:]==[1,0]
+    wifi_y=top+step*5+step//2
+    wifi=root(tap(340,wifi_y))
+    assert wifi['route']==5
+    assert root(f't,340,{wifi_y},670,{wifi_y}')['route']==-1
+    root()
+    personal=raw.read_bytes()
+    root(choose_device)
+    device=raw.read_bytes()
+    assert personal[56*342:129*342]==device[56*342:129*342]
+    assert personal[127*342:129*342]==reader[127*342:129*342]
+    assert personal[1136*342:]==device[1136*342:]
+    for x in (189,495):
+        y=225
+        assert (personal[y*342+x//2]!=0xff)==(x==189)
+        assert (device[y*342+x//2]!=0xff)==(x==495)
+    refresh=choose_device+';'+tap(340,top+step+step//2)
+    assert root(refresh)['settings_page']==0
+    assert (nvs/'home_full').read_bytes()==b'\x01'
+    assert root(refresh)['settings_geometry'][14:]==[1,0]
+    assert (nvs/'home_full').read_bytes()==b'\x00'
+    for size in (100,160):
+        (nvs/'sys_size').write_bytes(bytes([size]))
+        (nvs/'language').write_bytes(b'\x01')
+        assert root()['system_language']==1
+        english=raw.read_bytes()
+        for left,right in ((55,320),(364,630)):
+            def has_ink(y):
+                line=english[y*342+left//2:y*342+right//2]
+                return any((px&15)<8 or (px>>4)<8 for px in line)
+            assert any(has_ink(y) for y in range(158,184))
+            assert any(has_ink(y) for y in range(194,219))
+            assert not any(has_ink(y) for y in range(220,225))
+
+
 print('PASS Settings header exits: bounded press/release, inert titles/blanks, nested destinations, input and WiFi return')

@@ -14,12 +14,63 @@ with tempfile.TemporaryDirectory(prefix='apps-beads-',dir=ROOT/'build') as tmp:
         assert result.returncode==0,result.stderr[-2000:]
         return json.loads(result.stdout)
     def tap(x,y):return f't,{x},{y},{x},{y}'
-    # 五个入口与返回：第3项只打开目录，第5项进真实C拼豆。/ Five routes; storage opens a directory and beads invokes production C.
-    for i,route in ((1,5),(2,5),(3,6),(4,7)):
-        state=render('files-0',tap(180,154+140*i),-1);assert state['route']==route,(i,state)
-    state=render('files-0',tap(180,154),-1);assert state['files_folder']==3 and state['route']==-1
+    centers=((114,236),(342,236),(570,236),(114,549))
+    # Exercise the four app cells and the inert blank cells and paging controls.
+    for i,route in ((1,5),(2,6),(3,7)):
+        state=render('files-0',tap(*centers[i]),-1);assert state['route']==route,(i,state)
+    state=render('files-0',tap(*centers[0]),-1);assert state['files_folder']==3 and state['route']==-1
+    assert render('files-0',tap(0,236),-1)['files_folder']==3
+    assert render('files-0',tap(683,236),-1)['route']==6
+    render('files-0',folder=-1)
+    grid=(out/'frame.bin').read_bytes()
+    def grid_tone(x,y):return (grid[y*342+x//2]>>(4 if x%2 else 0))&15
+    assert all(grid_tone(x,y)==11 for x in (228,456) for y in range(80,1020))
+    assert all(grid_tone(x,y)==11 for x in range(684) for y in (80,393,706,1019))
+    for x,y in centers:
+        assert any(grid_tone(ix,iy)<9 for ix in range(x-38,x+39) for iy in range(y-66,y+8))
+    for event in (tap(342,549),tap(570,549),tap(114,863),tap(342,863),tap(570,863),tap(64,1092),tap(620,1092),
+                  'k,0,0,0,0','k,2,0,0,0','a,550,600,110,600','t,114,236,342,236'):
+        state=render('files-0',event,-1)
+        assert state['route']==-1 and state['files_folder']==-1,event
+        assert (out/'frame.bin').read_bytes()[56*342:]==grid[56*342:],event
     state=render('files-0',tap(40,90),3);assert state['files_folder']==-1
     state=render('files-0',tap(426,1176),-1);assert state['route']==2
+    wifi, hotspot, usb = tap(342,256), tap(342,368), tap(342,480)
+    close = tap(58,90)
+    chooser = render('transfer-0')
+    assert chooser['transfer_view']==0 and chooser['transfer_entry']==0 and chooser['route']==-1
+    assert render('transfer-0',wifi)['transfer_view']==2
+    assert render('transfer-0',wifi+';'+close)['transfer_view']==0
+    env['PICO_SIM_SAVED_WIFI']='1'
+    connected=render('transfer-0',wifi)
+    assert connected['transfer_view']==1 and connected['transfer_mode']==1
+    del env['PICO_SIM_SAVED_WIFI']
+    routed=render('transfer-0',hotspot)
+    assert routed['transfer_view']==1 and routed['transfer_mode']==0
+    assert render('transfer-0',hotspot+';'+close)['transfer_view']==0
+    routed=render('transfer-0',usb)
+    assert routed['transfer_view']==1 and routed['transfer_mode']==2 and routed['route']==-1
+    usb_frame=(out/'frame.bin').read_bytes()
+    for exit_event in (close,'k,1,0,0,0',tap(342,990)):
+        returned=render('transfer-0',usb+';'+exit_event)
+        assert returned['transfer_view']==0 and returned['route']==-1
+    env['PICO_SIM_USB_EXIT']='busy'
+    blocked=render('transfer-0',usb+';'+close)
+    assert blocked['transfer_view']==1 and blocked['transfer_mode']==2 and blocked['route']==-1
+    # The eject-and-retry hint must be visible while USB still has the card.
+    assert (out/'frame.bin').read_bytes()[342*342:383*342]!=usb_frame[342*342:383*342]
+    env['PICO_SIM_USB_EXIT']='slow'
+    wait=usb+';'+close
+    for tick in ('',';n,0,0,0,0'):
+        pending=render('transfer-0',wait+tick)
+        assert pending['transfer_view']==1 and pending['transfer_mode']==2 and pending['route']==-1
+    returned=render('transfer-0',wait+';n,0,0,0,0;n,0,0,0,0')
+    assert returned['transfer_view']==0 and returned['route']==-1
+    env['PICO_SIM_USB_EXIT']='missing'
+    returned=render('transfer-0',wait)
+    assert returned['transfer_view']==0 and returned['route']==-1
+    del env['PICO_SIM_USB_EXIT']
+
     render('cyber-beads')
     blank=(out/'frame.bin').read_bytes()
     def tone(frame,x,y):return (frame[y*342+x//2]>>(4 if x%2 else 0))&15
@@ -98,7 +149,7 @@ with tempfile.TemporaryDirectory(prefix='apps-beads-',dir=ROOT/'build') as tmp:
         preview=server.Preview(build_native=False)
         preview.action({'action':'files'})
         def gesture(x,y):return preview.action({'action':'gesture','type':'t','x':x,'y':y,'xx':x,'yy':y})
-        assert gesture(180,714)['screen']=='cyber-beads'
+        assert gesture(*centers[3])['screen']=='cyber-beads'
         assert gesture(30,34)['screen']=='cyber-beads'
         frame=(out/'frame.bin').read_bytes();assert frame[34*342+22]&15==13
         assert gesture(108,1144)['screen']=='cyber-beads'
@@ -107,31 +158,31 @@ with tempfile.TemporaryDirectory(prefix='apps-beads-',dir=ROOT/'build') as tmp:
         assert gesture(643,1144)['screen']=='cyber-beads'
         assert len(list(folder.glob('*.png')))==count+1
         assert gesture(36,1144)['screen']=='files-home'
-        assert gesture(180,714)['screen']=='cyber-beads'
+        assert gesture(*centers[3])['screen']=='cyber-beads'
         frame=(out/'frame.bin').read_bytes();assert frame[34*342+22]&15==13
         # 放弃修改后重新进入应恢复最近保存的画布。/ Discarded edits must not replace the saved board.
         gesture(30,34);gesture(36,1144)
         assert gesture(342,690)['screen']=='files-home'
-        assert gesture(180,714)['screen']=='cyber-beads'
+        assert gesture(*centers[3])['screen']=='cyber-beads'
         frame=(out/'frame.bin').read_bytes();assert frame[34*342+22]&15==13
-        # 应用入口返回路径：USB 按钮、左上返回和中键回应用，左右键保持当前页。
-        # USB button, header and middle key return to Apps; side keys stay on USB.
+        # USB 返回方式列表，再退回应用九宫格。/ USB returns to the chooser before leaving to Apps.
         for event in ({'action':'gesture','type':'t','x':342,'y':990,'xx':342,'yy':990},
                       {'action':'gesture','type':'t','x':40,'y':90,'xx':40,'yy':90},
                       {'action':'key','key':0},{'action':'key','key':2},{'action':'key','key':1}):
             preview.action({'action':'files'})
-            assert gesture(180,434)['screen']=='transfer-usb'
+            assert gesture(*centers[1])['screen']=='transfer-methods'
+            assert gesture(342,480)['screen']=='transfer-usb'
             state=preview.action(event)
-            assert state['screen']==('transfer-usb' if event.get('key') in (0,2) else 'files-home'),state['screen']
+            assert state['screen']==('transfer-usb' if event.get('key') in (0,2) else 'transfer-methods'),state['screen']
         preview.action({'action':'files'})
-        assert gesture(180,294)['screen']=='transfer-methods'
+        assert gesture(*centers[1])['screen']=='transfer-methods'
         assert gesture(40,90)['screen']=='files-home'
         for transfer in ('transfer-hotspot','transfer-wifi'):
             preview.action({'action':'view','view':transfer})
             assert gesture(342,990)['screen']=='transfer-methods'
             assert gesture(40,90)['screen']=='files-home'
         preview.action({'action':'files'})
-        assert gesture(180,574)['screen']=='cloud-sync'
+        assert gesture(*centers[2])['screen']=='cloud-sync'
         assert gesture(426,1176)['screen']=='files-home'
         # 子目录图片通过文件页跨进程传入图片页，不能回退到内置测试图。
         # Carry nested image paths across renderer processes, never fall back to the built-in chart.
@@ -168,4 +219,4 @@ with tempfile.TemporaryDirectory(prefix='apps-beads-',dir=ROOT/'build') as tmp:
     render('cyber-beads');frame=(out/'frame.bin').read_bytes();assert frame[34*342+22]&15==15
     for slot in slots:slot.write_bytes(b'corrupt')
     render('cyber-beads');frame=(out/'frame.bin').read_bytes();assert frame[34*342+22]&15==15
-print('PASS: restore saved board/palette, discard, no duplicate export, corrupt-slot fallback; five app routes, storage/back, native beads, PNG pixels/CRC/4-bit export, duplicate/collision/FatFs/failure, undo and exit guards')
+print('PASS: restore saved board/palette, discard, no duplicate export, corrupt-slot fallback; four app routes, three transfer methods, USB remount and exit guards, native beads, PNG pixels/CRC/4-bit export, duplicate/collision/FatFs/failure, undo and exit guards')

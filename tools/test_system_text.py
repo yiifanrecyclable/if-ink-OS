@@ -15,7 +15,7 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='system-text-') as tmp:
         result=subprocess.run([str(ROOT/'build/simulator/render'),native,'/sdcard/books/Test.txt',str(aux),'48','build/simulator/frame.bin','build/simulator/titles.txt','0','0','builtin',events,''],cwd=work,env=env,text=True,capture_output=True,timeout=30)
         assert result.returncode==0,(native,result.stderr)
         return json.loads(result.stdout),(out/'frame.bin').read_bytes()
-    info,_=render('settings-0');g=info['settings_geometry'];y=g[1]+g[4]//2
+    info,_=render('settings-0');g=info['settings_geometry'];y=g[0]+g[4]//2
     assert render('settings-0',f't,300,{y},300,{y}')[0]['settings_page']==5
     reader=None; title_pixels=[]
     for i,size in enumerate((100,120,140,160)):
@@ -29,13 +29,15 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='system-text-') as tmp:
         state,frame=render('book-1')
         if reader is None:reader=frame
         else:assert frame[80*342:]==reader[80*342:],'UI text preset must not change reading body or controls'
-        # 三分区绘制/点击在四档字号下保持一致。/ Three groups share paint/hit geometry at every preset.
+        # 两组共用绘制和点击坐标，所有字号下都能显示七行。 / Both groups fit seven clickable rows at every preset.
         info,_=render('settings-0');g=info['settings_geometry']
-        for group,pages in ((1,(5,19,None,9,21)),(2,(2,None,14,24,11,27,13))):
+        assert g[3]>=7 and g[5]==1
+        device=f't,505,{g[1]},505,{g[1]};'
+        for prefix,pages in (('',(5,None,19,9,21,None,20)),(device,(2,None,14,24,27,11,13))):
             for row,page in enumerate(pages):
-                if page is None:continue  # 首页强刷为开关，不离开本页。 / Home refresh toggles in place.
-                y=g[group]+row*g[4]+g[4]//2;scroll=min(g[5],max(0,y-970))
-                assert render('settings-0',f't,300,{y-scroll},300,{y-scroll}',scroll)[0]['settings_page']==page
+                if page is None:continue
+                y=g[0]+row*g[4]+g[4]//2
+                assert render('settings-0',prefix+f't,300,{y},300,{y}')[0]['settings_page']==page
         assert render('settings-27','t,180,1052,180,1052')[0]['settings_page']==28
         assert render('settings-27','t,500,1052,500,1052')[0]['settings_page']==12
         assert render('settings-27','t,500,1052,500,1052;t,60,105,60,105')[0]['settings_page']==27
@@ -71,4 +73,4 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='system-text-') as tmp:
     assert render('settings-5','k,2,0,0,0')[1][body]==second[body]
     assert render('settings-24','t,510,380,510,380')[0]['settings_page']==24
     assert render('settings-9')[0]['lock_style']==1
-print('PASS: four presets/persistence, bigger document titles, unchanged reading pixels, font selection and pagination, three settings groups, firmware info/local update navigation, retired-page migration')
+print('PASS: four presets/persistence, bigger document titles, unchanged reading pixels, font selection and pagination, two settings groups, firmware info/local update navigation, retired-page migration')

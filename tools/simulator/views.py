@@ -34,7 +34,7 @@ for key,name,view,folder in (
  ('files-batch','书籍批量操作',6,0)):
     add(key,name,'文件管理',f'files-{view}',aux=folder)
 for key,name,view,mode in (
- ('transfer-methods','选择传输方式',0,0),('transfer-wifi','WiFi 传书',1,1),
+ ('transfer-methods','文件传输',0,0),('transfer-wifi','WiFi 传书',1,1),
  ('transfer-hotspot','热点传书',1,0),('transfer-networks','选择无线网络',2,1),
  ('transfer-password','输入网络密码',3,1)):
     add(key,name,'传输',f'transfer-{view}',aux=mode)

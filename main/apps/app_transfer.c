@@ -76,7 +76,7 @@ static char s_usb_message[96];
 static bool s_usb_requested, s_wifi_setup_requested, s_wifi_settings_only;
 static bool s_font_wifi_requested, s_font_wifi, s_font_wifi_returned;
 static bool s_wifi_upload_requested, s_hotspot_requested, s_direct_entry, s_usb_entry;
-static bool s_usb_start_pending;
+static bool s_usb_start_pending, s_usb_return_pending, s_usb_return_home;
 static int64_t s_usb_retry_ms;
 static bool s_usb_host_connected;
 static uint64_t s_usb_capacity_bytes;
@@ -196,6 +196,8 @@ static void transfer_header(uint8_t *fb, const char *title) {
     ui_nav_subpage_header(fb, title, ui_text_effective_px(34));
 }
 
+enum { METHOD_WIFI, METHOD_HOTSPOT, METHOD_USB, METHOD_COUNT };
+
 static EpdRect method_control_rect(int id) {
     return (EpdRect){36,UI_PAGE_Y(224 + id * 112), 612, 112};
 }
@@ -205,30 +207,33 @@ static EpdRect method_control_rect(int id) {
 static void draw_methods(uint8_t *fb) {
     ui_clear_page(fb);
     epd_fill_rect((EpdRect){0, 0, UI_LOCK_WIDTH, UI_NAV_TOP}, UI_GRAY_WHITE, fb);
-    transfer_header(fb, UI_MSG("WiFi/热点"));
+    transfer_header(fb, UI_MSG("文件传输"));
     ui_text(fb, 42,UI_PAGE_Y(180), 21, UI_MSG("选择方式"), EPD_DRAW_ALIGN_LEFT, false);
-    EpdRect card = {36,UI_PAGE_Y(224), 612, 224};
-    epd_fill_rect((EpdRect){card.x,card.y+card.height,card.width,2},UI_GRAY_ITEM_LINE,fb);
-    static const char *titles[] = {"WiFi", UI_MSG("热点")};
+    static const char *titles[] = {"WiFi", UI_MSG("热点"), UI_MSG("USB 读卡")};
     static const char *details[] = {
         UI_MSG("与手机或电脑连接同一个无线网络"),
-        UI_MSG("由 Pico 创建临时网络，离线也能传书")
+        UI_MSG("由 Pico 创建临时网络，离线也能传书"),
+        UI_MSG("连接数据线，在电脑上管理 TF 卡文件"),
     };
-    for (int i = 0; i < 2; ++i) {
+    static const ui_icon_t icons[] = {UI_ICON_WIFI, UI_ICON_ROUTER, UI_ICON_USB};
+    for (int i = 0; i < METHOD_COUNT; ++i) {
         EpdRect row = method_control_rect(i);
         if (s_pressed == i) epd_fill_rect(row,UI_GRAY_ITEM_LINE,fb);
-        if (i) epd_fill_rect((EpdRect){36, row.y, 612, 2}, UI_GRAY_ITEM_LINE, fb);
+        if (i) ui_hairline(fb,row.y,row.x,row.width,UI_GRAY_ITEM_LINE);
         int cy = row.y + row.height / 2;
-        if (i == 0) ui_nav_wifi_icon(fb, 72, cy, 30, 0x6a);
-        else if (i == 1) ui_draw_icon(fb, 72, cy, 30, UI_ICON_ROUTER, 0x6a);
-        ui_text(fb, 112, row.y + 21, 27, titles[i], EPD_DRAW_ALIGN_LEFT, false);
-        ui_text(fb, 112, row.y + 64, 19, details[i], EPD_DRAW_ALIGN_LEFT, false);
+        ui_draw_icon(fb,72,cy,30,icons[i],0x6a);
+        ui_text_fixed_vc(fb,112,cy - 21,ui_text_effective_px(27),titles[i],EPD_DRAW_ALIGN_LEFT,false);
+        int px = ui_text_fit_px(19,details[i],470,28);
+        ui_text_fixed_vc(fb,112,cy + 23,px,details[i],EPD_DRAW_ALIGN_LEFT,false);
         ui_text_vc(fb, 617, cy, 29, "›", EPD_DRAW_ALIGN_CENTER, false);
     }
+    EpdRect last = method_control_rect(METHOD_COUNT - 1);
+    ui_hairline(fb,last.y + last.height,last.x,last.width,UI_GRAY_ITEM_LINE);
     if (s_method_message[0]) {
-        epd_fill_rect((EpdRect){36,UI_PAGE_Y(478),612,2},UI_GRAY_ITEM_LINE,fb);
-        epd_fill_rect((EpdRect){36,UI_PAGE_Y(552),612,2},UI_GRAY_ITEM_LINE,fb);
-        ui_text_vc(fb, 342,UI_PAGE_Y(516), 20, s_method_message, EPD_DRAW_ALIGN_CENTER, false);
+        int y = last.y + last.height + 30;
+        ui_hairline(fb,y,last.x,last.width,UI_GRAY_ITEM_LINE);
+        ui_hairline(fb,y + 74,last.x,last.width,UI_GRAY_ITEM_LINE);
+        ui_text_vc(fb,342,y + 38,20,s_method_message,EPD_DRAW_ALIGN_CENTER,false);
     }
     ui_text(fb,42,UI_NAV_TOP-112,UI_TEXT_CAPTION,UI_MSG("支持 EPUB、TXT、MD 文档、字体和图片。"),EPD_DRAW_ALIGN_LEFT,false);
     ui_text(fb,42,UI_NAV_TOP-64,UI_TEXT_CAPTION,UI_MSG("MD 文档保存至 markdown，在内容页阅读。"),EPD_DRAW_ALIGN_LEFT,false);
@@ -677,7 +682,8 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
         bool active = usb_storage_active();
         transfer_header(fb, UI_MSG("USB 读卡"));
         ui_text(fb, 42,UI_PAGE_Y(181), 20, UI_MSG("连接状态"), EPD_DRAW_ALIGN_LEFT, false);
-        const char *state = s_usb_start_pending ? UI_MSG("正在准备 TF 卡") :
+        const char *state = s_usb_return_pending ? UI_MSG("正在重新挂载 TF 卡…") :
+            s_usb_start_pending ? UI_MSG("正在准备 TF 卡") :
             !active ? UI_MSG("USB 读卡未开启") :
             s_usb_host_connected ? UI_MSG("电脑已连接") : UI_MSG("等待电脑连接");
         ui_text(fb, 64,UI_PAGE_Y(241), 31, state, EPD_DRAW_ALIGN_LEFT, false);
@@ -686,7 +692,11 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
             char size[64];
             ui_snprintf(size, sizeof(size), UI_MSG("TF 卡容量  %.1f GB"), s_usb_capacity_bytes / 1073741824.0);
             ui_text(fb, 64,UI_PAGE_Y(337), 20, size, EPD_DRAW_ALIGN_LEFT, false);
-        } else ui_text(fb, 64,UI_PAGE_Y(309), 20, s_usb_message, EPD_DRAW_ALIGN_LEFT, false);
+        }
+        if (s_usb_message[0]) {
+            int px = ui_text_fit_px(20,s_usb_message,556,30);
+            ui_text_fixed_vc(fb,64,UI_PAGE_Y(active ? 382 : 312),px,s_usb_message,EPD_DRAW_ALIGN_LEFT,false);
+        }
 
         ui_text(fb, 42,UI_PAGE_Y(450), 20, UI_MSG("文件存放位置"), EPD_DRAW_ALIGN_LEFT, false);
         epd_fill_rect((EpdRect){36,UI_PAGE_Y(422),612,2},UI_GRAY_SECTION_LINE,fb);
@@ -700,9 +710,11 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
         epd_fill_rect((EpdRect){36,UI_PAGE_Y(712),612,2},UI_GRAY_SECTION_LINE,fb);
         ui_text(fb, 64,UI_PAGE_Y(802), 21, UI_MSG("1  在电脑上等待复制完成"), EPD_DRAW_ALIGN_LEFT, false);
         ui_text(fb, 64,UI_PAGE_Y(855), 21, UI_MSG("2  安全弹出 SD_CARD，再结束读卡"), EPD_DRAW_ALIGN_LEFT, false);
-        ui_fill_round_rect(fb, control_rect(2), 22, s_pressed == 2 ? 0x60 : 0x38);
-        ui_text_vc(fb, 342,UI_PAGE_Y(1014), 24, UI_MSG("返回"),
-                   EPD_DRAW_ALIGN_CENTER, true);
+        if (!s_usb_return_pending) {
+            ui_fill_round_rect(fb,control_rect(2),22,s_pressed == 2 ? 0x60 : 0x38);
+            ui_text_vc(fb,342,UI_PAGE_Y(1014),24,active ? UI_MSG("结束 USB 读卡") : UI_MSG("返回"),
+                       EPD_DRAW_ALIGN_CENTER,true);
+        }
         return;
     }
     if (s_view == TRANSFER_METHODS) { draw_methods(fb); return; }
@@ -756,6 +768,16 @@ static void render(app_ctx_t* ctx, uint8_t* fb) {
     ui_nav_draw(fb, 2);
 }
 
+static void queue_usb_start(void) {
+    read_pico_sd_info_t info = {0};
+    s_usb_capacity_bytes = read_pico_sd_get_info(&info) == ESP_OK ? info.capacity_bytes : 0;
+    s_usb_entry = s_usb_start_pending = true;
+    s_usb_return_pending = s_usb_return_home = s_usb_host_connected = false;
+    s_usb_retry_ms = 0;
+    s_view = TRANSFER_HOME;
+    s_usb_message[0] = 0;
+}
+
 static void on_enter(app_ctx_t* ctx) {
     s_font_wifi = s_wifi_setup_requested && s_font_wifi_requested;
     s_font_wifi_requested = s_font_wifi_returned = false;
@@ -772,7 +794,7 @@ static void on_enter(app_ctx_t* ctx) {
     s_internal_before = heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     s_start_pending = false;s_use_selected_wifi=false;
     s_usb_message[0] = 0;
-    s_usb_start_pending = false;
+    s_usb_start_pending = s_usb_return_pending = s_usb_return_home = false;
     s_usb_retry_ms = 0;
     s_usb_host_connected = false;
     s_usb_capacity_bytes = 0;
@@ -792,12 +814,8 @@ static void on_enter(app_ctx_t* ctx) {
     s_poll_ms = 0;
     s_free = 0;
     if (s_usb_requested) {
-        read_pico_sd_info_t usb_sd = {0};
-        if (read_pico_sd_get_info(&usb_sd) == ESP_OK) s_usb_capacity_bytes = usb_sd.capacity_bytes;
         s_usb_requested = false;
-        s_view = TRANSFER_HOME;
-        s_usb_start_pending = true;
-        ui_snprintf(s_usb_message, sizeof(s_usb_message), UI_MSG("正在卸载本机 TF 卡并启动 USB…"));
+        queue_usb_start();
     } else if (s_hotspot_requested) {
         s_hotspot_requested = false;
         if (!start_hotspot_service()) {
@@ -860,7 +878,7 @@ static bool stop_upload_if_idle(void) {
 // Join HTTP before clearing the old root; in-flight requests never move to another storage.
 static void transfer_on_media_lost(app_ctx_t* ctx) {
     (void)ctx;
-    if (s_root.is_flash) return;
+    if (s_usb_entry || s_root.is_flash) return;
     stop_session();
     s_start_pending = s_scan_pending = false;
     s_view = s_direct_entry ? TRANSFER_HOME : TRANSFER_METHODS;
@@ -874,7 +892,7 @@ static void transfer_on_media_lost(app_ctx_t* ctx) {
 
 static void transfer_on_exit(app_ctx_t* ctx) {
     (void)ctx;
-    s_usb_start_pending = false;
+    s_usb_start_pending = s_usb_return_pending = false;
     if (usb_storage_active()) {
         esp_err_t err = usb_storage_stop();
         if (err == ESP_OK) s_any_changed = true;
@@ -903,9 +921,38 @@ static void transfer_on_exit(app_ctx_t* ctx) {
              (unsigned)s_internal_before, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
 }
 
+static app_redraw_t finish_usb_return(app_ctx_t *ctx) {
+    read_pico_sd_info_t info = {0};
+    esp_err_t err = read_pico_sd_get_info(&info);
+    if (err == ESP_ERR_NOT_FINISHED) return APP_REDRAW_NONE;
+
+    s_usb_return_pending = s_usb_entry = s_usb_host_connected = false;
+    s_usb_message[0] = 0;
+    s_pressed = -1;
+    s_view = TRANSFER_METHODS;
+    if (err == ESP_OK && info.mounted) {
+        if (s_any_changed) book_store_notify_changed();
+        s_any_changed = false;
+        app_font_activate_system();
+        s_method_message[0] = 0;
+    } else {
+        ui_snprintf(s_method_message,sizeof(s_method_message),UI_MSG("TF 卡不可用"));
+    }
+    if (s_usb_return_home) {
+        ui_nav_request(ctx,0);
+        return APP_REDRAW_NONE;
+    }
+    return APP_REDRAW_PAGE;
+}
+
 static app_redraw_t on_tick(app_ctx_t* ctx) {
     read_pico_transfer_editor_poll();
     if (s_usb_entry) {
+        if (s_usb_return_pending) {
+            if (s_usb_retry_ms && ctx->now_ms - s_usb_retry_ms < 250) return APP_REDRAW_NONE;
+            s_usb_retry_ms = ctx->now_ms;
+            return finish_usb_return(ctx);
+        }
         if (!s_usb_start_pending) {
             bool connected = usb_storage_connected();
             if (connected == s_usb_host_connected) return APP_REDRAW_NONE;
@@ -921,6 +968,7 @@ static app_redraw_t on_tick(app_ctx_t* ctx) {
         s_usb_host_connected = usb_storage_connected();
         if (err != ESP_OK)
             ui_snprintf(s_usb_message, sizeof(s_usb_message), UI_MSG("USB 模式启动失败：%s"), esp_err_to_name(err));
+        else s_usb_message[0] = 0;
         return APP_REDRAW_PAGE;
     }
     if (usb_storage_active()) return APP_REDRAW_NONE;
@@ -1010,11 +1058,12 @@ static int hit_control(uint16_t x, uint16_t y) {
 }
 
 static int hit_method(uint16_t x, uint16_t y) {
-    for (int i = 0; i < 2; ++i) if (ui_rect_hit(method_control_rect(i), x, y)) return i;
+    for (int i = 0; i < METHOD_COUNT; ++i) if (ui_rect_hit(method_control_rect(i), x, y)) return i;
     return -1;
 }
 
 static app_redraw_t stop_usb_for_navigation(app_ctx_t *ctx, bool home) {
+    if (s_usb_return_pending) return APP_REDRAW_NONE;
     s_usb_start_pending = false;
     if (usb_storage_active()) {
         esp_err_t err = usb_storage_stop();
@@ -1024,9 +1073,17 @@ static app_redraw_t stop_usb_for_navigation(app_ctx_t *ctx, bool home) {
         }
         s_any_changed = true;
     }
-    // USB先解除磁盘独占并重挂载，再回固定应用入口。/ Release USB ownership and remount before returning to the fixed Apps entry.
-    ui_nav_request(ctx,home?0:2);
-    return APP_REDRAW_NONE;
+    if (s_direct_entry) {
+        ui_nav_request(ctx,home ? 0 : 2);
+        return APP_REDRAW_NONE;
+    }
+    // USB 驱动退出后 TF 卡异步重挂，等待结果再回方式列表。/ Wait for the asynchronous remount before returning to the method picker.
+    s_usb_return_pending = true;
+    s_usb_return_home = home;
+    s_usb_retry_ms = ctx->now_ms;
+    s_usb_message[0] = 0;
+    app_redraw_t redraw = finish_usb_return(ctx);
+    return s_usb_return_pending ? APP_REDRAW_PAGE : redraw;
 }
 
 static app_redraw_t method_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev) {
@@ -1034,7 +1091,7 @@ static app_redraw_t method_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev)
     int origin = hit_method(ev->x0, ev->y0);
     s_pressed = ev->type == UI_GESTURE_PRESS ? origin : -1;
     if (ev->type == UI_GESTURE_TAP && old >= 0 && old == origin && hit_method(ev->x, ev->y) == origin) {
-        if (origin == 0) {
+        if (origin == METHOD_WIFI) {
             if (s_status.wifi_configured) {
                 if (stop_upload_if_idle()) {
                     queue_network_start(READ_PICO_TRANSFER_MODE_STA,false);
@@ -1043,9 +1100,12 @@ static app_redraw_t method_gesture(app_ctx_t *ctx, const ui_gesture_event_t *ev)
                 }
             } else if (enter_networks()) return APP_REDRAW_PAGE;
             ui_snprintf(s_method_message, sizeof(s_method_message), UI_MSG("传输正在结束，请稍后再试"));
-        } else if (origin == 1) {
+        } else if (origin == METHOD_HOTSPOT) {
             if (start_hotspot_service()) return APP_REDRAW_PAGE;
             ui_snprintf(s_method_message, sizeof(s_method_message), UI_MSG("传输正在结束，请稍后再试"));
+        } else if (origin == METHOD_USB) {
+            if (stop_upload_if_idle()) queue_usb_start();
+            else ui_snprintf(s_method_message,sizeof(s_method_message),UI_MSG("传输正在结束，请稍后再试"));
         }
         return APP_REDRAW_PAGE;
     }
@@ -1083,10 +1143,10 @@ static app_redraw_t transfer_back(app_ctx_t *ctx) {
 }
 
 static app_redraw_t on_gesture(app_ctx_t* ctx, const ui_gesture_event_t* ev) {
-    if (s_status.state == READ_PICO_TRANSFER_UPLOADING) return APP_REDRAW_NONE;
+    if (s_usb_return_pending || s_status.state == READ_PICO_TRANSFER_UPLOADING) return APP_REDRAW_NONE;
     if(s_view==TRANSFER_PASSWORD)return password_gesture(ctx,ev);
     if(s_view==TRANSFER_NETWORKS&&s_forget_confirm)return forget_card_gesture(ev);
-    if (ev->type == UI_GESTURE_TAP && s_view != TRANSFER_PASSWORD && !usb_storage_active()) {
+    if (ev->type == UI_GESTURE_TAP && !s_usb_entry && !usb_storage_active()) {
         int tab = ui_nav_hit(ev->x0, ev->y0);
         if (tab >= 0 && tab == ui_nav_hit(ev->x, ev->y)) {
             if (s_view == TRANSFER_HOME && !stop_upload_if_idle()) return APP_REDRAW_NONE;
@@ -1172,7 +1232,7 @@ static bool prevent_idle_sleep(app_ctx_t *ctx){
 }
 const app_desc_t app_transfer = {
     .on_media_lost = transfer_on_media_lost,
-    .title = UI_MSG("传书 Transfer"), .detail = UI_MSG("热点或已有 WiFi，浏览器上传"), .enter_full = false,
+    .title = UI_MSG("文件传输"), .detail = UI_MSG("通过 WiFi、热点或 USB 传输文件"), .enter_full = false,
     .on_enter = on_enter, .on_exit = transfer_on_exit, .render = render, .present = present,
     .on_tick = on_tick, .on_gesture = on_gesture, .on_key = on_key, .on_key_long = on_key_long, .defer_middle_short = true, .owns_keys = true,
     .menu_handle_enabled = transfer_menu_handle_enabled,
