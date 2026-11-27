@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="if-ink OS 是为 Pico RDP-G01-W 打造的阅读固件，支持 EPUB、TXT、Markdown、坚果云同步与数字拼豆。了解五个日常功能，在线安装正式版 0.2.5。">
+  <meta name="description" content="if-ink OS 是为 Pico RDP-G01-W 打造的阅读固件，支持 EPUB、TXT、Markdown、坚果云同步与数字拼豆。了解五个日常功能，在线安装正式版 0.2.6。">
   <meta name="theme-color" content="#ffffff">
   <meta property="og:title" content="if-ink OS — 给 Pico 一个更适合长读的系统">
   <meta property="og:description" content="支持 Markdown 文档的小纸 Pico 固件。认识首页、书架、阅读、WebDAV 推送与数字拼豆。">
@@ -28,12 +28,12 @@
   <main id="main">
     <section class="hero" id="top" aria-labelledby="hero-title">
       <div class="hero-copy">
-        <p class="eyebrow"><span>INK, WORDS &amp; A LITTLE MORE</span><span class="version">正式版 0.2.5</span></p>
+        <p class="eyebrow"><span>INK, WORDS &amp; A LITTLE MORE</span><span class="version">正式版 0.2.6</span></p>
         <h1 id="hero-title">给 Pico 一个<br><em>更适合长读的系统。</em></h1>
         <p class="hero-lead">支持 Markdown 文档的小纸 Pico 固件。读 EPUB、整理笔记、同步文件，也留一点时间给创作。</p>
         <div class="hero-actions">
           <a class="button button-dark" href="#install">在线安装正式版 <span aria-hidden="true">↘</span></a>
-          <a class="text-link" href="https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.5">查看版本说明 <span aria-hidden="true">↗</span></a>
+          <a class="text-link" href="https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.6">查看版本说明 <span aria-hidden="true">↗</span></a>
         </div>
         <p class="hero-note">仅适用 Pico RDP-G01-W <span aria-hidden="true">·</span> EPUB / TXT / Markdown</p>
       </div>
@@ -178,7 +178,7 @@
       <div class="section-intro install-heading">
         <p class="eyebrow">READY WHEN YOU ARE</p>
         <h2 id="install-title">准备好，就开始。</h2>
-        <p>正式版 0.2.5 · Pico RDP-G01-W</p>
+        <p>正式版 0.2.6 · Pico RDP-G01-W</p>
       </div>
       <div class="install-card">
         <div class="install-steps">
@@ -192,29 +192,29 @@
         </div>
         <div class="installer-area">
           <p id="flash-status" role="status" aria-live="polite">正在加载在线安装按钮…</p>
-          <esp-web-install-button id="flash-installer" hidden manifest="./webflash/0.2.5-refresh/manifest.json">
+          <esp-web-install-button id="flash-installer" hidden manifest="./webflash/0.2.6/manifest.json">
             <button class="button button-dark install-button" slot="activate" type="button">连接 Pico，安装正式版 <span aria-hidden="true">↗</span></button>
           </esp-web-install-button>
           <p class="safety-note">首次安装会重写分区表，请先备份重要数据。只有点击连接后才会请求串口；安装器不会执行整片擦除。</p>
           <p class="beta-link">想体验 Beta？前往 <a href="https://ifink.revcloud.top/install">双通道安装页面</a>，选择当前测试版。</p>
         </div>
       </div>
-      <p class="install-footnote">已有 if-ink OS？可下载 <a href="https://github.com/yiifanrecyclable/if-ink-OS/releases/download/v0.2.5/if-ink-OS-v0.2.5-tf.zip">TF 卡升级包</a>，只更新应用，不改分区和个人内容。<a href="安装说明.md">查看完整安装说明 ↗</a></p>
+      <p class="install-footnote">已有 if-ink OS？可下载 <a href="https://github.com/yiifanrecyclable/if-ink-OS/releases/download/v0.2.6/if-ink-OS-v0.2.6-tf.zip">TF 卡升级包</a>，只更新应用，不改分区和个人内容。<a href="安装说明.md">查看完整安装说明 ↗</a></p>
     </section>
 
     <section class="downloads-section" id="downloads" aria-labelledby="downloads-title">
       <div class="section-intro downloads-heading">
         <p class="eyebrow">DOWNLOADS</p>
         <h2 id="downloads-title">也可以，慢慢准备。</h2>
-        <p>正式版 v0.2.5 安装包、资源与版本记录。</p>
+        <p>正式版 v0.2.6 安装包、资源与版本记录。</p>
       </div>
       <div class="download-grid">
-        <a class="download-card" href="https://github.com/yiifanrecyclable/if-ink-OS/releases/download/v0.2.5/if-ink-OS-v0.2.5-tf.zip" download><span class="download-type">TF / ZIP</span><strong>TF 卡升级包</strong><small>已有 if-ink OS · 不改分区</small><span class="download-arrow" aria-hidden="true">↓</span></a>
-        <a class="download-card" href="https://github.com/yiifanrecyclable/if-ink-OS/releases/download/v0.2.5/if-ink-OS-v0.2.5-usb.zip" download><span class="download-type">USB / ZIP</span><strong>离线 USB 刷机包</strong><small>手动首次安装 · 四段镜像</small><span class="download-arrow" aria-hidden="true">↓</span></a>
-        <a class="download-card" href="https://github.com/yiifanrecyclable/if-ink-OS/releases/download/v0.2.5/if-ink-OS-v0.2.5-resources.zip" download><span class="download-type">DATA / ZIP</span><strong>字体与词库</strong><small>首次准备 TF 卡资源</small><span class="download-arrow" aria-hidden="true">↓</span></a>
-        <a class="download-card" href="https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.5"><span class="download-type">RELEASE</span><strong>版本说明与校验值</strong><small>SHA-256、源码和完整变更记录</small><span class="download-arrow" aria-hidden="true">↗</span></a>
+        <a class="download-card" href="https://github.com/yiifanrecyclable/if-ink-OS/releases/download/v0.2.6/if-ink-OS-v0.2.6-tf.zip" download><span class="download-type">TF / ZIP</span><strong>TF 卡升级包</strong><small>已有 if-ink OS · 不改分区</small><span class="download-arrow" aria-hidden="true">↓</span></a>
+        <a class="download-card" href="https://github.com/yiifanrecyclable/if-ink-OS/releases/download/v0.2.6/if-ink-OS-v0.2.6-usb.zip" download><span class="download-type">USB / ZIP</span><strong>离线 USB 刷机包</strong><small>手动首次安装 · 四段镜像</small><span class="download-arrow" aria-hidden="true">↓</span></a>
+        <a class="download-card" href="https://github.com/yiifanrecyclable/if-ink-OS/releases/download/v0.2.6/if-ink-OS-v0.2.6-resources.zip" download><span class="download-type">DATA / ZIP</span><strong>字体与词库</strong><small>首次准备 TF 卡资源</small><span class="download-arrow" aria-hidden="true">↓</span></a>
+        <a class="download-card" href="https://github.com/yiifanrecyclable/if-ink-OS/releases/tag/v0.2.6"><span class="download-type">RELEASE</span><strong>版本说明与校验值</strong><small>SHA-256、源码和完整变更记录</small><span class="download-arrow" aria-hidden="true">↗</span></a>
       </div>
-      <p class="download-note">应用镜像 SHA-256：<code>3f1d5f307c98ecc79deefc0e273eeb70ac2b80b172d8189b8dfe5a0b1d13997d</code></p>
+      <p class="download-note">应用镜像 SHA-256：<code>8f237870005ad429df50987f471d1fbab921d2564c3193db6cb613b15b35d1e6</code></p>
     </section>
 
     <footer class="footer" id="about">
@@ -228,10 +228,10 @@
         <a href="https://github.com/wegooo-cell/read-pico-reader">Pico Reader 上游</a>
         <a href="https://dot.mindreset.tech/docs/read_0">了解小纸 Pico</a>
       </nav>
-      <span class="footer-bottom">if-ink OS / Stable 0.2.5 <span>为 Pico，也为想安静读一会儿的你。</span></span>
+      <span class="footer-bottom">if-ink OS / Stable 0.2.6 <span>为 Pico，也为想安静读一会儿的你。</span></span>
     </footer>
   </main>
 
-  <script type="module" src="./webflash/installer.js?v=0.2.5-3f1d5f30"></script>
+  <script type="module" src="./webflash/installer.js?v=0.2.6-8f237870"></script>
 </body>
 </html>
