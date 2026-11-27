@@ -21,6 +21,8 @@ unit=r'''
 #define ui_snprintf snprintf
 #define ESP_OK 0
 typedef struct{int unused;}app_ctx_t;
+enum { STANDARD_FONT_HOME = 1 };
+static void ui_standard_font_leave(int owner){assert(owner==STANDARD_FONT_HOME);}
 static uint32_t s_reading_end_day=20760,epoch=8;
 static bool s_reading_days_valid=true,builtin=true;
 static bool s_home_prepared_once;
@@ -75,7 +77,7 @@ int main(void){
 '''
 # Media callback must discard the image before rebuilding even if metadata matches.
 assert 'clear_quote_bitmap();' in src.split('static void on_media_ready',1)[1].split('static app_redraw_t on_tick',1)[0]
-assert '(void)ctx;clear_quote_bitmap();' in src.split('static void on_media_lost',1)[1]
+assert 'clear_quote_bitmap();' in src.split('static void on_media_lost',1)[1].split('}',1)[0]
 with tempfile.TemporaryDirectory(prefix='home-banner-',dir=R/'build') as tmp:
  p=Path(tmp);(p/'test.c').write_text(unit)
  subprocess.run(['cc','-std=gnu11','-Wall','-Wextra','-Werror','-fsanitize=address,undefined','-I'+str(R/'main/book'),'-I'+str(R/'main'),'-I'+str(R/'tools/html_text_stubs'),str(p/'test.c'),'-o',str(p/'test')],check=True)

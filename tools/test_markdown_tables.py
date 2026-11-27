@@ -36,7 +36,6 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='md-tables-') as temp:
     work=Path(temp);card=work/'card';out=work/'build/simulator';out.mkdir(parents=True)
     for folder in ('books','markdown/attachments','fonts'):(card/folder).mkdir(parents=True)
     md=card/'markdown/Tables.md';md.write_text(SAMPLE)
-    shutil.copyfile(ROOT/'assets/fonts/PicoSans-Medium.ttf',card/'fonts/PicoSans-Medium.ttf')
     (out/'titles.txt').write_text('')
     prefs=out/'nvs/read_pico';prefs.mkdir(parents=True)
     sizes=out/'nvs/if_content';sizes.mkdir(parents=True)
@@ -53,10 +52,11 @@ with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='md-tables-') as temp:
         for i,b in enumerate(frame):pixels[2*i]=(b&15)*17;pixels[2*i+1]=(b>>4)*17
         Image.frombytes('L',(684,1216),bytes(pixels)).save(ARTIFACTS/name)
     for font in ('PicoSans-Medium.ttf','MoonStarsKai-Regular.ttf'):
-        source=ROOT.parent/'TF卡/fonts'/font
-        if not source.exists():
-            assert font!='PicoSans-Medium.ttf'
-            continue
+        if font=='PicoSans-Medium.ttf':
+            source=ROOT/'assets/fonts'/font
+        else:
+            source=ROOT.parent/'TF卡/fonts'/font
+            if not source.exists():continue
         shutil.copyfile(source,card/'fonts'/font)
         (prefs/'font').write_bytes(('/sdcard/fonts/'+font+'\0').encode())
         (sizes/'md_sizes').write_bytes(bytes([48,72,64,56]))

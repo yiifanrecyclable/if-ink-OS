@@ -36,6 +36,9 @@ def callback(name):
 with tempfile.TemporaryDirectory(dir=ROOT/'build',prefix='input-lock-') as tmp:
     work=Path(tmp);test=work/'lock.c';binary=work/'lock'
     test.write_text('#define main keyboard_tests\n#include "'+str(ROOT/'tools/text_input_host_test.c')+'"\n#undef main\n'+
+        '#include "ui_standard_font.h"\n'
+        'void ui_standard_font_leave(standard_font_owner_t owner){assert(owner==STANDARD_FONT_SETTINGS);}\n'
+        'void ui_standard_font_interrupt(standard_font_owner_t owner){assert(owner==STANDARD_FONT_SETTINGS);}\n'
         'static ui_text_input_t s_text_input; static char s_editor[257]; static bool s_quote_dragging; static int s_banner_height_drag;\n'
         'enum { SETTINGS_TEXT_EDIT=19 }; static int s_page=SETTINGS_TEXT_EDIT;\n'
         'static void quote_preview_clear(void) {}\nstatic void online_close(void) {}\nstatic void app_files_wallpaper_close(void) {}\n'
