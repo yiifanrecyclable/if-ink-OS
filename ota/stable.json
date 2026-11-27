@@ -5,9 +5,9 @@
   "layout": "if-16m-ota-v1",
   "channel": "stable",
   "available": true,
-  "version": "0.2.5",
-  "size": 4045280,
-  "sha256": "3f1d5f307c98ecc79deefc0e273eeb70ac2b80b172d8189b8dfe5a0b1d13997d",
-  "asset_id": "771081448",
-  "blob_sha": "7fd079350d894c748a8361709951fb31e8985f28"
+  "version": "0.2.6",
+  "size": 4075568,
+  "sha256": "8f237870005ad429df50987f471d1fbab921d2564c3193db6cb613b15b35d1e6",
+  "asset_id": "799396324",
+  "blob_sha": "967457ddf9c3a5abf03c4517e71a2276e1ac4808"
 }
